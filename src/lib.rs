@@ -4,7 +4,7 @@
 //!
 //! Example usage with a RocksDB database:
 //! ```
-//! # use bonsai_storage::{
+//! # use bonsai_trie::{
 //! #     databases::{RocksDB, create_rocks_db, RocksDBConfig},
 //! #     BonsaiStorageError,
 //! #     id::{BasicIdBuilder, BasicId},
