@@ -1,4 +1,4 @@
-# BonsaiStorage
+# bonsai-trie
 
 ![example workflow](https://github.com/massalabs/bonsai-trie/actions/workflows/check_lint.yml/badge.svg) ![example workflow](https://github.com/massalabs/bonsai-trie/actions/workflows/test.yml/badge.svg) [![codecov](https://codecov.io/gh/massalabs/bonsai-trie/graph/badge.svg?token=598URC32TV)](https://codecov.io/gh/massalabs/bonsai-trie)
 
