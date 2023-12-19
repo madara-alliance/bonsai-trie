@@ -6,18 +6,31 @@
 This crate provides a storage implementation based on the Bonsai Storage implemented by [Besu](https://hackmd.io/@kt2am/BktBblIL3).
 It is a key/value storage that uses a Madara Merkle Trie to store the data.
 
+## Features
+
+This library implements a trie-based key-value collection with the following properties:
+* Optimized for holding Starknet Felt items.
+* Persistance in an underlying key-value store. Defaults to RocksDB but the trie is generic on the underlying kv store.
+* A Madara-compatible root hash of the collection state is maintained efficiently on insertions/deletions thanks to persistence and greedy trie updates.
+* A Flat DB allowing direct access to items without requiring trie traversal. Item access complexity is inherited from the underlying key-value store without overhead.
+* Commit-based system allowing tagged atomic batches of updates on the collection items.
+* Trie Logs that allow efficiently reverting the collection state back to a given commit.
+* Thread-safe transactional states allowing to grab and manipulate a consistent view of the collection at a given commit height. This is especially useful for processing data at a given commit height while the collection is still being written to. 
+* Transactional states can be merged back into the trunk state if no collisions happpened in the meantime.
+
 ## Build:
 
 ```
 cargo build
 ```
 
-## Doc and example:
+## Docs and examples:
 ```
 cargo doc --open
 ```
 
-## Example:
+## Usage example:
+
 ```rust
 use bonsai_trie::{
     databases::{RocksDB, create_rocks_db, RocksDBConfig},
@@ -27,6 +40,7 @@ use bonsai_trie::{
 };
 use mp_felt::Felt252Wrapper;
 use bitvec::prelude::*;
+
 fn main() {
     let db = create_rocks_db("./rocksdb").unwrap();
     let config = BonsaiStorageConfig::default();
