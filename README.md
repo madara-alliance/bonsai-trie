@@ -42,32 +42,61 @@ use mp_felt::Felt252Wrapper;
 use bitvec::prelude::*;
 
 fn main() {
+    // Get the underlying key-value store.
     let db = create_rocks_db("./rocksdb").unwrap();
+    
+    // Create a BonsaiStorage with default parameters.
     let config = BonsaiStorageConfig::default();
     let mut bonsai_storage = BonsaiStorage::new(RocksDB::new(&db, RocksDBConfig::default()), config).unwrap();
+    
+    // Create a simple incremental ID builder for commit IDs.
+    // This is not necessary, you can use any kind of strictly monotonically increasing value to tag your commits. 
     let mut id_builder = BasicIdBuilder::new();
+    
+    // Insert an item `pair1`.
     let pair1 = (vec![1, 2, 1], Felt252Wrapper::from_hex_be("0x66342762FDD54D033c195fec3ce2568b62052e").unwrap());
     let bitvec_1 = BitVec::from_vec(pair1.0.clone());
     bonsai_storage.insert(&bitvec_1, &pair1.1).unwrap();
+
+    // Insert a second item `pair2`.
     let pair2 = (vec![1, 2, 2], Felt252Wrapper::from_hex_be("0x66342762FD54D033c195fec3ce2568b62052e").unwrap());
     let bitvec = BitVec::from_vec(pair2.0.clone());
     bonsai_storage.insert(&bitvec, &pair2.1).unwrap();
+
+    // Commit the insertion of `pair1` and `pair2`.
     bonsai_storage.commit(id_builder.new_id());
+
+    // Insert a new item `pair3`.
     let pair3 = (vec![1, 2, 2], Felt252Wrapper::from_hex_be("0x664D033c195fec3ce2568b62052e").unwrap());
     let bitvec = BitVec::from_vec(pair3.0.clone());
     bonsai_storage.insert(&bitvec, &pair3.1).unwrap();
+
+    // Commit the insertion of `pair3`. Save the commit ID to the `revert_to_id` variable.
     let revert_to_id = id_builder.new_id();
     bonsai_storage.commit(revert_to_id);
+
+    // Remove `pair3`.
     bonsai_storage.remove(&bitvec).unwrap();
+
+    // Commit the removal of `pair3`.
     bonsai_storage.commit(id_builder.new_id());
+
+    // Print the root hash and item `pair1`.
     println!("root: {:#?}", bonsai_storage.root_hash());
     println!(
         "value: {:#?}",
         bonsai_storage.get(&bitvec_1).unwrap()
     );
+
+    // Revert the collection state back to the commit tagged by the `revert_to_id` variable.
     bonsai_storage.revert_to(revert_to_id).unwrap();
+
+    // Print the root hash and item `pair3`.
     println!("root: {:#?}", bonsai_storage.root_hash());
     println!("value: {:#?}", bonsai_storage.get(&bitvec).unwrap());
+
+    // Launch two threads that will simultaneously take transactional states to the commit identified by `id1`,
+    // asserting in both of them that the item `pair1` is present and has the right value.
     std::thread::scope(|s| {
         s.spawn(|| {
             let bonsai_at_txn = bonsai_storage
@@ -87,6 +116,8 @@ fn main() {
             assert_eq!(bonsai_at_txn.get(&bitvec).unwrap().unwrap(), pair1.1);
         });
     });
+
+    // Read item `pair2` and assert its value.
     bonsai_storage
         .get(&BitVec::from_vec(vec![1, 2, 2]))
         .unwrap();
@@ -94,6 +125,8 @@ fn main() {
         vec![1, 2, 3],
         Felt252Wrapper::from_hex_be("0x66342762FDD54D033c195fec3ce2568b62052e").unwrap(),
     );
+
+    // Update the item and commit.
     bonsai_storage
         .insert(&BitVec::from_vec(pair2.0.clone()), &pair2.1)
         .unwrap();
