@@ -117,16 +117,16 @@ fn main() {
         });
     });
 
-    // Read item `pair2` and assert its value.
-    bonsai_storage
+    // Read item `pair1`.
+    let pair1_val = bonsai_storage
         .get(&BitVec::from_vec(vec![1, 2, 2]))
         .unwrap();
+
+    // Update the `pair2` item and commit.
     let pair2 = (
         vec![1, 2, 3],
         Felt252Wrapper::from_hex_be("0x66342762FDD54D033c195fec3ce2568b62052e").unwrap(),
     );
-
-    // Update the item and commit.
     bonsai_storage
         .insert(&BitVec::from_vec(pair2.0.clone()), &pair2.1)
         .unwrap();
