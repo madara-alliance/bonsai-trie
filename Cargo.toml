@@ -1,0 +1,31 @@
+[package]
+name = "bonsai-trie"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+default = ["rocksdb"]
+rocksdb = ["dep:rocksdb"]
+
+[dependencies]
+parity-scale-codec = { version = "3.0.0", features = ["derive"] }
+rocksdb = { optional = true, version = "0.21.0", features = ["multi-threaded-cf"] }
+serde = { version = "1.0.193", features = ["derive"] }
+bincode = "1.3.3"
+log = "0.4.20"
+smallvec = "1.11.2"
+rustc-hex = "2.1.0"
+env_logger = "0.10.1"
+lru = "0.12.1"
+parking_lot = "0.12.1"
+
+bitvec = { version = "1", default-features = false }
+derive_more = { version = "0.99.17", features = ["constructor"] }
+mp-felt = { git = "https://github.com/keep-starknet-strange/madara.git", rev = "f30acea8af7e28e956e771928130e12bfc084832", package = "mp-felt", features = ["parity-scale-codec", "serde"]}
+mp-hashers = { git = "https://github.com/keep-starknet-strange/madara.git", rev = "f30acea8af7e28e956e771928130e12bfc084832", package = "mp-hashers" }
+mp-transactions = { git = "https://github.com/keep-starknet-strange/madara.git", rev = "f30acea8af7e28e956e771928130e12bfc084832", package = "mp-transactions", features = ["parity-scale-codec", "serde"] }
+
+[dev-dependencies]
+tempfile = "3.8.0"
+mp-commitments = { git = "https://github.com/keep-starknet-strange/madara.git", rev = "f30acea8af7e28e956e771928130e12bfc084832", package = "mp-commitments" }
+rand = "0.8.5"
