@@ -26,7 +26,8 @@
 //! let bitvec = BitVec::from_vec(pair2.0.clone());
 //! bonsai_storage.insert(&bitvec, &pair2.1).unwrap();
 //!
-//! bonsai_storage.commit(id_builder.new_id());
+//! let id1 = id_builder.new_id();
+//! bonsai_storage.commit(id1);
 //!
 //! let pair3 = (vec![1, 2, 2], Felt252Wrapper::from_hex_be("0x664D033c195fec3ce2568b62052e").unwrap());
 //! let bitvec = BitVec::from_vec(pair3.0.clone());
@@ -49,6 +50,36 @@
 //!
 //! println!("root: {:#?}", bonsai_storage.root_hash());
 //! println!("value: {:#?}", bonsai_storage.get(&bitvec).unwrap());
+//! std::thread::scope(|s| {
+//!     s.spawn(|| {
+//!         let bonsai_at_txn = bonsai_storage
+//!             .get_transactional_state(id1, bonsai_storage.get_config())
+//!             .unwrap()
+//!             .unwrap();
+//!         let bitvec = BitVec::from_vec(pair1.0.clone());
+//!         assert_eq!(bonsai_at_txn.get(&bitvec).unwrap().unwrap(), pair1.1);
+//!     });
+//!
+//!     s.spawn(|| {
+//!         let bonsai_at_txn = bonsai_storage
+//!             .get_transactional_state(id1, bonsai_storage.get_config())
+//!             .unwrap()
+//!             .unwrap();
+//!         let bitvec = BitVec::from_vec(pair1.0.clone());
+//!         assert_eq!(bonsai_at_txn.get(&bitvec).unwrap().unwrap(), pair1.1);
+//!     });
+//! });
+//! bonsai_storage
+//!     .get(&BitVec::from_vec(vec![1, 2, 2]))
+//!     .unwrap();
+//! let pair2 = (
+//!     vec![1, 2, 3],
+//!     Felt252Wrapper::from_hex_be("0x66342762FDD54D033c195fec3ce2568b62052e").unwrap(),
+//! );
+//! bonsai_storage
+//!     .insert(&BitVec::from_vec(pair2.0.clone()), &pair2.1)
+//!     .unwrap();
+//! bonsai_storage.commit(id_builder.new_id()).unwrap();
 //! ```
 
 use bitvec::{order::Msb0, slice::BitSlice};
