@@ -2,7 +2,7 @@ on:
   pull_request:
   push:
     branches:
-      - main
+      - oss
 
 name: Test with Code Coverage
 
