@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 mod hashmap_db;
+pub use hashmap_db::{HashMapDb, HashMapDbConfig};
 
 #[cfg(feature = "rocksdb")]
 mod rocks_db;

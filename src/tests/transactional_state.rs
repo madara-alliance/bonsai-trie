@@ -4,7 +4,7 @@ use crate::{
     BonsaiStorage, BonsaiStorageConfig,
 };
 use bitvec::vec::BitVec;
-use mp_felt::Felt252Wrapper;
+use mp_felt::Felt;
 
 #[test]
 fn basics() {
@@ -17,7 +17,7 @@ fn basics() {
 
     let pair1 = (
         vec![1, 2, 2],
-        Felt252Wrapper::from_hex_be("0x66342762FDD54D033c195fec3ce2568b62052e").unwrap(),
+        Felt::from_hex_be("0x66342762FDD54D033c195fec3ce2568b62052e").unwrap(),
     );
     let id1 = id_builder.new_id();
     let bitvec = BitVec::from_vec(pair1.0.clone());
@@ -26,7 +26,7 @@ fn basics() {
 
     let pair2 = (
         vec![1, 2, 3],
-        Felt252Wrapper::from_hex_be("0x66342762FD54D033c195fec3ce2568b62052e").unwrap(),
+        Felt::from_hex_be("0x66342762FD54D033c195fec3ce2568b62052e").unwrap(),
     );
     let id2 = id_builder.new_id();
     let bitvec = BitVec::from_vec(pair2.0.clone());
@@ -54,7 +54,7 @@ fn test_thread() {
 
     let pair1 = (
         vec![1, 2, 2],
-        Felt252Wrapper::from_hex_be("0x66342762FDD54D033c195fec3ce2568b62052e").unwrap(),
+        Felt::from_hex_be("0x66342762FDD54D033c195fec3ce2568b62052e").unwrap(),
     );
     let id1 = id_builder.new_id();
     let bitvec = BitVec::from_vec(pair1.0.clone());
@@ -86,7 +86,7 @@ fn test_thread() {
         .unwrap();
     let pair2 = (
         vec![1, 2, 3],
-        Felt252Wrapper::from_hex_be("0x66342762FDD54D033c195fec3ce2568b62052e").unwrap(),
+        Felt::from_hex_be("0x66342762FDD54D033c195fec3ce2568b62052e").unwrap(),
     );
     bonsai_storage
         .insert(&BitVec::from_vec(pair2.0.clone()), &pair2.1)
@@ -105,7 +105,7 @@ fn remove() {
 
     let pair1 = (
         vec![1, 2, 3],
-        Felt252Wrapper::from_hex_be("0x66342762FDD54D033c195fec3ce2568b62052e").unwrap(),
+        Felt::from_hex_be("0x66342762FDD54D033c195fec3ce2568b62052e").unwrap(),
     );
     let id1 = id_builder.new_id();
     let bitvec = BitVec::from_vec(pair1.0.clone());
@@ -144,7 +144,7 @@ fn merge() {
 
     let pair1 = (
         vec![1, 2, 2],
-        Felt252Wrapper::from_hex_be("0x66342762FDD5D033c195fec3ce2568b62052e").unwrap(),
+        Felt::from_hex_be("0x66342762FDD5D033c195fec3ce2568b62052e").unwrap(),
     );
     let id1 = id_builder.new_id();
     let bitvec = BitVec::from_vec(pair1.0.clone());
@@ -156,7 +156,7 @@ fn merge() {
         .unwrap();
     let pair2 = (
         vec![1, 2, 3],
-        Felt252Wrapper::from_hex_be("0x66342762FDD54D033c195fec3ce2568b62052e").unwrap(),
+        Felt::from_hex_be("0x66342762FDD54D033c195fec3ce2568b62052e").unwrap(),
     );
     bonsai_at_txn
         .insert(&BitVec::from_vec(pair2.0.clone()), &pair2.1)
@@ -184,7 +184,7 @@ fn merge_override() {
 
     let pair1 = (
         vec![1, 2, 2],
-        Felt252Wrapper::from_hex_be("0x66342762FDD5D033c195fec3ce2568b62052e").unwrap(),
+        Felt::from_hex_be("0x66342762FDD5D033c195fec3ce2568b62052e").unwrap(),
     );
     let id1 = id_builder.new_id();
     let bitvec = BitVec::from_vec(pair1.0.clone());
@@ -196,7 +196,7 @@ fn merge_override() {
         .unwrap();
     let pair2 = (
         vec![1, 2, 2],
-        Felt252Wrapper::from_hex_be("0x66342762FDD54D033c195fec3ce2568b62052e").unwrap(),
+        Felt::from_hex_be("0x66342762FDD54D033c195fec3ce2568b62052e").unwrap(),
     );
     bonsai_at_txn
         .insert(&BitVec::from_vec(pair2.0.clone()), &pair2.1)
@@ -224,7 +224,7 @@ fn merge_remove() {
 
     let pair1 = (
         vec![1, 2, 2],
-        Felt252Wrapper::from_hex_be("0x66342762FDD5D033c195fec3ce2568b62052e").unwrap(),
+        Felt::from_hex_be("0x66342762FDD5D033c195fec3ce2568b62052e").unwrap(),
     );
     let id1 = id_builder.new_id();
     let bitvec = BitVec::from_vec(pair1.0.clone());
@@ -258,7 +258,7 @@ fn merge_txn_revert() {
 
     let pair1 = (
         vec![1, 2, 2],
-        Felt252Wrapper::from_hex_be("0x66342762FDD5D033c195fec3ce2568b62052e").unwrap(),
+        Felt::from_hex_be("0x66342762FDD5D033c195fec3ce2568b62052e").unwrap(),
     );
     let id1 = id_builder.new_id();
     let bitvec = BitVec::from_vec(pair1.0.clone());
@@ -279,7 +279,7 @@ fn merge_txn_revert() {
 
     let pair2 = (
         vec![1, 2, 3],
-        Felt252Wrapper::from_hex_be("0x66342762FDD54D033c195fec3ce2568b62052e").unwrap(),
+        Felt::from_hex_be("0x66342762FDD54D033c195fec3ce2568b62052e").unwrap(),
     );
     bonsai_at_txn
         .insert(&BitVec::from_vec(pair2.0.clone()), &pair2.1)
@@ -313,7 +313,7 @@ fn merge_invalid() {
 
     let pair1 = (
         vec![1, 2, 2],
-        Felt252Wrapper::from_hex_be("0x66342762FDD5D033c195fec3ce2568b62052e").unwrap(),
+        Felt::from_hex_be("0x66342762FDD5D033c195fec3ce2568b62052e").unwrap(),
     );
     let id1 = id_builder.new_id();
     let bitvec = BitVec::from_vec(pair1.0.clone());
@@ -332,7 +332,7 @@ fn merge_invalid() {
 
     let pair2 = (
         vec![1, 2, 3],
-        Felt252Wrapper::from_hex_be("0x66342762FDD54D033c195fec3ce2568b62052e").unwrap(),
+        Felt::from_hex_be("0x66342762FDD54D033c195fec3ce2568b62052e").unwrap(),
     );
     bonsai_storage
         .insert(&BitVec::from_vec(pair2.0.clone()), &pair2.1)
@@ -357,7 +357,7 @@ fn many_snapshots() {
 
     let pair1 = (
         vec![1, 2, 2],
-        Felt252Wrapper::from_hex_be("0x66342762FDD54D033c195fec3ce2568b62052e").unwrap(),
+        Felt::from_hex_be("0x66342762FDD54D033c195fec3ce2568b62052e").unwrap(),
     );
     let id1 = id_builder.new_id();
     let bitvec = BitVec::from_vec(pair1.0.clone());
@@ -366,7 +366,7 @@ fn many_snapshots() {
 
     let pair2 = (
         vec![1, 2, 3],
-        Felt252Wrapper::from_hex_be("0x66342762FD54D033c195fec3ce2568b62052e").unwrap(),
+        Felt::from_hex_be("0x66342762FD54D033c195fec3ce2568b62052e").unwrap(),
     );
     let id2 = id_builder.new_id();
     let bitvec = BitVec::from_vec(pair2.0.clone());
