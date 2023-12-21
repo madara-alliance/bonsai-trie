@@ -25,7 +25,7 @@ impl From<HashMapDbError> for BonsaiStorageError {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct HashMapDbConfig {}
 
 #[derive(Clone)]

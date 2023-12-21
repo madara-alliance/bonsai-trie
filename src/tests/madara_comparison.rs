@@ -1,5 +1,5 @@
 use bitvec::{bits, order::Msb0, vec::BitVec};
-use mp_felt::Felt252Wrapper;
+use mp_felt::Felt;
 
 use crate::{
     databases::{create_rocks_db, RocksDB, RocksDBConfig},
@@ -17,7 +17,7 @@ fn trie_height_251() {
     for i in 0..251 {
         let mut key: BitVec<u8, Msb0> = bits![u8, Msb0; 0; 251].to_bitvec();
         key.set(i, true);
-        let value = Felt252Wrapper::from_hex_be("0x01").unwrap();
+        let value = Felt::from_hex_be("0x01").unwrap();
         bonsai_storage.insert(key.as_bitslice(), &value).unwrap();
     }
     let mut id_builder = BasicIdBuilder::new();
@@ -32,7 +32,7 @@ fn trie_height_251() {
 //     for i in 0..251 {
 //         let mut key: BitVec<u8, Msb0> = bits![u8, Msb0; 0; 251].to_bitvec();
 //         key.set(i, true);
-//         let value = Felt252Wrapper::from_hex_be("0x01").unwrap();
+//         let value = Felt::from_hex_be("0x01").unwrap();
 //         tree.set(key.as_bitslice(), value);
 //     }
 //     let root_hash = tree.commit();

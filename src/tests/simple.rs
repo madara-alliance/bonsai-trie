@@ -4,7 +4,7 @@ use crate::{
     BonsaiStorage, BonsaiStorageConfig,
 };
 use bitvec::vec::BitVec;
-use mp_felt::Felt252Wrapper;
+use mp_felt::Felt;
 
 #[test]
 fn basics() {
@@ -16,21 +16,21 @@ fn basics() {
     let mut id_builder = BasicIdBuilder::new();
     let pair1 = (
         vec![1, 2, 1],
-        Felt252Wrapper::from_hex_be("0x66342762FDD54D033c195fec3ce2568b62052e").unwrap(),
+        Felt::from_hex_be("0x66342762FDD54D033c195fec3ce2568b62052e").unwrap(),
     );
     let bitvec = BitVec::from_vec(pair1.0.clone());
     bonsai_storage.insert(&bitvec, &pair1.1).unwrap();
     bonsai_storage.commit(id_builder.new_id()).unwrap();
     let pair2 = (
         vec![1, 2, 2],
-        Felt252Wrapper::from_hex_be("0x66342762FD54D033c195fec3ce2568b62052e").unwrap(),
+        Felt::from_hex_be("0x66342762FD54D033c195fec3ce2568b62052e").unwrap(),
     );
     let bitvec = BitVec::from_vec(pair2.0.clone());
     bonsai_storage.insert(&bitvec, &pair2.1).unwrap();
     bonsai_storage.commit(id_builder.new_id()).unwrap();
     let pair3 = (
         vec![1, 2, 3],
-        Felt252Wrapper::from_hex_be("0x66342762FD54D033c195fec3ce2568b62052e").unwrap(),
+        Felt::from_hex_be("0x66342762FD54D033c195fec3ce2568b62052e").unwrap(),
     );
     let bitvec = BitVec::from_vec(pair3.0.clone());
     bonsai_storage.insert(&bitvec, &pair3.1).unwrap();

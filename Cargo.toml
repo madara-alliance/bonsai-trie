@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [features]
-default = ["rocksdb"]
+default = []
 rocksdb = ["dep:rocksdb"]
 
 [dependencies]
@@ -17,13 +17,9 @@ smallvec = "1.11.2"
 rustc-hex = "2.1.0"
 env_logger = "0.10.1"
 lru = "0.12.1"
-parking_lot = "0.12.1"
-
-bitvec = { version = "1", default-features = false }
+bitvec = { version = "1" }
 derive_more = { version = "0.99.17", features = ["constructor"] }
-mp-felt = { git = "https://github.com/keep-starknet-strange/madara.git", rev = "f30acea8af7e28e956e771928130e12bfc084832", package = "mp-felt", features = ["parity-scale-codec", "serde"]}
-mp-hashers = { git = "https://github.com/keep-starknet-strange/madara.git", rev = "f30acea8af7e28e956e771928130e12bfc084832", package = "mp-hashers" }
-mp-transactions = { git = "https://github.com/keep-starknet-strange/madara.git", rev = "f30acea8af7e28e956e771928130e12bfc084832", package = "mp-transactions", features = ["parity-scale-codec", "serde"] }
+starknet-types-core = { git = "https://github.com/starknet-io/types-rs", rev = "096770d939b15f0d50d3b3a9735a0ca5522d4f37", package = "starknet-types-core", features=["hash"] }
 
 [dev-dependencies]
 tempfile = "3.8.0"
