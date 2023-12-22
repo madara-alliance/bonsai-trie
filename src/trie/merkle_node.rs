@@ -4,7 +4,6 @@
 //! For more information about how these Starknet trees are structured, see
 //! [`MerkleTree`](super::merkle_tree::MerkleTree).
 
-use crate::felt::FeltWrapper;
 use bitvec::order::Msb0;
 use bitvec::slice::BitSlice;
 use parity_scale_codec::{Decode, Encode};
@@ -34,7 +33,7 @@ pub enum Node {
     /// A node that has not been fetched from storage yet.
     ///
     /// As such, all we know is its hash.
-    Unresolved(FeltWrapper),
+    Unresolved(Felt),
     /// A branch node with exactly two children.
     Binary(BinaryNode),
     /// Describes a path connecting two other nodes.
@@ -43,7 +42,7 @@ pub enum Node {
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Encode, Decode)]
 pub enum NodeHandle {
-    Hash(FeltWrapper),
+    Hash(Felt),
     InMemory(NodeId),
 }
 
@@ -51,7 +50,7 @@ pub enum NodeHandle {
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Encode, Decode)]
 pub struct BinaryNode {
     /// The hash of this node.
-    pub hash: Option<FeltWrapper>,
+    pub hash: Option<Felt>,
     /// The height of this node in the tree.
     pub height: u64,
     /// [Left](Direction::Left) child.
@@ -65,7 +64,7 @@ pub struct BinaryNode {
 pub struct EdgeNode {
     /// The hash of this node. Is [None] if the node
     /// has not yet been committed.
-    pub hash: Option<FeltWrapper>,
+    pub hash: Option<Felt>,
     /// The starting height of this node in the tree.
     pub height: u64,
     /// The path this edge takes.
@@ -163,7 +162,7 @@ impl Node {
     /// This can occur for the root node in an empty graph.
     pub fn is_empty(&self) -> bool {
         match self {
-            Node::Unresolved(FeltWrapper(hash)) => hash == &Felt::ZERO,
+            Node::Unresolved(hash) => hash == &Felt::ZERO,
             _ => false,
         }
     }
@@ -183,9 +182,9 @@ impl Node {
 
     pub fn hash(&self) -> Option<Felt> {
         match self {
-            Node::Unresolved(hash) => Some(hash.0),
-            Node::Binary(binary) => binary.hash.map(|hash| hash.0),
-            Node::Edge(edge) => edge.hash.map(|hash| hash.0),
+            Node::Unresolved(hash) => Some(*hash),
+            Node::Binary(binary) => binary.hash,
+            Node::Edge(edge) => edge.hash,
         }
     }
 }

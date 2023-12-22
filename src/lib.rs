@@ -10,26 +10,27 @@
 //! #     id::{BasicIdBuilder, BasicId},
 //! #     BonsaiStorage, BonsaiStorageConfig, BonsaiTrieHash,
 //! # };
-//! # use mp_felt::Felt;
+//! # use starknet_types_core::felt::Felt;
+//! # use starknet_types_core::hash::Pedersen;
 //! # use bitvec::prelude::*;
 //! let db = create_rocks_db("./rocksdb").unwrap();
 //! let config = BonsaiStorageConfig::default();
 //!
-//! let mut bonsai_storage = BonsaiStorage::new(RocksDB::new(&db, RocksDBConfig::default()), config).unwrap();
+//! let mut bonsai_storage: BonsaiStorage<_, _, Pedersen> = BonsaiStorage::new(RocksDB::new(&db, RocksDBConfig::default()), config).unwrap();
 //! let mut id_builder = BasicIdBuilder::new();
 //!
-//! let pair1 = (vec![1, 2, 1], Felt::from_hex_be("0x66342762FDD54D033c195fec3ce2568b62052e").unwrap());
+//! let pair1 = (vec![1, 2, 1], Felt::from_hex("0x66342762FDD54D033c195fec3ce2568b62052e").unwrap());
 //! let bitvec_1 = BitVec::from_vec(pair1.0.clone());
 //! bonsai_storage.insert(&bitvec_1, &pair1.1).unwrap();
 //!
-//! let pair2 = (vec![1, 2, 2], Felt::from_hex_be("0x66342762FD54D033c195fec3ce2568b62052e").unwrap());
+//! let pair2 = (vec![1, 2, 2], Felt::from_hex("0x66342762FD54D033c195fec3ce2568b62052e").unwrap());
 //! let bitvec = BitVec::from_vec(pair2.0.clone());
 //! bonsai_storage.insert(&bitvec, &pair2.1).unwrap();
 //!
 //! let id1 = id_builder.new_id();
 //! bonsai_storage.commit(id1);
 //!
-//! let pair3 = (vec![1, 2, 2], Felt::from_hex_be("0x664D033c195fec3ce2568b62052e").unwrap());
+//! let pair3 = (vec![1, 2, 2], Felt::from_hex("0x664D033c195fec3ce2568b62052e").unwrap());
 //! let bitvec = BitVec::from_vec(pair3.0.clone());
 //! bonsai_storage.insert(&bitvec, &pair3.1).unwrap();
 //!
@@ -52,7 +53,7 @@
 //! println!("value: {:#?}", bonsai_storage.get(&bitvec).unwrap());
 //! std::thread::scope(|s| {
 //!     s.spawn(|| {
-//!         let bonsai_at_txn = bonsai_storage
+//!         let bonsai_at_txn: BonsaiStorage<_, _, Pedersen> = bonsai_storage
 //!             .get_transactional_state(id1, bonsai_storage.get_config())
 //!             .unwrap()
 //!             .unwrap();
@@ -61,7 +62,7 @@
 //!     });
 //!
 //!     s.spawn(|| {
-//!         let bonsai_at_txn = bonsai_storage
+//!         let bonsai_at_txn: BonsaiStorage<_, _, Pedersen> = bonsai_storage
 //!             .get_transactional_state(id1, bonsai_storage.get_config())
 //!             .unwrap()
 //!             .unwrap();
@@ -74,7 +75,7 @@
 //!     .unwrap();
 //! let pair2 = (
 //!     vec![1, 2, 3],
-//!     Felt::from_hex_be("0x66342762FDD54D033c195fec3ce2568b62052e").unwrap(),
+//!     Felt::from_hex("0x66342762FDD54D033c195fec3ce2568b62052e").unwrap(),
 //! );
 //! bonsai_storage
 //!     .insert(&BitVec::from_vec(pair2.0.clone()), &pair2.1)
@@ -91,7 +92,6 @@ use starknet_types_core::{felt::Felt, hash::StarkHash};
 use trie::merkle_tree::MerkleTree;
 
 mod changes;
-mod felt;
 mod key_value_db;
 mod trie;
 

@@ -535,6 +535,8 @@ dependencies = [
  "log",
  "lru 0.12.1",
  "mp-commitments",
+ "mp-felt",
+ "mp-hashers",
  "parity-scale-codec",
  "rand 0.8.5",
  "rocksdb",
@@ -3142,7 +3144,7 @@ dependencies = [
 [[package]]
 name = "starknet-types-core"
 version = "0.0.4"
-source = "git+https://github.com/starknet-io/types-rs?rev=096770d939b15f0d50d3b3a9735a0ca5522d4f37#096770d939b15f0d50d3b3a9735a0ca5522d4f37"
+source = "git+https://github.com/starknet-io/types-rs?rev=43e30231f0bb2364746f0de627b4dd22eb4071da#43e30231f0bb2364746f0de627b4dd22eb4071da"
 dependencies = [
  "bitvec",
  "lambdaworks-crypto",
@@ -3151,6 +3153,7 @@ dependencies = [
  "num-bigint",
  "num-integer",
  "num-traits",
+ "parity-scale-codec",
  "serde",
 ]
 
