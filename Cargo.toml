@@ -19,7 +19,7 @@ env_logger = "0.10.1"
 lru = "0.12.1"
 bitvec = { version = "1" }
 derive_more = { version = "0.99.17", features = ["constructor"] }
-starknet-types-core = { git = "https://github.com/starknet-io/types-rs", rev = "43e30231f0bb2364746f0de627b4dd22eb4071da", package = "starknet-types-core", features=["hash", "parity-scale-codec"] }  # TODO change to published version when ready
+starknet-types-core = { version = "0.0.5", features=["hash", "parity-scale-codec"] }
 
 [dev-dependencies]
 tempfile = "3.8.0"

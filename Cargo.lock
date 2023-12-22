@@ -3143,8 +3143,9 @@ dependencies = [
 
 [[package]]
 name = "starknet-types-core"
-version = "0.0.4"
-source = "git+https://github.com/starknet-io/types-rs?rev=43e30231f0bb2364746f0de627b4dd22eb4071da#43e30231f0bb2364746f0de627b4dd22eb4071da"
+version = "0.0.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b2441eb61d91a6bae832fda48e50b6ff09faa6cf63bfadd22dc16798d2cc024d"
 dependencies = [
  "bitvec",
  "lambdaworks-crypto",
