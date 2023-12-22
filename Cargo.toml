@@ -24,10 +24,11 @@ rocksdb = { optional = true, version = "0.21.0", features = [
     "multi-threaded-cf",
 ] }
 
-starknet-types-core = { git = "https://github.com/starknet-io/types-rs", rev = "43e30231f0bb2364746f0de627b4dd22eb4071da", package = "starknet-types-core", features = [
+
+starknet-types-core = { version = "0.0.5", features = [
     "hash",
     "parity-scale-codec",
-] } # TODO change to published version when ready
+] }
 
 [dev-dependencies]
 tempfile = "3.8.0"
