@@ -10,7 +10,7 @@ use parity_scale_codec::{Decode, Encode, Error, Input, Output};
 use starknet_types_core::{felt::Felt, hash::StarkHash};
 use std::{collections::HashMap, mem};
 
-use crate::{error::BonsaiStorageError, felt::FeltWrapper, id::Id, BonsaiDatabase, KeyValueDB};
+use crate::{error::BonsaiStorageError, id::Id, BonsaiDatabase, KeyValueDB};
 
 use super::{
     merkle_node::{BinaryNode, Direction, EdgeNode, Node, NodeHandle, NodeId},
@@ -189,16 +189,16 @@ impl<H: StarkHash, DB: BonsaiDatabase, ID: Id> MerkleTree<H, DB, ID> {
         } else {
             db.insert(
                 &TrieKeyType::Trie(vec![]),
-                &Node::Unresolved(FeltWrapper(Felt::ZERO)).encode(),
+                &Node::Unresolved(Felt::ZERO).encode(),
                 None,
             )?;
-            Node::Unresolved(FeltWrapper(Felt::ZERO))
+            Node::Unresolved(Felt::ZERO)
         };
         let root = node.hash().ok_or(BonsaiStorageError::Trie(
             "Root doesn't exist in the storage".to_string(),
         ))?;
         Ok(Self {
-            root_handle: NodeHandle::Hash(FeltWrapper(root)),
+            root_handle: NodeHandle::Hash(root),
             root_hash: root,
             storage_nodes: NodesMapping(nodes_mapping),
             db,
@@ -228,7 +228,7 @@ impl<H: StarkHash, DB: BonsaiDatabase, ID: Id> MerkleTree<H, DB, ID> {
         self.latest_node_id.reset();
         self.storage_nodes.0.clear();
         self.cache_leaf_modified.clear();
-        self.root_handle = NodeHandle::Hash(FeltWrapper(node_hash));
+        self.root_handle = NodeHandle::Hash(node_hash);
         self.root_hash = node_hash;
         Ok(())
     }
@@ -246,11 +246,8 @@ impl<H: StarkHash, DB: BonsaiDatabase, ID: Id> MerkleTree<H, DB, ID> {
         for (key, value) in mem::take(&mut self.cache_leaf_modified) {
             match value {
                 InsertOrRemove::Insert(value) => {
-                    self.db.insert(
-                        &TrieKeyType::Flat(key),
-                        &FeltWrapper(value).encode(),
-                        Some(&mut batch),
-                    )?;
+                    self.db
+                        .insert(&TrieKeyType::Flat(key), &value.encode(), Some(&mut batch))?;
                 }
                 InsertOrRemove::Remove => {
                     self.db.remove(&TrieKeyType::Flat(key), Some(&mut batch))?;
@@ -260,7 +257,7 @@ impl<H: StarkHash, DB: BonsaiDatabase, ID: Id> MerkleTree<H, DB, ID> {
         self.db.write_batch(batch)?;
         self.latest_node_id.reset();
         self.root_hash = root_hash;
-        self.root_handle = NodeHandle::Hash(FeltWrapper(root_hash));
+        self.root_handle = NodeHandle::Hash(root_hash);
         Ok(root_hash)
     }
 
@@ -286,7 +283,7 @@ impl<H: StarkHash, DB: BonsaiDatabase, ID: Id> MerkleTree<H, DB, ID> {
     {
         use Node::*;
         let node_id = match node_handle {
-            NodeHandle::Hash(hash) => return Ok(hash.0),
+            NodeHandle::Hash(hash) => return Ok(hash),
             NodeHandle::InMemory(root_id) => root_id,
         };
 
@@ -304,9 +301,9 @@ impl<H: StarkHash, DB: BonsaiDatabase, ID: Id> MerkleTree<H, DB, ID> {
                         &Node::Unresolved(hash).encode(),
                         Some(batch),
                     )?;
-                    Ok(hash.0)
+                    Ok(hash)
                 } else {
-                    Ok(hash.0)
+                    Ok(hash)
                 }
             }
             Binary(mut binary) => {
@@ -317,9 +314,9 @@ impl<H: StarkHash, DB: BonsaiDatabase, ID: Id> MerkleTree<H, DB, ID> {
                 right_path.push(true);
                 let right_hash = self.commit_subtree(binary.right, right_path, batch)?;
                 let hash = H::hash(&left_hash, &right_hash);
-                binary.hash = Some(FeltWrapper(hash));
-                binary.left = NodeHandle::Hash(FeltWrapper(left_hash));
-                binary.right = NodeHandle::Hash(FeltWrapper(right_hash));
+                binary.hash = Some(hash);
+                binary.left = NodeHandle::Hash(left_hash);
+                binary.right = NodeHandle::Hash(right_hash);
                 let key_bytes = [&[path.len() as u8], path.as_raw_slice()].concat();
                 self.db.insert(
                     &TrieKeyType::Trie(key_bytes),
@@ -343,9 +340,9 @@ impl<H: StarkHash, DB: BonsaiDatabase, ID: Id> MerkleTree<H, DB, ID> {
                 length[31] = edge.path.0.len() as u8;
 
                 let length = Felt::from_bytes_be(&length);
-                let hash = H::hash(&child_hash, &felt_path) + &length;
-                edge.hash = Some(FeltWrapper(hash));
-                edge.child = NodeHandle::Hash(FeltWrapper(child_hash));
+                let hash = H::hash(&child_hash, &felt_path) + length;
+                edge.hash = Some(hash);
+                edge.child = NodeHandle::Hash(child_hash);
                 let key_bytes = if path.is_empty() {
                     vec![]
                 } else {
@@ -402,7 +399,7 @@ impl<H: StarkHash, DB: BonsaiDatabase, ID: Id> MerkleTree<H, DB, ID> {
                             // Height of the binary node
                             let branch_height = edge.height as usize + common.len();
                             if branch_height == key.len() {
-                                edge.child = NodeHandle::Hash(FeltWrapper(value));
+                                edge.child = NodeHandle::Hash(value);
                                 // The leaf already exists, we simply change its value.
                                 let key_bytes =
                                     [&[key.len() as u8], key.to_bitvec().as_raw_slice()].concat();
@@ -426,13 +423,13 @@ impl<H: StarkHash, DB: BonsaiDatabase, ID: Id> MerkleTree<H, DB, ID> {
                                 .insert(key_bytes, InsertOrRemove::Insert(value));
 
                             let new = if new_path.is_empty() {
-                                NodeHandle::Hash(FeltWrapper(value))
+                                NodeHandle::Hash(value)
                             } else {
                                 let new_edge = Node::Edge(EdgeNode {
                                     hash: None,
                                     height: child_height as u64,
                                     path: Path(new_path),
-                                    child: NodeHandle::Hash(FeltWrapper(value)),
+                                    child: NodeHandle::Hash(value),
                                 });
                                 let edge_id = self.latest_node_id.next_id();
                                 nodes_to_add.push((edge_id, new_edge));
@@ -506,7 +503,7 @@ impl<H: StarkHash, DB: BonsaiDatabase, ID: Id> MerkleTree<H, DB, ID> {
                     hash: None,
                     height: 0,
                     path: Path(key.to_bitvec()),
-                    child: NodeHandle::Hash(FeltWrapper(value)),
+                    child: NodeHandle::Hash(value),
                 });
                 self.storage_nodes
                     .0
@@ -634,10 +631,9 @@ impl<H: StarkHash, DB: BonsaiDatabase, ID: Id> MerkleTree<H, DB, ID> {
                 // We reached the root without a hitting binary node. The new tree
                 // must therefore be empty.
                 self.latest_node_id.next_id();
-                self.storage_nodes.0.insert(
-                    self.latest_node_id,
-                    Node::Unresolved(FeltWrapper(Felt::ZERO)),
-                );
+                self.storage_nodes
+                    .0
+                    .insert(self.latest_node_id, Node::Unresolved(Felt::ZERO));
                 self.root_handle = NodeHandle::InMemory(self.latest_node_id);
                 self.root_hash = Felt::ZERO;
                 return Ok(());
@@ -713,7 +709,7 @@ impl<H: StarkHash, DB: BonsaiDatabase, ID: Id> MerkleTree<H, DB, ID> {
         }
         self.db
             .get(&TrieKeyType::Flat(key.to_vec()))
-            .map(|r| r.map(|opt| FeltWrapper::decode(&mut opt.as_slice()).unwrap().0))
+            .map(|r| r.map(|opt| Felt::decode(&mut opt.as_slice()).unwrap()))
     }
 
     pub fn contains(&self, key: &BitSlice<u8, Msb0>) -> Result<bool, BonsaiStorageError>
@@ -1206,17 +1202,31 @@ impl<H: StarkHash, DB: BonsaiDatabase, ID: Id> MerkleTree<H, DB, ID> {
 
 #[cfg(test)]
 mod tests {
-    use bitvec::vec::BitVec;
-    use mp_commitments::{calculate_class_commitment_leaf_hash, StateCommitmentTree};
-    use starknet_types_core::{felt::Felt, hash::StarkHash};
-
     use crate::{
-        databases::{HashMapDb, HashMapDbConfig},
+        databases::{create_rocks_db, RocksDB, RocksDBConfig},
         id::BasicId,
         key_value_db::KeyValueDBConfig,
         KeyValueDB,
     };
+    use bitvec::vec::BitVec;
+    use mp_commitments::{calculate_class_commitment_leaf_hash, StateCommitmentTree};
+    use mp_felt::Felt252Wrapper;
+    use mp_hashers::pedersen::PedersenHasher;
+    use parity_scale_codec::{Decode, Encode};
     use rand::prelude::*;
+    use starknet_types_core::{felt::Felt, hash::Pedersen};
+
+    // convert a Madara felt to a standard Felt
+    fn felt_from_madara_felt(madara_felt: &Felt252Wrapper) -> Felt {
+        let encoded = madara_felt.encode();
+        Felt::decode(&mut &encoded[..]).unwrap()
+    }
+
+    // convert a standard Felt to a Madara felt
+    fn madara_felt_from_felt(felt: &Felt) -> Felt252Wrapper {
+        let encoded = felt.encode();
+        Felt252Wrapper::decode(&mut &encoded[..]).unwrap()
+    }
 
     #[test]
     fn one_commit_tree_compare() {
@@ -1233,21 +1243,37 @@ mod tests {
             }
             elements.push(Felt::from_hex(&element).unwrap());
         }
-        let underlying_db = HashMapDb::new(HashMapDbConfig::default());
-        let db = KeyValueDB::new(underlying_db, KeyValueDBConfig::default(), None);
-        let mut bonsai_tree: super::MerkleTree<StarkHash, HashMapDb<BasicId>, BasicId> =
+        let madara_elements = elements
+            .iter()
+            .map(|felt| madara_felt_from_felt(felt))
+            .collect::<Vec<_>>();
+        let rocks_db = create_rocks_db(std::path::Path::new(tempdir.path())).unwrap();
+        let rocks_db = RocksDB::new(&rocks_db, RocksDBConfig::default());
+        let db = KeyValueDB::new(rocks_db, KeyValueDBConfig::default(), None);
+        let mut bonsai_tree: super::MerkleTree<Pedersen, RocksDB<BasicId>, BasicId> =
             super::MerkleTree::new(db).unwrap();
-        let root_hash =
-            mp_commitments::calculate_class_commitment_tree_root_hash::<PedersenHasher>(&elements);
-        elements.iter().for_each(|element| {
-            let final_hash = calculate_class_commitment_leaf_hash::<PedersenHasher>(*element);
-            let key = &element.0.to_bytes_be()[..31];
-            bonsai_tree
-                .set(&BitVec::from_vec(key.to_vec()), final_hash)
-                .unwrap();
-        });
+        let root_hash = mp_commitments::calculate_class_commitment_tree_root_hash::<PedersenHasher>(
+            &madara_elements,
+        );
+        elements
+            .iter()
+            .zip(madara_elements.iter())
+            .for_each(|(element, madara_element)| {
+                let final_hash =
+                    calculate_class_commitment_leaf_hash::<PedersenHasher>(*madara_element);
+                let key = &element.to_bytes_be()[..31];
+                bonsai_tree
+                    .set(
+                        &BitVec::from_vec(key.to_vec()),
+                        felt_from_madara_felt(&final_hash),
+                    )
+                    .unwrap();
+            });
         bonsai_tree.display();
-        assert_eq!(bonsai_tree.commit().unwrap(), root_hash);
+        assert_eq!(
+            bonsai_tree.commit().unwrap(),
+            felt_from_madara_felt(&root_hash)
+        );
     }
 
     #[test]
@@ -1257,19 +1283,24 @@ mod tests {
         let rocks_db = create_rocks_db(std::path::Path::new(tempdir.path())).unwrap();
         let rocks_db = RocksDB::new(&rocks_db, RocksDBConfig::default());
         let db = KeyValueDB::new(rocks_db, KeyValueDBConfig::default(), None);
-        let mut bonsai_tree: super::MerkleTree<PedersenHasher, RocksDB<BasicId>, BasicId> =
+        let mut bonsai_tree: super::MerkleTree<Pedersen, RocksDB<BasicId>, BasicId> =
             super::MerkleTree::new(db).unwrap();
         let elements = [
-            [Felt::from_hex_be("0x665342762FDD54D0303c195fec3ce2568b62052e").unwrap()],
-            [Felt::from_hex_be("0x66342762FDD54D0303c195fec3ce2568b62052e").unwrap()],
-            [Felt::from_hex_be("0x66342762FDD54D033c195fec3ce2568b62052e").unwrap()],
+            [Felt::from_hex("0x665342762FDD54D0303c195fec3ce2568b62052e").unwrap()],
+            [Felt::from_hex("0x66342762FDD54D0303c195fec3ce2568b62052e").unwrap()],
+            [Felt::from_hex("0x66342762FDD54D033c195fec3ce2568b62052e").unwrap()],
         ];
         for elem in elements {
             elem.iter().for_each(|class_hash| {
                 let final_hash =
-                    calculate_class_commitment_leaf_hash::<PedersenHasher>(*class_hash);
-                madara_tree.set(*class_hash, final_hash);
-                let key = &class_hash.0.to_bytes_be()[..31];
+                    felt_from_madara_felt(&calculate_class_commitment_leaf_hash::<PedersenHasher>(
+                        madara_felt_from_felt(class_hash),
+                    ));
+                madara_tree.set(
+                    madara_felt_from_felt(class_hash),
+                    madara_felt_from_felt(&final_hash),
+                );
+                let key = &class_hash.to_bytes_be()[..31];
                 bonsai_tree
                     .set(&BitVec::from_vec(key.to_vec()), final_hash)
                     .unwrap();
@@ -1277,7 +1308,7 @@ mod tests {
         }
         let madara_root_hash = madara_tree.commit();
         let bonsai_root_hash = bonsai_tree.commit().unwrap();
-        assert_eq!(bonsai_root_hash, madara_root_hash);
+        assert_eq!(bonsai_root_hash, felt_from_madara_felt(&madara_root_hash));
     }
 
     #[test]
@@ -1286,27 +1317,31 @@ mod tests {
         let rocks_db = create_rocks_db(std::path::Path::new(tempdir.path())).unwrap();
         let rocks_db = RocksDB::new(&rocks_db, RocksDBConfig::default());
         let db = KeyValueDB::new(rocks_db, KeyValueDBConfig::default(), None);
-        let mut bonsai_tree: super::MerkleTree<PedersenHasher, RocksDB<BasicId>, BasicId> =
+        let mut bonsai_tree: super::MerkleTree<Pedersen, RocksDB<BasicId>, BasicId> =
             super::MerkleTree::new(db).unwrap();
         let elements = [
-            [Felt::from_hex_be("0x665342762FDD54D0303c195fec3ce2568b62052e").unwrap()],
-            [Felt::from_hex_be("0x66342762FDD54D0303c195fec3ce2568b62052e").unwrap()],
-            [Felt::from_hex_be("0x66342762FDD54D033c195fec3ce2568b62052e").unwrap()],
+            [Felt::from_hex("0x665342762FDD54D0303c195fec3ce2568b62052e").unwrap()],
+            [Felt::from_hex("0x66342762FDD54D0303c195fec3ce2568b62052e").unwrap()],
+            [Felt::from_hex("0x66342762FDD54D033c195fec3ce2568b62052e").unwrap()],
         ];
         for elem in elements {
             elem.iter().for_each(|class_hash| {
-                let final_hash =
-                    calculate_class_commitment_leaf_hash::<PedersenHasher>(*class_hash);
-                let key = &class_hash.0.to_bytes_be()[..31];
+                let final_hash = calculate_class_commitment_leaf_hash::<PedersenHasher>(
+                    madara_felt_from_felt(class_hash),
+                );
+                let key = &class_hash.to_bytes_be()[..31];
                 bonsai_tree
-                    .set(&BitVec::from_vec(key.to_vec()), final_hash)
+                    .set(
+                        &BitVec::from_vec(key.to_vec()),
+                        felt_from_madara_felt(&final_hash),
+                    )
                     .unwrap();
             });
         }
         bonsai_tree.commit().unwrap();
         for elem in elements {
             elem.iter().for_each(|class_hash| {
-                let key = &class_hash.0.to_bytes_be()[..31];
+                let key = &class_hash.to_bytes_be()[..31];
                 bonsai_tree
                     .set(&BitVec::from_vec(key.to_vec()), Felt::ZERO)
                     .unwrap();
@@ -1323,7 +1358,7 @@ mod tests {
         let rocks_db = create_rocks_db(std::path::Path::new(tempdir.path())).unwrap();
         let rocks_db = RocksDB::new(&rocks_db, RocksDBConfig::default());
         let db = KeyValueDB::new(rocks_db, KeyValueDBConfig::default(), None);
-        let mut bonsai_tree: super::MerkleTree<PedersenHasher, RocksDB<BasicId>, BasicId> =
+        let mut bonsai_tree: super::MerkleTree<Pedersen, RocksDB<BasicId>, BasicId> =
             super::MerkleTree::new(db).unwrap();
         let nb_commits = rng.gen_range(2..4);
         for _ in 0..nb_commits {
@@ -1336,21 +1371,25 @@ mod tests {
                     let random_byte: u8 = rng.gen();
                     element.push_str(&format!("{:02x}", random_byte));
                 }
-                elements.push(Felt::from_hex_be(&element).unwrap());
+                elements.push(Felt::from_hex(&element).unwrap());
             }
             elements.iter().for_each(|class_hash| {
-                let final_hash =
-                    calculate_class_commitment_leaf_hash::<PedersenHasher>(*class_hash);
-                madara_tree.set(*class_hash, final_hash);
-                let key = &class_hash.0.to_bytes_be()[..31];
+                let final_hash = calculate_class_commitment_leaf_hash::<PedersenHasher>(
+                    madara_felt_from_felt(class_hash),
+                );
+                madara_tree.set(madara_felt_from_felt(class_hash), final_hash);
+                let key = &class_hash.to_bytes_be()[..31];
                 bonsai_tree
-                    .set(&BitVec::from_vec(key.to_vec()), final_hash)
+                    .set(
+                        &BitVec::from_vec(key.to_vec()),
+                        felt_from_madara_felt(&final_hash),
+                    )
                     .unwrap();
             });
 
             let bonsai_root_hash = bonsai_tree.commit().unwrap();
             let madara_root_hash = madara_tree.commit();
-            assert_eq!(bonsai_root_hash, madara_root_hash);
+            assert_eq!(bonsai_root_hash, felt_from_madara_felt(&madara_root_hash));
         }
     }
 

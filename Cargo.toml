@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [features]
-default = []
+default = ["rocksdb"]
 rocksdb = ["dep:rocksdb"]
 
 [dependencies]
@@ -18,18 +18,25 @@ env_logger = "0.10.1"
 lru = "0.12.1"
 bitvec = { version = "1" }
 derive_more = { version = "0.99.17", features = ["constructor"] }
-starknet-types-core = { git = "https://github.com/starknet-io/types-rs", rev = "096770d939b15f0d50d3b3a9735a0ca5522d4f37", package = "starknet-types-core", features = [
-    "hash",
-] }
+
 # Optionals
 rocksdb = { optional = true, version = "0.21.0", features = [
     "multi-threaded-cf",
 ] }
 
+starknet-types-core = { git = "https://github.com/starknet-io/types-rs", rev = "43e30231f0bb2364746f0de627b4dd22eb4071da", package = "starknet-types-core", features = [
+    "hash",
+    "parity-scale-codec",
+] } # TODO change to published version when ready
 
 [dev-dependencies]
 tempfile = "3.8.0"
 mp-commitments = { git = "https://github.com/keep-starknet-strange/madara.git", rev = "f30acea8af7e28e956e771928130e12bfc084832", package = "mp-commitments" }
+mp-hashers = { git = "https://github.com/keep-starknet-strange/madara.git", rev = "f30acea8af7e28e956e771928130e12bfc084832", package = "mp-hashers" }
+mp-felt = { git = "https://github.com/keep-starknet-strange/madara.git", rev = "f30acea8af7e28e956e771928130e12bfc084832", package = "mp-felt", features = [
+    "parity-scale-codec",
+    "serde",
+] }
 rand = "0.8.5"
 pathfinder-merkle-tree = { git = "https://github.com/massalabs/pathfinder.git", package = "pathfinder-merkle-tree", rev = "b7b6d76a76ab0e10f92e5f84ce099b5f727cb4db" }
 pathfinder-common = { git = "https://github.com/massalabs/pathfinder.git", package = "pathfinder-common", rev = "b7b6d76a76ab0e10f92e5f84ce099b5f727cb4db" }

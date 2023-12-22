@@ -4,7 +4,7 @@ use crate::{
     BonsaiStorage, BonsaiStorageConfig,
 };
 use bitvec::vec::BitVec;
-use mp_felt::Felt;
+use starknet_types_core::{felt::Felt, hash::Pedersen};
 
 #[test]
 fn basics() {
@@ -17,7 +17,7 @@ fn basics() {
 
     let pair1 = (
         vec![1, 2, 2],
-        Felt::from_hex_be("0x66342762FDD54D033c195fec3ce2568b62052e").unwrap(),
+        Felt::from_hex("0x66342762FDD54D033c195fec3ce2568b62052e").unwrap(),
     );
     let id1 = id_builder.new_id();
     let bitvec = BitVec::from_vec(pair1.0.clone());
@@ -26,14 +26,14 @@ fn basics() {
 
     let pair2 = (
         vec![1, 2, 3],
-        Felt::from_hex_be("0x66342762FD54D033c195fec3ce2568b62052e").unwrap(),
+        Felt::from_hex("0x66342762FD54D033c195fec3ce2568b62052e").unwrap(),
     );
     let id2 = id_builder.new_id();
     let bitvec = BitVec::from_vec(pair2.0.clone());
     bonsai_storage.insert(&bitvec, &pair2.1).unwrap();
     bonsai_storage.commit(id2).unwrap();
 
-    let bonsai_at_txn = bonsai_storage
+    let bonsai_at_txn: BonsaiStorage<_, _, Pedersen> = bonsai_storage
         .get_transactional_state(id1, BonsaiStorageConfig::default())
         .unwrap()
         .unwrap();
@@ -54,7 +54,7 @@ fn test_thread() {
 
     let pair1 = (
         vec![1, 2, 2],
-        Felt::from_hex_be("0x66342762FDD54D033c195fec3ce2568b62052e").unwrap(),
+        Felt::from_hex("0x66342762FDD54D033c195fec3ce2568b62052e").unwrap(),
     );
     let id1 = id_builder.new_id();
     let bitvec = BitVec::from_vec(pair1.0.clone());
@@ -63,7 +63,7 @@ fn test_thread() {
 
     std::thread::scope(|s| {
         s.spawn(|| {
-            let bonsai_at_txn = bonsai_storage
+            let bonsai_at_txn: BonsaiStorage<_, _, Pedersen> = bonsai_storage
                 .get_transactional_state(id1, bonsai_storage.get_config())
                 .unwrap()
                 .unwrap();
@@ -72,7 +72,7 @@ fn test_thread() {
         });
 
         s.spawn(|| {
-            let bonsai_at_txn = bonsai_storage
+            let bonsai_at_txn: BonsaiStorage<_, _, Pedersen> = bonsai_storage
                 .get_transactional_state(id1, bonsai_storage.get_config())
                 .unwrap()
                 .unwrap();
@@ -86,7 +86,7 @@ fn test_thread() {
         .unwrap();
     let pair2 = (
         vec![1, 2, 3],
-        Felt::from_hex_be("0x66342762FDD54D033c195fec3ce2568b62052e").unwrap(),
+        Felt::from_hex("0x66342762FDD54D033c195fec3ce2568b62052e").unwrap(),
     );
     bonsai_storage
         .insert(&BitVec::from_vec(pair2.0.clone()), &pair2.1)
@@ -105,7 +105,7 @@ fn remove() {
 
     let pair1 = (
         vec![1, 2, 3],
-        Felt::from_hex_be("0x66342762FDD54D033c195fec3ce2568b62052e").unwrap(),
+        Felt::from_hex("0x66342762FDD54D033c195fec3ce2568b62052e").unwrap(),
     );
     let id1 = id_builder.new_id();
     let bitvec = BitVec::from_vec(pair1.0.clone());
@@ -118,14 +118,14 @@ fn remove() {
     bonsai_storage.commit(id2).unwrap();
     bonsai_storage.dump_database();
 
-    let bonsai_at_txn = bonsai_storage
+    let bonsai_at_txn: BonsaiStorage<_, _, Pedersen> = bonsai_storage
         .get_transactional_state(id1, BonsaiStorageConfig::default())
         .unwrap()
         .unwrap();
     let bitvec = BitVec::from_vec(pair1.0.clone());
     assert_eq!(bonsai_at_txn.get(&bitvec).unwrap().unwrap(), pair1.1);
 
-    let bonsai_at_txn = bonsai_storage
+    let bonsai_at_txn: BonsaiStorage<_, _, Pedersen> = bonsai_storage
         .get_transactional_state(id2, BonsaiStorageConfig::default())
         .unwrap()
         .unwrap();
@@ -144,19 +144,19 @@ fn merge() {
 
     let pair1 = (
         vec![1, 2, 2],
-        Felt::from_hex_be("0x66342762FDD5D033c195fec3ce2568b62052e").unwrap(),
+        Felt::from_hex("0x66342762FDD5D033c195fec3ce2568b62052e").unwrap(),
     );
     let id1 = id_builder.new_id();
     let bitvec = BitVec::from_vec(pair1.0.clone());
     bonsai_storage.insert(&bitvec, &pair1.1).unwrap();
     bonsai_storage.commit(id1).unwrap();
-    let mut bonsai_at_txn = bonsai_storage
+    let mut bonsai_at_txn: BonsaiStorage<_, _, Pedersen> = bonsai_storage
         .get_transactional_state(id1, BonsaiStorageConfig::default())
         .unwrap()
         .unwrap();
     let pair2 = (
         vec![1, 2, 3],
-        Felt::from_hex_be("0x66342762FDD54D033c195fec3ce2568b62052e").unwrap(),
+        Felt::from_hex("0x66342762FDD54D033c195fec3ce2568b62052e").unwrap(),
     );
     bonsai_at_txn
         .insert(&BitVec::from_vec(pair2.0.clone()), &pair2.1)
@@ -184,19 +184,19 @@ fn merge_override() {
 
     let pair1 = (
         vec![1, 2, 2],
-        Felt::from_hex_be("0x66342762FDD5D033c195fec3ce2568b62052e").unwrap(),
+        Felt::from_hex("0x66342762FDD5D033c195fec3ce2568b62052e").unwrap(),
     );
     let id1 = id_builder.new_id();
     let bitvec = BitVec::from_vec(pair1.0.clone());
     bonsai_storage.insert(&bitvec, &pair1.1).unwrap();
     bonsai_storage.commit(id1).unwrap();
-    let mut bonsai_at_txn = bonsai_storage
+    let mut bonsai_at_txn: BonsaiStorage<_, _, Pedersen> = bonsai_storage
         .get_transactional_state(id1, BonsaiStorageConfig::default())
         .unwrap()
         .unwrap();
     let pair2 = (
         vec![1, 2, 2],
-        Felt::from_hex_be("0x66342762FDD54D033c195fec3ce2568b62052e").unwrap(),
+        Felt::from_hex("0x66342762FDD54D033c195fec3ce2568b62052e").unwrap(),
     );
     bonsai_at_txn
         .insert(&BitVec::from_vec(pair2.0.clone()), &pair2.1)
@@ -224,13 +224,13 @@ fn merge_remove() {
 
     let pair1 = (
         vec![1, 2, 2],
-        Felt::from_hex_be("0x66342762FDD5D033c195fec3ce2568b62052e").unwrap(),
+        Felt::from_hex("0x66342762FDD5D033c195fec3ce2568b62052e").unwrap(),
     );
     let id1 = id_builder.new_id();
     let bitvec = BitVec::from_vec(pair1.0.clone());
     bonsai_storage.insert(&bitvec, &pair1.1).unwrap();
     bonsai_storage.commit(id1).unwrap();
-    let mut bonsai_at_txn = bonsai_storage
+    let mut bonsai_at_txn: BonsaiStorage<_, _, Pedersen> = bonsai_storage
         .get_transactional_state(id1, BonsaiStorageConfig::default())
         .unwrap()
         .unwrap();
@@ -258,7 +258,7 @@ fn merge_txn_revert() {
 
     let pair1 = (
         vec![1, 2, 2],
-        Felt::from_hex_be("0x66342762FDD5D033c195fec3ce2568b62052e").unwrap(),
+        Felt::from_hex("0x66342762FDD5D033c195fec3ce2568b62052e").unwrap(),
     );
     let id1 = id_builder.new_id();
     let bitvec = BitVec::from_vec(pair1.0.clone());
@@ -266,7 +266,7 @@ fn merge_txn_revert() {
     bonsai_storage.commit(id1).unwrap();
     let root_hash1 = bonsai_storage.root_hash().unwrap();
 
-    let mut bonsai_at_txn = bonsai_storage
+    let mut bonsai_at_txn: BonsaiStorage<_, _, Pedersen> = bonsai_storage
         .get_transactional_state(id1, BonsaiStorageConfig::default())
         .unwrap()
         .unwrap();
@@ -279,7 +279,7 @@ fn merge_txn_revert() {
 
     let pair2 = (
         vec![1, 2, 3],
-        Felt::from_hex_be("0x66342762FDD54D033c195fec3ce2568b62052e").unwrap(),
+        Felt::from_hex("0x66342762FDD54D033c195fec3ce2568b62052e").unwrap(),
     );
     bonsai_at_txn
         .insert(&BitVec::from_vec(pair2.0.clone()), &pair2.1)
@@ -313,14 +313,14 @@ fn merge_invalid() {
 
     let pair1 = (
         vec![1, 2, 2],
-        Felt::from_hex_be("0x66342762FDD5D033c195fec3ce2568b62052e").unwrap(),
+        Felt::from_hex("0x66342762FDD5D033c195fec3ce2568b62052e").unwrap(),
     );
     let id1 = id_builder.new_id();
     let bitvec = BitVec::from_vec(pair1.0.clone());
     bonsai_storage.insert(&bitvec, &pair1.1).unwrap();
     bonsai_storage.commit(id1).unwrap();
 
-    let mut bonsai_at_txn = bonsai_storage
+    let mut bonsai_at_txn: BonsaiStorage<_, _, Pedersen> = bonsai_storage
         .get_transactional_state(id1, BonsaiStorageConfig::default())
         .unwrap()
         .unwrap();
@@ -332,7 +332,7 @@ fn merge_invalid() {
 
     let pair2 = (
         vec![1, 2, 3],
-        Felt::from_hex_be("0x66342762FDD54D033c195fec3ce2568b62052e").unwrap(),
+        Felt::from_hex("0x66342762FDD54D033c195fec3ce2568b62052e").unwrap(),
     );
     bonsai_storage
         .insert(&BitVec::from_vec(pair2.0.clone()), &pair2.1)
@@ -351,13 +351,13 @@ fn many_snapshots() {
         snapshot_interval: 1,
         ..Default::default()
     };
-    let mut bonsai_storage =
+    let mut bonsai_storage: BonsaiStorage<_, _, Pedersen> =
         BonsaiStorage::new(RocksDB::new(&db, RocksDBConfig::default()), config).unwrap();
     let mut id_builder = BasicIdBuilder::new();
 
     let pair1 = (
         vec![1, 2, 2],
-        Felt::from_hex_be("0x66342762FDD54D033c195fec3ce2568b62052e").unwrap(),
+        Felt::from_hex("0x66342762FDD54D033c195fec3ce2568b62052e").unwrap(),
     );
     let id1 = id_builder.new_id();
     let bitvec = BitVec::from_vec(pair1.0.clone());
@@ -366,7 +366,7 @@ fn many_snapshots() {
 
     let pair2 = (
         vec![1, 2, 3],
-        Felt::from_hex_be("0x66342762FD54D033c195fec3ce2568b62052e").unwrap(),
+        Felt::from_hex("0x66342762FD54D033c195fec3ce2568b62052e").unwrap(),
     );
     let id2 = id_builder.new_id();
     let bitvec = BitVec::from_vec(pair2.0.clone());
