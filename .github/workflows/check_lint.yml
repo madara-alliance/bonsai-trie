@@ -2,7 +2,7 @@ on:
   pull_request:
   push:
     branches:
-      - oss
+      - main
 
 
 name: Check and Lint

@@ -90,7 +90,7 @@ use mp_felt::Felt252Wrapper;
 use mp_hashers::pedersen::PedersenHasher;
 
 use bonsai_database::KeyType;
-use trie::merkle_tree::MerkleTree;
+use trie::merkle_tree::{Membership, MerkleTree, ProofNode};
 
 mod changes;
 mod key_value_db;
@@ -295,6 +295,34 @@ where
         self.trie.commit()?;
         self.trie.db_mut().commit(id)?;
         Ok(())
+    }
+
+    /// Generates a merkle-proof for a given `key`.
+    ///
+    /// Returns vector of [`TrieNode`] which form a chain from the root to the key,
+    /// if it exists, or down to the node which proves that the key does not exist.
+    ///
+    /// The nodes are returned in order, root first.
+    ///
+    /// Verification is performed by confirming that:
+    ///   1. the chain follows the path of `key`, and
+    ///   2. the hashes are correct, and
+    ///   3. the root hash matches the known root
+    pub fn get_proof(
+        &self,
+        key: &BitSlice<u8, Msb0>,
+    ) -> Result<Vec<ProofNode>, BonsaiStorageError> {
+        self.trie.get_proof(key)
+    }
+
+    /// Verifies a merkle-proof for a given `key` and `value`.
+    pub fn verify_proof(
+        root: Felt252Wrapper,
+        key: &BitSlice<u8, Msb0>,
+        value: Felt252Wrapper,
+        proofs: &[ProofNode],
+    ) -> Option<Membership> {
+        MerkleTree::<PedersenHasher, DB, ChangeID>::verify_proof(root, key, value, proofs)
     }
 }
 
