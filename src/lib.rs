@@ -90,7 +90,7 @@ use mp_felt::Felt252Wrapper;
 use mp_hashers::pedersen::PedersenHasher;
 
 use bonsai_database::KeyType;
-use trie::merkle_tree::{Membership, MerkleTree, ProofNode};
+use trie::merkle_tree::MerkleTree;
 
 mod changes;
 mod key_value_db;
@@ -105,6 +105,7 @@ pub mod id;
 
 pub use bonsai_database::BonsaiDatabase;
 pub use error::BonsaiStorageError;
+pub use trie::merkle_tree::{Membership, ProofNode};
 
 #[cfg(test)]
 mod tests;
