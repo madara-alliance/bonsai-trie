@@ -133,3 +133,17 @@ fn main() {
     bonsai_storage.commit(id_builder.new_id()).unwrap();
 }
 ```
+
+## Acknowledgements
+
+- Shout out to [Danno Ferrin](https://github.com/shemnon) and [Karim Taam](https://github.com/matkt) for their work on Bonsai. This project is heavily inspired by their work.
+- Props to [MassaLabs](https://massa.net/) for the original implementation of this project.
+
+## Resources
+
+- [Bonsai explainer article by Karim Taam](https://hackmd.io/@kt2am/BktBblIL3)
+- [Ethereum World State structure diagram](https://ethereum.stackexchange.com/questions/268/ethereum-block-architecture/6413#6413)
+- [Besu Bonsai implementation in Java](https://github.com/hyperledger/besu/tree/1a7635bc3ef75c31e5c5ac050b2cd3a22d833ada/ethereum/core/src/main/java/org/hyperledger/besu/ethereum/bonsai)
+- [Madara Starknet Sequencer using Substrate](https://github.com/keep-starknet-strange/madara)
+- [LambdaClass Patricia Merkle Tree implementation in Rust](https://github.com/lambdaclass/merkle_patricia_tree)
+
