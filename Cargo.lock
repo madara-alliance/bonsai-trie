@@ -603,6 +603,7 @@ dependencies = [
  "serde",
  "smallvec",
  "tempfile",
+ "thiserror",
 ]
 
 [[package]]

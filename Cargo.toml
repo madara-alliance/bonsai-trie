@@ -18,6 +18,7 @@ rustc-hex = "2.1.0"
 env_logger = "0.10.1"
 lru = "0.12.1"
 parking_lot = "0.12.1"
+thiserror = "1.0"
 
 bitvec = { version = "1", default-features = false }
 derive_more = { version = "0.99.17", features = ["constructor"] }

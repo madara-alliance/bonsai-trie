@@ -1,4 +1,4 @@
-use crate::id::Id;
+use crate::{id::Id, trie::TrieKey};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 
@@ -8,45 +8,15 @@ pub struct Change {
     pub new_value: Option<Vec<u8>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum ChangeKeyType {
-    Trie(Vec<u8>),
-    Flat(Vec<u8>),
-}
-
-impl ChangeKeyType {
-    pub fn get_id(&self) -> u8 {
-        match self {
-            ChangeKeyType::Trie(_) => 0,
-            ChangeKeyType::Flat(_) => 1,
-        }
-    }
-
-    pub fn as_slice(&self) -> &[u8] {
-        match self {
-            ChangeKeyType::Trie(key) => key.as_slice(),
-            ChangeKeyType::Flat(key) => key.as_slice(),
-        }
-    }
-
-    pub fn from_id(id: u8, key: Vec<u8>) -> Self {
-        match id {
-            0 => ChangeKeyType::Trie(key),
-            1 => ChangeKeyType::Flat(key),
-            _ => panic!("Invalid id"),
-        }
-    }
-}
-
 #[derive(Debug, Default)]
-pub struct ChangeBatch(pub(crate) HashMap<ChangeKeyType, Change>);
+pub struct ChangeBatch(pub(crate) HashMap<TrieKey, Change>);
 
 const KEY_SEPARATOR: u8 = 0x00;
 const NEW_VALUE: u8 = 0x00;
 const OLD_VALUE: u8 = 0x01;
 
 impl ChangeBatch {
-    pub fn insert_in_place(&mut self, key: ChangeKeyType, change: Change) {
+    pub fn insert_in_place(&mut self, key: TrieKey, change: Change) {
         match self.0.entry(key) {
             std::collections::hash_map::Entry::Occupied(mut entry) => {
                 let e = entry.get_mut();
@@ -61,8 +31,9 @@ impl ChangeBatch {
         }
     }
 
+    //TODO: Use serde
     pub fn serialize<ID: Id>(&self, id: &ID) -> Vec<(Vec<u8>, &[u8])> {
-        let id = id.serialize();
+        let id = id.to_bytes();
         self.0
             .iter()
             .flat_map(|(change_key, change)| {
@@ -70,11 +41,16 @@ impl ChangeBatch {
                 let mut changes = Vec::new();
 
                 if let Some(old_value) = &change.old_value {
+                    if let Some(new_value) = &change.new_value {
+                        if old_value == new_value {
+                            return changes;
+                        }
+                    }
                     let key = [
                         id.as_slice(),
                         &[KEY_SEPARATOR],
                         key_slice,
-                        &[change_key.get_id()],
+                        &[change_key.into()],
                         &[OLD_VALUE],
                     ]
                     .concat();
@@ -86,7 +62,7 @@ impl ChangeBatch {
                         id.as_slice(),
                         &[KEY_SEPARATOR],
                         key_slice,
-                        &[change_key.get_id()],
+                        &[change_key.into()],
                         &[NEW_VALUE],
                     ]
                     .concat();
@@ -98,7 +74,7 @@ impl ChangeBatch {
     }
 
     pub fn deserialize<ID: Id>(id: &ID, changes: Vec<(Vec<u8>, Vec<u8>)>) -> Self {
-        let id = id.serialize();
+        let id = id.to_bytes();
         let mut change_batch = ChangeBatch(HashMap::new());
         let mut current_change = Change::default();
         let mut last_key = None;
@@ -110,7 +86,8 @@ impl ChangeBatch {
             let mut key = key.to_vec();
             let change_type = key.pop().unwrap();
             let key_type = key.pop().unwrap();
-            let change_key = ChangeKeyType::from_id(key_type, key[id.len() + 1..].to_vec());
+            let change_key =
+                TrieKey::from_variant_and_bytes(key_type, key[id.len() + 1..].to_vec());
             if let Some(last_key) = last_key {
                 if last_key != change_key {
                     change_batch.insert_in_place(last_key, current_change);
