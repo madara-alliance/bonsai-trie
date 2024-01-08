@@ -140,7 +140,7 @@ impl ProofNode {
             ProofNode::Edge { child, path } => {
                 let mut bytes = [0u8; 32];
                 bytes.view_bits_mut::<Msb0>()[256 - path.0.len()..].copy_from_bitslice(&path.0);
-                // SAFETY: byte array is 32 bytes long
+                // SAFETY: path len is <= 251
                 let path_hash = Felt252Wrapper::try_from(&bytes).unwrap();
 
                 let length = Felt252Wrapper::from(path.0.len() as u8);
