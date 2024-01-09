@@ -1,6 +1,13 @@
 use crate::id::Id;
+use alloc::vec::Vec;
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, VecDeque};
+#[cfg(feature = "std")]
+use std::collections::{hash_map::Entry, HashMap, VecDeque};
+#[cfg(not(feature = "std"))]
+use {
+    alloc::collections::VecDeque,
+    hashbrown::{hash_map::Entry, HashMap},
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Change {
@@ -48,14 +55,14 @@ const OLD_VALUE: u8 = 0x01;
 impl ChangeBatch {
     pub fn insert_in_place(&mut self, key: ChangeKeyType, change: Change) {
         match self.0.entry(key) {
-            std::collections::hash_map::Entry::Occupied(mut entry) => {
+            Entry::Occupied(mut entry) => {
                 let e = entry.get_mut();
                 if e.old_value.is_none() {
                     e.old_value = change.old_value;
                 }
                 e.new_value = change.new_value;
             }
-            std::collections::hash_map::Entry::Vacant(entry) => {
+            Entry::Vacant(entry) => {
                 entry.insert(change);
             }
         }

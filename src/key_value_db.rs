@@ -1,5 +1,7 @@
-use log::trace;
-use std::collections::BTreeSet;
+use alloc::collections::BTreeSet;
+use alloc::format;
+use alloc::string::ToString;
+use alloc::vec::Vec;
 
 use crate::{
     bonsai_database::{BonsaiDatabase, BonsaiPersistentDatabase, KeyType},
@@ -67,7 +69,7 @@ impl<DB, ID> KeyValueDB<DB, ID>
 where
     DB: BonsaiDatabase,
     ID: Id,
-    BonsaiStorageError: std::convert::From<<DB as BonsaiDatabase>::DatabaseError>,
+    BonsaiStorageError: core::convert::From<<DB as BonsaiDatabase>::DatabaseError>,
 {
     pub(crate) fn new(underline_db: DB, config: KeyValueDBConfig, created_at: Option<ID>) -> Self {
         let mut changes_store = ChangeStore::new();
@@ -96,7 +98,7 @@ where
 
         // Insert flat db changes
         let mut batch = self.db.create_batch();
-        let current_changes = std::mem::take(&mut self.changes_store.current_changes);
+        let current_changes = core::mem::take(&mut self.changes_store.current_changes);
         for (key, change) in current_changes.serialize(&id).iter() {
             self.db
                 .insert(&KeyType::TrieLog(key), change, Some(&mut batch))?;
@@ -122,12 +124,10 @@ where
     }
 
     pub(crate) fn get(&self, key: &TrieKeyType) -> Result<Option<Vec<u8>>, BonsaiStorageError> {
-        trace!("Getting from KeyValueDB: {:?}", key);
         Ok(self.db.get(&key.into())?)
     }
 
     pub(crate) fn contains(&self, key: &TrieKeyType) -> Result<bool, BonsaiStorageError> {
-        trace!("Contains from KeyValueDB: {:?}", key);
         Ok(self.db.contains(&key.into())?)
     }
 
@@ -137,7 +137,6 @@ where
         value: &[u8],
         batch: Option<&mut DB::Batch>,
     ) -> Result<(), BonsaiStorageError> {
-        trace!("Inserting into KeyValueDB: {:?} {:?}", key, value);
         let old_value = self.db.insert(&key.into(), value, batch)?;
         self.changes_store.current_changes.insert_in_place(
             key.into(),
@@ -154,7 +153,6 @@ where
         key: &TrieKeyType,
         batch: Option<&mut DB::Batch>,
     ) -> Result<(), BonsaiStorageError> {
-        trace!("Removing from KeyValueDB: {:?}", key);
         let old_value = self.db.remove(&key.into(), batch)?;
         self.changes_store.current_changes.insert_in_place(
             key.into(),
@@ -167,7 +165,6 @@ where
     }
 
     pub(crate) fn write_batch(&mut self, batch: DB::Batch) -> Result<(), BonsaiStorageError> {
-        trace!("Writing batch into KeyValueDB");
         Ok(self.db.write_batch(batch)?)
     }
 }
@@ -195,7 +192,7 @@ where
         id: ID,
     ) -> Result<Option<DB::Transaction>, BonsaiStorageError>
     where
-        BonsaiStorageError: std::convert::From<<DB::Transaction as BonsaiDatabase>::DatabaseError>,
+        BonsaiStorageError: core::convert::From<<DB::Transaction as BonsaiDatabase>::DatabaseError>,
     {
         let Some(change_id) = self.snap_holder.range(..=id).last() else {
             return Ok(None);
@@ -254,7 +251,8 @@ where
         transaction: KeyValueDB<DB::Transaction, ID>,
     ) -> Result<(), BonsaiStorageError>
     where
-        BonsaiStorageError: std::convert::From<<DB as BonsaiPersistentDatabase<ID>>::DatabaseError>,
+        BonsaiStorageError:
+            core::convert::From<<DB as BonsaiPersistentDatabase<ID>>::DatabaseError>,
     {
         let Some(created_at) = transaction.created_at else {
             return Err(BonsaiStorageError::Merge(

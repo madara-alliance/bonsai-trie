@@ -1,6 +1,5 @@
-use std::error::Error;
-
 use crate::{changes::ChangeKeyType, error::BonsaiStorageError, id::Id};
+use alloc::vec::Vec;
 
 #[derive(Debug, Hash, PartialEq, Eq)]
 pub enum KeyType<'a> {
@@ -31,7 +30,7 @@ impl KeyType<'_> {
 /// Trait to be implemented on any type that can be used as a database.
 pub trait BonsaiDatabase {
     type Batch: Default;
-    type DatabaseError: Error + Into<BonsaiStorageError>;
+    type DatabaseError: Into<BonsaiStorageError>;
 
     /// Create a new empty batch of changes to be used in `insert`, `remove` and applied in database using `write_batch`.
     fn create_batch(&self) -> Self::Batch;
@@ -78,7 +77,7 @@ pub trait BonsaiDatabase {
 }
 
 pub trait BonsaiPersistentDatabase<ID: Id> {
-    type DatabaseError: Error + Into<BonsaiStorageError>;
+    type DatabaseError: Into<BonsaiStorageError>;
     type Transaction: BonsaiDatabase;
     /// Save a snapshot of the current database state
     /// This function returns a snapshot id that can be used to create a transaction
