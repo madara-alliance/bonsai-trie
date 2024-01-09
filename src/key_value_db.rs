@@ -2,6 +2,7 @@ use alloc::collections::BTreeSet;
 use alloc::format;
 use alloc::string::ToString;
 use alloc::vec::Vec;
+use log::trace;
 
 use crate::{
     bonsai_database::{BonsaiDatabase, BonsaiPersistentDatabase, KeyType},
@@ -124,10 +125,12 @@ where
     }
 
     pub(crate) fn get(&self, key: &TrieKeyType) -> Result<Option<Vec<u8>>, BonsaiStorageError> {
+        trace!("Getting from KeyValueDB: {:?}", key);
         Ok(self.db.get(&key.into())?)
     }
 
     pub(crate) fn contains(&self, key: &TrieKeyType) -> Result<bool, BonsaiStorageError> {
+        trace!("Contains from KeyValueDB: {:?}", key);
         Ok(self.db.contains(&key.into())?)
     }
 
@@ -137,6 +140,7 @@ where
         value: &[u8],
         batch: Option<&mut DB::Batch>,
     ) -> Result<(), BonsaiStorageError> {
+        trace!("Inserting into KeyValueDB: {:?} {:?}", key, value);
         let old_value = self.db.insert(&key.into(), value, batch)?;
         self.changes_store.current_changes.insert_in_place(
             key.into(),
@@ -153,6 +157,7 @@ where
         key: &TrieKeyType,
         batch: Option<&mut DB::Batch>,
     ) -> Result<(), BonsaiStorageError> {
+        trace!("Removing from KeyValueDB: {:?}", key);
         let old_value = self.db.remove(&key.into(), batch)?;
         self.changes_store.current_changes.insert_in_place(
             key.into(),
@@ -165,6 +170,7 @@ where
     }
 
     pub(crate) fn write_batch(&mut self, batch: DB::Batch) -> Result<(), BonsaiStorageError> {
+        trace!("Writing batch into KeyValueDB");
         Ok(self.db.write_batch(batch)?)
     }
 }

@@ -16,6 +16,7 @@ derive_more = { version = "0.99.17", default-features = false, features = [
 hashbrown = { version = "0.14.3", default-features = false, features = [
   "ahash",
 ] }
+log = "0.4.20"
 parity-scale-codec = { version = "3.0.0", default-features = false, features = [
   "derive",
 ] }
