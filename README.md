@@ -1,7 +1,6 @@
 # bonsai-trie
 
-![example workflow](https://github.com/massalabs/bonsai-trie/actions/workflows/check_lint.yml/badge.svg) ![example workflow](https://github.com/massalabs/bonsai-trie/actions/workflows/test.yml/badge.svg) [![codecov](https://codecov.io/gh/massalabs/bonsai-trie/graph/badge.svg?token=598URC32TV)](https://codecov.io/gh/massalabs/bonsai-trie)
-
+![example workflow](https://github.com/keep-starknet-strange/bonsai-trie/actions/workflows/check_lint.yml/badge.svg) ![example workflow](https://github.com/keep-starknet-strange/bonsai-trie/actions/workflows/test.yml/badge.svg) [![codecov](https://codecov.io/gh/massalabs/madara-bonsai/branch/main/graph/badge.svg?token=SLIHSUWHT2)](https://codecov.io/gh/massalabs/madara-bonsai)
 
 This crate provides a storage implementation based on the Bonsai Storage implemented by [Besu](https://hackmd.io/@kt2am/BktBblIL3).
 It is a key/value storage that uses a Madara Merkle Trie to store the data.
@@ -37,6 +36,7 @@ use bonsai_trie::{
     BonsaiStorageError,
     id::{BasicIdBuilder, BasicId},
     BonsaiStorage, BonsaiStorageConfig, BonsaiTrieHash,
+    ProofNode, Membership
 };
 use mp_felt::Felt252Wrapper;
 use bitvec::prelude::*;
@@ -132,6 +132,18 @@ fn main() {
         .insert(&BitVec::from_vec(pair4.0.clone()), &pair4.1)
         .unwrap();
     bonsai_storage.commit(id_builder.new_id()).unwrap();
+    let proof = bonsai_storage
+        .get_proof(&BitVec::from_vec(pair3.0.clone()))
+        .unwrap();
+    assert_eq!(
+        BonsaiStorage::<BasicId, RocksDB<BasicId>>::verify_proof(
+            bonsai_storage.root_hash().unwrap(),
+            &BitVec::from_vec(pair3.0.clone()),
+            pair3.1,
+            &proof
+        ),
+        Some(Membership::Member)
+    );
 }
 ```
 
