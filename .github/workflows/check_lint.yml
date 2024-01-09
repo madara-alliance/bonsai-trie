@@ -5,51 +5,64 @@ on:
       - oss
 
 
-name: Check and Lint
+name: Check and Lint and wasm
 
 jobs:
   check:
     name: Check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
-      - uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
-      - uses: actions-rs/cargo@v1
-        with:
-          command: check
-
+      - uses: actions/checkout@v3
+      - name: Install rust
+        run: rustup show
+      - name: Check
+        run: cargo check
+  build-wasm:
+    name: Build wasm
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install rust
+        working-directory: ./ensure_no_std
+        run: rustup show
+      - name: Build wasm
+        run: cargo build
+        
   fmt:
     name: Rustfmt
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
-      - uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
-      - run: rustup component add rustfmt
-      - uses: actions-rs/cargo@v1
-        with:
-          command: fmt
-          args: --all -- --check
+      - uses: actions/checkout@v3
+      - name: Install rust
+        run: rustup show
+      - name: Check format
+        run: cargo fmt --check --all
 
-  clippy:
+  clippy-all-features:
     name: Clippy
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
-      - uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          components: clippy
-          override: true
-      - uses: actions-rs/clippy-check@v1
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          args: --all-features
-          name: Clippy Output
+      - uses: actions/checkout@v3
+      - name: Install rust
+        run: rustup show
+      - name: Clippy all features
+        run: cargo clippy --all-features
+  clippy-default-features:
+    name: Clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install rust
+        run: rustup show
+      - name: Clippy all features
+        run: cargo clippy
+
+  clippy-wasm:
+    name: Clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install rust
+        run: rustup show
+      - name: Clippy all features
+        run: cargo clippy

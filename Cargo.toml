@@ -1,29 +1,44 @@
 [package]
+edition = "2021"
 name = "bonsai-trie"
 version = "0.1.0"
-edition = "2021"
 
 [features]
-default = ["rocksdb"]
+default = ["std", "rocksdb"]
 rocksdb = ["dep:rocksdb"]
+std = ["parity-scale-codec/std", "bitvec/std", "starknet-types-core/std"]
 
 [dependencies]
-parity-scale-codec = { version = "3.0.0", features = ["derive"] }
-rocksdb = { optional = true, version = "0.21.0", features = ["multi-threaded-cf"] }
-serde = { version = "1.0.193", features = ["derive"] }
-bincode = "1.3.3"
-log = "0.4.20"
-smallvec = "1.11.2"
-rustc-hex = "2.1.0"
-env_logger = "0.10.1"
-lru = "0.12.1"
-bitvec = { version = "1" }
-derive_more = { version = "0.99.17", features = ["constructor"] }
-starknet-types-core = { version = "0.0.5", features=["hash", "parity-scale-codec"] }
+bitvec = { version = "1", default-features = false, features = ["alloc"] }
+derive_more = { version = "0.99.17", default-features = false, features = [
+  "constructor",
+] }
+hashbrown = { version = "0.14.3", default-features = false, features = [
+  "ahash",
+] }
+parity-scale-codec = { version = "3.0.0", default-features = false, features = [
+  "derive",
+] }
+rocksdb = { optional = true, version = "0.21.0", features = [
+  "multi-threaded-cf",
+] }
+serde = { version = "1.0.195", default-features = false, features = [
+  "derive",
+  "alloc",
+] }
+serde_derive = "1.0.195"
+starknet-types-core = { version = "0.0.7", default-features = false, features = [
+  "hash",
+  "parity-scale-codec",
+] }
 
 [dev-dependencies]
-tempfile = "3.8.0"
+log = "0.4.20"
 mp-commitments = { git = "https://github.com/keep-starknet-strange/madara.git", rev = "f30acea8af7e28e956e771928130e12bfc084832", package = "mp-commitments" }
+mp-felt = { git = "https://github.com/keep-starknet-strange/madara.git", rev = "f30acea8af7e28e956e771928130e12bfc084832", package = "mp-felt", features = [
+  "parity-scale-codec",
+  "serde",
+] }
 mp-hashers = { git = "https://github.com/keep-starknet-strange/madara.git", rev = "f30acea8af7e28e956e771928130e12bfc084832", package = "mp-hashers" }
-mp-felt = { git = "https://github.com/keep-starknet-strange/madara.git", rev = "f30acea8af7e28e956e771928130e12bfc084832", package = "mp-felt", features = ["parity-scale-codec", "serde"]}
 rand = "0.8.5"
+tempfile = "3.8.0"

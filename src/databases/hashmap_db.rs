@@ -1,8 +1,10 @@
-use std::{
-    collections::{BTreeMap, HashMap},
-    error::Error,
-    fmt::Display,
-};
+use alloc::fmt::Display;
+use alloc::vec::Vec;
+use alloc::{collections::BTreeMap, string::ToString};
+#[cfg(not(feature = "std"))]
+use hashbrown::HashMap;
+#[cfg(feature = "std")]
+use std::collections::HashMap;
 
 use crate::{
     bonsai_database::BonsaiPersistentDatabase, error::BonsaiStorageError, id::Id, BonsaiDatabase,
@@ -12,12 +14,10 @@ use crate::{
 pub struct HashMapDbError {}
 
 impl Display for HashMapDbError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut alloc::fmt::Formatter<'_>) -> alloc::fmt::Result {
         write!(f, "")
     }
 }
-
-impl Error for HashMapDbError {}
 
 impl From<HashMapDbError> for BonsaiStorageError {
     fn from(err: HashMapDbError) -> Self {
