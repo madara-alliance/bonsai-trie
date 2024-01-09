@@ -55,6 +55,7 @@ impl ProofNode {
             ProofNode::Edge { child, path } => {
                 let mut bytes = [0u8; 32];
                 bytes.view_bits_mut::<Msb0>()[256 - path.0.len()..].copy_from_bitslice(&path.0);
+                // SAFETY: path len is <= 251
                 let path_hash = Felt252Wrapper::try_from(&bytes).unwrap();
                 // Safe as len() is guaranteed to be <= 251
                 let length = Felt252Wrapper::from(path.0.len() as u8);
