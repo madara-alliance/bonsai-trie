@@ -85,15 +85,16 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 extern crate alloc;
 
-use alloc::format;
-use alloc::vec::Vec;
+use crate::trie::merkle_tree::{Membership, MerkleTree, ProofNode};
+use alloc::{format, vec::Vec};
 use bitvec::{order::Msb0, slice::BitSlice};
-use bonsai_database::BonsaiPersistentDatabase;
-use bonsai_database::KeyType;
+use bonsai_database::{BonsaiPersistentDatabase, KeyType};
 use changes::ChangeBatch;
 use key_value_db::KeyValueDB;
-use starknet_types_core::{felt::Felt, hash::StarkHash};
-use trie::merkle_tree::MerkleTree;
+use starknet_types_core::{
+    felt::Felt,
+    hash::{Pedersen, StarkHash},
+};
 
 mod changes;
 mod key_value_db;
@@ -320,12 +321,12 @@ where
 
     /// Verifies a merkle-proof for a given `key` and `value`.
     pub fn verify_proof(
-        root: Felt252Wrapper,
+        root: Felt,
         key: &BitSlice<u8, Msb0>,
-        value: Felt252Wrapper,
+        value: Felt,
         proofs: &[ProofNode],
     ) -> Option<Membership> {
-        MerkleTree::<PedersenHasher, DB, ChangeID>::verify_proof(root, key, value, proofs)
+        MerkleTree::<Pedersen, DB, ChangeID>::verify_proof(root, key, value, proofs)
     }
 }
 

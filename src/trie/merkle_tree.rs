@@ -129,28 +129,22 @@ fn test_shared_path_encode_decode() {
 /// Each node hold only the minimum of data that need to be known for the proof: the child hashes (and path for edge node)
 #[derive(Debug, Clone, PartialEq)]
 pub enum ProofNode {
-    Binary {
-        left: Felt252Wrapper,
-        right: Felt252Wrapper,
-    },
-    Edge {
-        child: Felt252Wrapper,
-        path: Path,
-    },
+    Binary { left: Felt, right: Felt },
+    Edge { child: Felt, path: Path },
 }
 
 impl ProofNode {
-    pub fn hash<H: HasherT>(&self) -> Felt252Wrapper {
+    pub fn hash<H: StarkHash>(&self) -> Felt {
         match self {
-            ProofNode::Binary { left, right } => Felt252Wrapper(H::hash_elements(left.0, right.0)),
+            ProofNode::Binary { left, right } => H::hash(left, right),
             ProofNode::Edge { child, path } => {
                 let mut bytes = [0u8; 32];
                 bytes.view_bits_mut::<Msb0>()[256 - path.0.len()..].copy_from_bitslice(&path.0);
                 // SAFETY: path len is <= 251
-                let path_hash = Felt252Wrapper::try_from(&bytes).unwrap();
+                let path_hash = Felt::from_bytes_be(&bytes);
 
-                let length = Felt252Wrapper::from(path.0.len() as u8);
-                Felt252Wrapper(H::hash_elements(child.0, path_hash.0) + length.0)
+                let length = Felt::from(path.0.len() as u8);
+                H::hash(child, &path_hash) + length
             }
         }
     }
@@ -753,7 +747,7 @@ impl<H: StarkHash, DB: BonsaiDatabase, ID: Id> MerkleTree<H, DB, ID> {
     /// The merkle proof and all the child nodes hashes.
     pub fn get_proof(&self, key: &BitSlice<u8, Msb0>) -> Result<Vec<ProofNode>, BonsaiStorageError>
     where
-        BonsaiStorageError: std::convert::From<<DB as BonsaiDatabase>::DatabaseError>,
+        BonsaiStorageError: core::convert::From<<DB as BonsaiDatabase>::DatabaseError>,
     {
         let mut nodes = Vec::with_capacity(251);
         let mut node = match self.root_handle {
@@ -1092,9 +1086,9 @@ impl<H: StarkHash, DB: BonsaiDatabase, ID: Id> MerkleTree<H, DB, ID> {
     ///    4. set expected_hash <- to the child hash
     /// 3. check that the expected_hash is `value` (we should've reached the leaf)
     pub fn verify_proof(
-        root: Felt252Wrapper,
+        root: Felt,
         key: &BitSlice<u8, Msb0>,
-        value: Felt252Wrapper,
+        value: Felt,
         proofs: &[ProofNode],
     ) -> Option<Membership> {
         // Protect from ill-formed keys
@@ -1455,7 +1449,7 @@ mod tests {
         let rocks_db = create_rocks_db(std::path::Path::new(tempdir.path())).unwrap();
         let rocks_db = RocksDB::new(&rocks_db, RocksDBConfig::default());
         let db = KeyValueDB::new(rocks_db, KeyValueDBConfig::default(), None);
-        let mut bonsai_tree: super::MerkleTree<PedersenHasher, RocksDB<BasicId>, BasicId> =
+        let mut bonsai_tree: super::MerkleTree<Pedersen, RocksDB<BasicId>, BasicId> =
             super::MerkleTree::new(db).unwrap();
         let elements = [
             [Felt252Wrapper::from_hex_be("0x665342762FDD54D0303c195fec3ce2568b62052e").unwrap()],
@@ -1468,7 +1462,10 @@ mod tests {
                     calculate_class_commitment_leaf_hash::<PedersenHasher>(*class_hash);
                 let key = &class_hash.0.to_bytes_be()[..31];
                 bonsai_tree
-                    .set(&BitVec::from_vec(key.to_vec()), final_hash)
+                    .set(
+                        &BitVec::from_vec(key.to_vec()),
+                        Felt::from_bytes_be(&final_hash.0.to_bytes_be()),
+                    )
                     .unwrap();
             });
         }
