@@ -1,14 +1,21 @@
-use core::iter::once;
-use core::marker::PhantomData;
-
+use alloc::format;
+use alloc::string::ToString;
+use alloc::vec;
+use alloc::vec::Vec;
 use bitvec::{
     prelude::{BitSlice, BitVec, Msb0},
     view::BitView,
 };
+use core::iter::once;
+use core::marker::PhantomData;
+use core::mem;
 use derive_more::Constructor;
+#[cfg(not(feature = "std"))]
+use hashbrown::HashMap;
 use parity_scale_codec::{Decode, Encode, Error, Input, Output};
 use starknet_types_core::{felt::Felt, hash::StarkHash};
-use std::{collections::HashMap, mem};
+#[cfg(feature = "std")]
+use std::collections::HashMap;
 
 use crate::{error::BonsaiStorageError, id::Id, BonsaiDatabase, KeyValueDB};
 
@@ -141,7 +148,7 @@ impl<H: StarkHash, DB: BonsaiDatabase, ID: Id> MerkleTree<H, DB, ID> {
     /// transient ones.
     pub fn new(mut db: KeyValueDB<DB, ID>) -> Result<Self, BonsaiStorageError>
     where
-        BonsaiStorageError: std::convert::From<<DB as BonsaiDatabase>::DatabaseError>,
+        BonsaiStorageError: core::convert::From<<DB as BonsaiDatabase>::DatabaseError>,
     {
         let nodes_mapping: HashMap<NodeId, Node> = HashMap::new();
         let root_node = db.get(&TrieKeyType::Trie(vec![]))?;
@@ -178,7 +185,7 @@ impl<H: StarkHash, DB: BonsaiDatabase, ID: Id> MerkleTree<H, DB, ID> {
 
     pub fn reset_root_from_db(&mut self) -> Result<(), BonsaiStorageError>
     where
-        BonsaiStorageError: std::convert::From<<DB as BonsaiDatabase>::DatabaseError>,
+        BonsaiStorageError: core::convert::From<<DB as BonsaiDatabase>::DatabaseError>,
     {
         let node = self
             .get_tree_branch_in_db_from_path(&BitVec::<u8, Msb0>::new())?
@@ -199,7 +206,7 @@ impl<H: StarkHash, DB: BonsaiDatabase, ID: Id> MerkleTree<H, DB, ID> {
     /// Persists all changes to storage and returns the new root hash.
     pub fn commit(&mut self) -> Result<Felt, BonsaiStorageError>
     where
-        BonsaiStorageError: std::convert::From<<DB as BonsaiDatabase>::DatabaseError>,
+        BonsaiStorageError: core::convert::From<<DB as BonsaiDatabase>::DatabaseError>,
     {
         let mut batch = self.db.create_batch();
         for node_key in mem::take(&mut self.death_row) {
@@ -242,7 +249,7 @@ impl<H: StarkHash, DB: BonsaiDatabase, ID: Id> MerkleTree<H, DB, ID> {
         batch: &mut DB::Batch,
     ) -> Result<Felt, BonsaiStorageError>
     where
-        BonsaiStorageError: std::convert::From<<DB as BonsaiDatabase>::DatabaseError>,
+        BonsaiStorageError: core::convert::From<<DB as BonsaiDatabase>::DatabaseError>,
     {
         use Node::*;
         let node_id = match node_handle {
@@ -329,7 +336,7 @@ impl<H: StarkHash, DB: BonsaiDatabase, ID: Id> MerkleTree<H, DB, ID> {
     /// * `value` - The value to set.
     pub fn set(&mut self, key: &BitSlice<u8, Msb0>, value: Felt) -> Result<(), BonsaiStorageError>
     where
-        BonsaiStorageError: std::convert::From<<DB as BonsaiDatabase>::DatabaseError>,
+        BonsaiStorageError: core::convert::From<<DB as BonsaiDatabase>::DatabaseError>,
     {
         if value == Felt::ZERO {
             return self.delete_leaf(key);
@@ -504,7 +511,7 @@ impl<H: StarkHash, DB: BonsaiDatabase, ID: Id> MerkleTree<H, DB, ID> {
     /// * `key` - The key to delete.
     fn delete_leaf(&mut self, key: &BitSlice<u8, Msb0>) -> Result<(), BonsaiStorageError>
     where
-        BonsaiStorageError: std::convert::From<<DB as BonsaiDatabase>::DatabaseError>,
+        BonsaiStorageError: core::convert::From<<DB as BonsaiDatabase>::DatabaseError>,
     {
         // Algorithm explanation:
         //
@@ -558,8 +565,6 @@ impl<H: StarkHash, DB: BonsaiDatabase, ID: Id> MerkleTree<H, DB, ID> {
         });
         let branch_node = node_iter.next();
         let parent_branch_node = node_iter.next();
-        println!("path: {:?}", last_binary_path);
-        println!("branch_node: {:?}", branch_node);
         match branch_node {
             Some(node_id) => {
                 let new_edge =
@@ -567,7 +572,6 @@ impl<H: StarkHash, DB: BonsaiDatabase, ID: Id> MerkleTree<H, DB, ID> {
                         let node = self.storage_nodes.0.get_mut(&node_id).ok_or(
                             BonsaiStorageError::Trie("Node not found in memory".to_string()),
                         )?;
-                        println!("node: {:?}", node);
                         let (direction, height) = {
                             // SAFETY: This node must be a binary node due to the iteration condition.
                             let binary = node.as_binary().unwrap();
@@ -664,7 +668,7 @@ impl<H: StarkHash, DB: BonsaiDatabase, ID: Id> MerkleTree<H, DB, ID> {
     /// The value of the key.
     pub fn get(&self, key: &BitSlice<u8, Msb0>) -> Result<Option<Felt>, BonsaiStorageError>
     where
-        BonsaiStorageError: std::convert::From<<DB as BonsaiDatabase>::DatabaseError>,
+        BonsaiStorageError: core::convert::From<<DB as BonsaiDatabase>::DatabaseError>,
     {
         let key = &[&[key.len() as u8], key.to_bitvec().as_raw_slice()].concat();
         if let Some(value) = self.cache_leaf_modified.get(key) {
@@ -680,7 +684,7 @@ impl<H: StarkHash, DB: BonsaiDatabase, ID: Id> MerkleTree<H, DB, ID> {
 
     pub fn contains(&self, key: &BitSlice<u8, Msb0>) -> Result<bool, BonsaiStorageError>
     where
-        BonsaiStorageError: std::convert::From<<DB as BonsaiDatabase>::DatabaseError>,
+        BonsaiStorageError: core::convert::From<<DB as BonsaiDatabase>::DatabaseError>,
     {
         let key = &[&[key.len() as u8], key.to_bitvec().as_raw_slice()].concat();
         if let Some(value) = self.cache_leaf_modified.get(key) {
@@ -714,7 +718,7 @@ impl<H: StarkHash, DB: BonsaiDatabase, ID: Id> MerkleTree<H, DB, ID> {
     /// The list of nodes along the path.
     fn preload_nodes(&mut self, dst: &BitSlice<u8, Msb0>) -> Result<Vec<NodeId>, BonsaiStorageError>
     where
-        BonsaiStorageError: std::convert::From<<DB as BonsaiDatabase>::DatabaseError>,
+        BonsaiStorageError: core::convert::From<<DB as BonsaiDatabase>::DatabaseError>,
     {
         let mut nodes = Vec::with_capacity(251);
         let node_id = match self.root_handle {
@@ -750,7 +754,7 @@ impl<H: StarkHash, DB: BonsaiDatabase, ID: Id> MerkleTree<H, DB, ID> {
         nodes: &mut Vec<NodeId>,
     ) -> Result<(), BonsaiStorageError>
     where
-        BonsaiStorageError: std::convert::From<<DB as BonsaiDatabase>::DatabaseError>,
+        BonsaiStorageError: core::convert::From<<DB as BonsaiDatabase>::DatabaseError>,
     {
         let node = self
             .storage_nodes
@@ -828,7 +832,7 @@ impl<H: StarkHash, DB: BonsaiDatabase, ID: Id> MerkleTree<H, DB, ID> {
         path: &BitVec<u8, Msb0>,
     ) -> Result<Option<Node>, BonsaiStorageError>
     where
-        BonsaiStorageError: std::convert::From<<DB as BonsaiDatabase>::DatabaseError>,
+        BonsaiStorageError: core::convert::From<<DB as BonsaiDatabase>::DatabaseError>,
     {
         let key = if path.is_empty() {
             vec![]
@@ -858,7 +862,7 @@ impl<H: StarkHash, DB: BonsaiDatabase, ID: Id> MerkleTree<H, DB, ID> {
     /// * `parent` - The parent node to merge the child with.
     fn merge_edges(&self, parent: &mut EdgeNode) -> Result<(), BonsaiStorageError>
     where
-        BonsaiStorageError: std::convert::From<<DB as BonsaiDatabase>::DatabaseError>,
+        BonsaiStorageError: core::convert::From<<DB as BonsaiDatabase>::DatabaseError>,
     {
         //TODO: Add deletion of unused nodes
         let child_node = match parent.child {

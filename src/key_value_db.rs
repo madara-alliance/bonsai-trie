@@ -1,5 +1,8 @@
+use alloc::collections::BTreeSet;
+use alloc::format;
+use alloc::string::ToString;
+use alloc::vec::Vec;
 use log::trace;
-use std::collections::BTreeSet;
 
 use crate::{
     bonsai_database::{BonsaiDatabase, BonsaiPersistentDatabase, KeyType},
@@ -67,7 +70,7 @@ impl<DB, ID> KeyValueDB<DB, ID>
 where
     DB: BonsaiDatabase,
     ID: Id,
-    BonsaiStorageError: std::convert::From<<DB as BonsaiDatabase>::DatabaseError>,
+    BonsaiStorageError: core::convert::From<<DB as BonsaiDatabase>::DatabaseError>,
 {
     pub(crate) fn new(underline_db: DB, config: KeyValueDBConfig, created_at: Option<ID>) -> Self {
         let mut changes_store = ChangeStore::new();
@@ -96,7 +99,7 @@ where
 
         // Insert flat db changes
         let mut batch = self.db.create_batch();
-        let current_changes = std::mem::take(&mut self.changes_store.current_changes);
+        let current_changes = core::mem::take(&mut self.changes_store.current_changes);
         for (key, change) in current_changes.serialize(&id).iter() {
             self.db
                 .insert(&KeyType::TrieLog(key), change, Some(&mut batch))?;
@@ -195,7 +198,7 @@ where
         id: ID,
     ) -> Result<Option<DB::Transaction>, BonsaiStorageError>
     where
-        BonsaiStorageError: std::convert::From<<DB::Transaction as BonsaiDatabase>::DatabaseError>,
+        BonsaiStorageError: core::convert::From<<DB::Transaction as BonsaiDatabase>::DatabaseError>,
     {
         let Some(change_id) = self.snap_holder.range(..=id).last() else {
             return Ok(None);
@@ -254,7 +257,8 @@ where
         transaction: KeyValueDB<DB::Transaction, ID>,
     ) -> Result<(), BonsaiStorageError>
     where
-        BonsaiStorageError: std::convert::From<<DB as BonsaiPersistentDatabase<ID>>::DatabaseError>,
+        BonsaiStorageError:
+            core::convert::From<<DB as BonsaiPersistentDatabase<ID>>::DatabaseError>,
     {
         let Some(created_at) = transaction.created_at else {
             return Err(BonsaiStorageError::Merge(

@@ -5,7 +5,6 @@ use std::{
     path::Path,
 };
 
-use log::trace;
 use rocksdb::{
     ColumnFamilyDescriptor, ColumnFamilyRef, Direction, Error, IteratorMode, MultiThreaded,
     OptimisticTransactionDB, OptimisticTransactionOptions, Options, ReadOptions,
@@ -17,6 +16,7 @@ use crate::{
     id::Id,
     BonsaiStorageError,
 };
+use log::trace;
 
 const TRIE_LOG_CF: &str = "trie_log";
 const TRIE_CF: &str = "trie";

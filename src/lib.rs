@@ -82,7 +82,11 @@
 //!     .unwrap();
 //! bonsai_storage.commit(id_builder.new_id()).unwrap();
 //! ```
+#![cfg_attr(not(feature = "std"), no_std)]
+extern crate alloc;
 
+use alloc::format;
+use alloc::vec::Vec;
 use bitvec::{order::Msb0, slice::BitSlice};
 use bonsai_database::BonsaiPersistentDatabase;
 use bonsai_database::KeyType;
@@ -155,7 +159,7 @@ impl<ChangeID, DB, H> BonsaiStorage<ChangeID, DB, H>
 where
     DB: BonsaiDatabase,
     ChangeID: id::Id,
-    BonsaiStorageError: std::convert::From<<DB as BonsaiDatabase>::DatabaseError>,
+    BonsaiStorageError: core::convert::From<<DB as BonsaiDatabase>::DatabaseError>,
     H: StarkHash,
 {
     /// Create a new bonsai storage instance
@@ -300,7 +304,7 @@ impl<ChangeID, DB, H> BonsaiStorage<ChangeID, DB, H>
 where
     DB: BonsaiDatabase + BonsaiPersistentDatabase<ChangeID>,
     ChangeID: id::Id,
-    BonsaiStorageError: std::convert::From<<DB as BonsaiDatabase>::DatabaseError>,
+    BonsaiStorageError: core::convert::From<<DB as BonsaiDatabase>::DatabaseError>,
     H: StarkHash,
 {
     /// Update trie and database using all changes since the last commit.
@@ -321,7 +325,7 @@ where
         config: BonsaiStorageConfig,
     ) -> Result<Option<BonsaiStorage<ChangeID, DB::Transaction, H>>, BonsaiStorageError>
     where
-        BonsaiStorageError: std::convert::From<<DB::Transaction as BonsaiDatabase>::DatabaseError>,
+        BonsaiStorageError: core::convert::From<<DB::Transaction as BonsaiDatabase>::DatabaseError>,
     {
         if let Some(transaction) = self.trie.db_ref().get_transaction(change_id)? {
             Ok(Some(BonsaiStorage::new_from_transactional_state(
@@ -346,7 +350,7 @@ where
     ) -> Result<(), BonsaiStorageError>
     where
         BonsaiStorageError:
-            std::convert::From<<DB as BonsaiPersistentDatabase<ChangeID>>::DatabaseError>,
+            core::convert::From<<DB as BonsaiPersistentDatabase<ChangeID>>::DatabaseError>,
     {
         self.trie
             .db_mut()
