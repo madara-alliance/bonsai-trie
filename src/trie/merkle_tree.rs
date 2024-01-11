@@ -727,7 +727,7 @@ impl<H: StarkHash, DB: BonsaiDatabase, ID: Id> MerkleTree<H, DB, ID> {
         self.db.contains(&TrieKeyType::Flat(key.to_vec()))
     }
 
-    /// Generates a merkle-proof for a given `key`.
+    /// Returns the list of nodes along the path.
     ///
     /// if it exists, or down to the node which proves that the key does not exist.
     ///
@@ -883,6 +883,7 @@ impl<H: StarkHash, DB: BonsaiDatabase, ID: Id> MerkleTree<H, DB, ID> {
         }
     }
 
+    /// preload_nodes from the current root towards the destination [Leaf](Node::Leaf) node.
     /// If the destination node exists, it will be the final node in the list.
     ///
     /// This means that the final node will always be either a the destination [Leaf](Node::Leaf)
