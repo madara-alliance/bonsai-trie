@@ -85,15 +85,16 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 extern crate alloc;
 
-use alloc::format;
-use alloc::vec::Vec;
+use crate::trie::merkle_tree::{Membership, MerkleTree, ProofNode};
+use alloc::{format, vec::Vec};
 use bitvec::{order::Msb0, slice::BitSlice};
-use bonsai_database::BonsaiPersistentDatabase;
-use bonsai_database::KeyType;
+use bonsai_database::{BonsaiPersistentDatabase, KeyType};
 use changes::ChangeBatch;
 use key_value_db::KeyValueDB;
-use starknet_types_core::{felt::Felt, hash::StarkHash};
-use trie::merkle_tree::MerkleTree;
+use starknet_types_core::{
+    felt::Felt,
+    hash::{Pedersen, StarkHash},
+};
 
 mod changes;
 mod key_value_db;
@@ -297,6 +298,34 @@ where
         self.trie.commit()?;
         self.trie.db_mut().commit(id)?;
         Ok(())
+    }
+
+    /// Generates a merkle-proof for a given `key`.
+    ///
+    /// Returns vector of [`TrieNode`] which form a chain from the root to the key,
+    /// if it exists, or down to the node which proves that the key does not exist.
+    ///
+    /// The nodes are returned in order, root first.
+    ///
+    /// Verification is performed by confirming that:
+    ///   1. the chain follows the path of `key`, and
+    ///   2. the hashes are correct, and
+    ///   3. the root hash matches the known root
+    pub fn get_proof(
+        &self,
+        key: &BitSlice<u8, Msb0>,
+    ) -> Result<Vec<ProofNode>, BonsaiStorageError> {
+        self.trie.get_proof(key)
+    }
+
+    /// Verifies a merkle-proof for a given `key` and `value`.
+    pub fn verify_proof(
+        root: Felt,
+        key: &BitSlice<u8, Msb0>,
+        value: Felt,
+        proofs: &[ProofNode],
+    ) -> Option<Membership> {
+        MerkleTree::<Pedersen, DB, ChangeID>::verify_proof(root, key, value, proofs)
     }
 }
 
