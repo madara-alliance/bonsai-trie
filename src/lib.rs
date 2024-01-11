@@ -85,7 +85,7 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 extern crate alloc;
 
-use crate::trie::merkle_tree::{Membership, MerkleTree, ProofNode};
+use crate::trie::merkle_tree::MerkleTree;
 use alloc::{format, vec::Vec};
 use bitvec::{order::Msb0, slice::BitSlice};
 use bonsai_database::{BonsaiPersistentDatabase, KeyType};
@@ -109,6 +109,7 @@ pub mod id;
 
 pub use bonsai_database::BonsaiDatabase;
 pub use error::BonsaiStorageError;
+pub use trie::merkle_tree::{Membership, ProofNode};
 
 #[cfg(test)]
 mod tests;
