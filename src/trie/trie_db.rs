@@ -1,4 +1,5 @@
 use crate::{bonsai_database::KeyType, changes::ChangeKeyType};
+#[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
 
 #[derive(Debug, Hash, PartialEq, Eq)]

@@ -1,8 +1,8 @@
-use alloc::collections::BTreeSet;
-use alloc::format;
-use alloc::string::ToString;
-use alloc::vec::Vec;
+#[cfg(not(feature = "std"))]
+use alloc::{collections::BTreeSet, format, string::ToString, vec::Vec};
 use log::trace;
+#[cfg(feature = "std")]
+use std::collections::BTreeSet;
 
 use crate::{
     bonsai_database::{BonsaiDatabase, BonsaiPersistentDatabase, KeyType},

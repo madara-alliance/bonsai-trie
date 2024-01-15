@@ -83,9 +83,11 @@
 //! bonsai_storage.commit(id_builder.new_id()).unwrap();
 //! ```
 #![cfg_attr(not(feature = "std"), no_std)]
+#[cfg(not(feature = "std"))]
 extern crate alloc;
 
-use crate::trie::merkle_tree::{Membership, MerkleTree, ProofNode};
+use crate::trie::merkle_tree::MerkleTree;
+#[cfg(not(feature = "std"))]
 use alloc::{format, vec::Vec};
 use bitvec::{order::Msb0, slice::BitSlice};
 use bonsai_database::{BonsaiPersistentDatabase, KeyType};

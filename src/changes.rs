@@ -1,11 +1,10 @@
 use crate::id::Id;
-use alloc::vec::Vec;
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "std")]
 use std::collections::{hash_map::Entry, HashMap, VecDeque};
 #[cfg(not(feature = "std"))]
 use {
-    alloc::collections::VecDeque,
+    alloc::{collections::VecDeque, vec::Vec},
     hashbrown::{hash_map::Entry, HashMap},
 };
 

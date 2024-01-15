@@ -1,4 +1,5 @@
 use crate::{changes::ChangeKeyType, error::BonsaiStorageError, id::Id};
+#[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
 
 #[derive(Debug, Hash, PartialEq, Eq)]

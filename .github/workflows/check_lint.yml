@@ -8,15 +8,6 @@ on:
 name: Check and Lint and wasm
 
 jobs:
-  check:
-    name: Check
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - name: Install rust
-        run: rustup show
-      - name: Check
-        run: cargo check
   build-wasm:
     name: Build wasm
     runs-on: ubuntu-latest
@@ -47,6 +38,7 @@ jobs:
         run: rustup show
       - name: Clippy all features
         run: cargo clippy --all-features
+
   clippy-default-features:
     name: Clippy
     runs-on: ubuntu-latest
@@ -54,7 +46,7 @@ jobs:
       - uses: actions/checkout@v3
       - name: Install rust
         run: rustup show
-      - name: Clippy all features
+      - name: Clippy default features
         run: cargo clippy
 
   clippy-wasm:
@@ -64,5 +56,5 @@ jobs:
       - uses: actions/checkout@v3
       - name: Install rust
         run: rustup show
-      - name: Clippy all features
-        run: cargo clippy
+      - name: Clippy wasm
+        run: cargo clippy --no-default-features

@@ -1,4 +1,7 @@
+#[cfg(feature = "std")]
 use std::collections::HashMap;
+#[cfg(not(feature = "std"))]
+use {alloc::string::String, hashbrown::HashMap};
 
 use bitvec::vec::BitVec;
 use pathfinder_common::{hash::PedersenHash, trie::TrieNode};

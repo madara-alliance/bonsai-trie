@@ -1,7 +1,5 @@
-use alloc::format;
-use alloc::string::ToString;
-use alloc::vec;
-use alloc::vec::Vec;
+#[cfg(not(feature = "std"))]
+use alloc::{format, string::ToString, vec, vec::Vec};
 use bitvec::{
     prelude::{BitSlice, BitVec, Msb0},
     view::BitView,
@@ -1202,7 +1200,7 @@ impl<H: StarkHash, DB: BonsaiDatabase, ID: Id> MerkleTree<H, DB, ID> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "std"))]
 mod tests {
     use crate::{
         databases::{create_rocks_db, RocksDB, RocksDBConfig},
@@ -1247,7 +1245,7 @@ mod tests {
         }
         let madara_elements = elements
             .iter()
-            .map(|felt| madara_felt_from_felt(felt))
+            .map(madara_felt_from_felt)
             .collect::<Vec<_>>();
         let rocks_db = create_rocks_db(std::path::Path::new(tempdir.path())).unwrap();
         let rocks_db = RocksDB::new(&rocks_db, RocksDBConfig::default());
