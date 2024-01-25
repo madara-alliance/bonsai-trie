@@ -42,6 +42,7 @@ jobs:
           tree;
           zip -0 ccov.zip `find . \( -name "$PROJECT_NAME_UNDERSCORE*.gc*" \) -print`;
           grcov ccov.zip -s . -t lcov --llvm --ignore-not-existing --ignore "/*" --ignore "tests/*" -o lcov.info;
+          cargo test $CARGO_OPTIONS --no-default-features
       - name: Upload test results
         uses: EnricoMi/publish-unit-test-result-action@v1
         with:

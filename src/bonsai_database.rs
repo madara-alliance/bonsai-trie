@@ -31,6 +31,9 @@ impl KeyType<'_> {
 /// Trait to be implemented on any type that can be used as a database.
 pub trait BonsaiDatabase {
     type Batch: Default;
+    #[cfg(feature = "std")]
+    type DatabaseError: std::error::Error + Into<BonsaiStorageError>;
+    #[cfg(not(feature = "std"))]
     type DatabaseError: Into<BonsaiStorageError>;
 
     /// Create a new empty batch of changes to be used in `insert`, `remove` and applied in database using `write_batch`.
@@ -78,6 +81,9 @@ pub trait BonsaiDatabase {
 }
 
 pub trait BonsaiPersistentDatabase<ID: Id> {
+    #[cfg(feature = "std")]
+    type DatabaseError: std::error::Error + Into<BonsaiStorageError>;
+    #[cfg(not(feature = "std"))]
     type DatabaseError: Into<BonsaiStorageError>;
     type Transaction: BonsaiDatabase;
     /// Save a snapshot of the current database state

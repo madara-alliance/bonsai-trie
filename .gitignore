@@ -2,3 +2,4 @@ target/
 rocksdb/
 .vscode/
 documentation/node_modules/
+Cargo.lock

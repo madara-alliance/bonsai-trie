@@ -1,8 +1,4 @@
-#[cfg(feature = "std")]
-use std::collections::HashMap;
-#[cfg(not(feature = "std"))]
-use {alloc::string::String, hashbrown::HashMap};
-
+#![cfg(feature = "std")]
 use bitvec::vec::BitVec;
 use pathfinder_common::{hash::PedersenHash, trie::TrieNode};
 use pathfinder_crypto::Felt as PathfinderFelt;
@@ -10,6 +6,7 @@ use pathfinder_merkle_tree::tree::{MerkleTree, TestStorage};
 use pathfinder_storage::{Node, StoredNode};
 use rand::Rng;
 use starknet_types_core::{felt::Felt, hash::Pedersen};
+use std::collections::HashMap;
 
 use crate::{
     databases::{create_rocks_db, RocksDB, RocksDBConfig},

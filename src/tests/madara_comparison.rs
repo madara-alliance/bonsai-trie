@@ -1,3 +1,4 @@
+#![cfg(feature = "std")]
 use bitvec::{bits, order::Msb0, vec::BitVec};
 use starknet_types_core::{felt::Felt, hash::Pedersen};
 

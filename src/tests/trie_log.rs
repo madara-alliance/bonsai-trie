@@ -1,3 +1,4 @@
+#![cfg(feature = "std")]
 use crate::{
     databases::{create_rocks_db, RocksDB, RocksDBConfig},
     id::BasicIdBuilder,

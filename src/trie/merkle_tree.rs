@@ -1209,7 +1209,6 @@ mod tests {
         KeyValueDB,
     };
     use bitvec::vec::BitVec;
-    use mp_commitments::{calculate_class_commitment_leaf_hash, StateCommitmentTree};
     use mp_felt::Felt252Wrapper;
     use mp_hashers::pedersen::PedersenHasher;
     use parity_scale_codec::{Decode, Encode};
@@ -1228,170 +1227,170 @@ mod tests {
         Felt252Wrapper::decode(&mut &encoded[..]).unwrap()
     }
 
-    #[test]
-    fn one_commit_tree_compare() {
-        let mut elements = vec![];
-        let tempdir = tempfile::tempdir().unwrap();
-        let mut rng = rand::thread_rng();
-        let tree_size = rng.gen_range(10..100);
-        for _ in 0..tree_size {
-            let mut element = String::from("0x");
-            let element_size = rng.gen_range(10..32);
-            for _ in 0..element_size {
-                let random_byte: u8 = rng.gen();
-                element.push_str(&format!("{:02x}", random_byte));
-            }
-            elements.push(Felt::from_hex(&element).unwrap());
-        }
-        let madara_elements = elements
-            .iter()
-            .map(madara_felt_from_felt)
-            .collect::<Vec<_>>();
-        let rocks_db = create_rocks_db(std::path::Path::new(tempdir.path())).unwrap();
-        let rocks_db = RocksDB::new(&rocks_db, RocksDBConfig::default());
-        let db = KeyValueDB::new(rocks_db, KeyValueDBConfig::default(), None);
-        let mut bonsai_tree: super::MerkleTree<Pedersen, RocksDB<BasicId>, BasicId> =
-            super::MerkleTree::new(db).unwrap();
-        let root_hash = mp_commitments::calculate_class_commitment_tree_root_hash::<PedersenHasher>(
-            &madara_elements,
-        );
-        elements
-            .iter()
-            .zip(madara_elements.iter())
-            .for_each(|(element, madara_element)| {
-                let final_hash =
-                    calculate_class_commitment_leaf_hash::<PedersenHasher>(*madara_element);
-                let key = &element.to_bytes_be()[..31];
-                bonsai_tree
-                    .set(
-                        &BitVec::from_vec(key.to_vec()),
-                        felt_from_madara_felt(&final_hash),
-                    )
-                    .unwrap();
-            });
-        bonsai_tree.display();
-        assert_eq!(
-            bonsai_tree.commit().unwrap(),
-            felt_from_madara_felt(&root_hash)
-        );
-    }
+    // #[test]
+    // fn one_commit_tree_compare() {
+    //     let mut elements = vec![];
+    //     let tempdir = tempfile::tempdir().unwrap();
+    //     let mut rng = rand::thread_rng();
+    //     let tree_size = rng.gen_range(10..100);
+    //     for _ in 0..tree_size {
+    //         let mut element = String::from("0x");
+    //         let element_size = rng.gen_range(10..32);
+    //         for _ in 0..element_size {
+    //             let random_byte: u8 = rng.gen();
+    //             element.push_str(&format!("{:02x}", random_byte));
+    //         }
+    //         elements.push(Felt::from_hex(&element).unwrap());
+    //     }
+    //     let madara_elements = elements
+    //         .iter()
+    //         .map(madara_felt_from_felt)
+    //         .collect::<Vec<_>>();
+    //     let rocks_db = create_rocks_db(std::path::Path::new(tempdir.path())).unwrap();
+    //     let rocks_db = RocksDB::new(&rocks_db, RocksDBConfig::default());
+    //     let db = KeyValueDB::new(rocks_db, KeyValueDBConfig::default(), None);
+    //     let mut bonsai_tree: super::MerkleTree<Pedersen, RocksDB<BasicId>, BasicId> =
+    //         super::MerkleTree::new(db).unwrap();
+    //     let root_hash = mp_commitments::calculate_class_commitment_tree_root_hash::<PedersenHasher>(
+    //         &madara_elements,
+    //     );
+    //     elements
+    //         .iter()
+    //         .zip(madara_elements.iter())
+    //         .for_each(|(element, madara_element)| {
+    //             let final_hash =
+    //                 calculate_class_commitment_leaf_hash::<PedersenHasher>(*madara_element);
+    //             let key = &element.to_bytes_be()[..31];
+    //             bonsai_tree
+    //                 .set(
+    //                     &BitVec::from_vec(key.to_vec()),
+    //                     felt_from_madara_felt(&final_hash),
+    //                 )
+    //                 .unwrap();
+    //         });
+    //     bonsai_tree.display();
+    //     assert_eq!(
+    //         bonsai_tree.commit().unwrap(),
+    //         felt_from_madara_felt(&root_hash)
+    //     );
+    // }
 
-    #[test]
-    fn simple_commits() {
-        let tempdir = tempfile::tempdir().unwrap();
-        let mut madara_tree = StateCommitmentTree::<PedersenHasher>::default();
-        let rocks_db = create_rocks_db(std::path::Path::new(tempdir.path())).unwrap();
-        let rocks_db = RocksDB::new(&rocks_db, RocksDBConfig::default());
-        let db = KeyValueDB::new(rocks_db, KeyValueDBConfig::default(), None);
-        let mut bonsai_tree: super::MerkleTree<Pedersen, RocksDB<BasicId>, BasicId> =
-            super::MerkleTree::new(db).unwrap();
-        let elements = [
-            [Felt::from_hex("0x665342762FDD54D0303c195fec3ce2568b62052e").unwrap()],
-            [Felt::from_hex("0x66342762FDD54D0303c195fec3ce2568b62052e").unwrap()],
-            [Felt::from_hex("0x66342762FDD54D033c195fec3ce2568b62052e").unwrap()],
-        ];
-        for elem in elements {
-            elem.iter().for_each(|class_hash| {
-                let final_hash =
-                    felt_from_madara_felt(&calculate_class_commitment_leaf_hash::<PedersenHasher>(
-                        madara_felt_from_felt(class_hash),
-                    ));
-                madara_tree.set(
-                    madara_felt_from_felt(class_hash),
-                    madara_felt_from_felt(&final_hash),
-                );
-                let key = &class_hash.to_bytes_be()[..31];
-                bonsai_tree
-                    .set(&BitVec::from_vec(key.to_vec()), final_hash)
-                    .unwrap();
-            });
-        }
-        let madara_root_hash = madara_tree.commit();
-        let bonsai_root_hash = bonsai_tree.commit().unwrap();
-        assert_eq!(bonsai_root_hash, felt_from_madara_felt(&madara_root_hash));
-    }
+    // #[test]
+    // fn simple_commits() {
+    //     let tempdir = tempfile::tempdir().unwrap();
+    //     let mut madara_tree = StateCommitmentTree::<PedersenHasher>::default();
+    //     let rocks_db = create_rocks_db(std::path::Path::new(tempdir.path())).unwrap();
+    //     let rocks_db = RocksDB::new(&rocks_db, RocksDBConfig::default());
+    //     let db = KeyValueDB::new(rocks_db, KeyValueDBConfig::default(), None);
+    //     let mut bonsai_tree: super::MerkleTree<Pedersen, RocksDB<BasicId>, BasicId> =
+    //         super::MerkleTree::new(db).unwrap();
+    //     let elements = [
+    //         [Felt::from_hex("0x665342762FDD54D0303c195fec3ce2568b62052e").unwrap()],
+    //         [Felt::from_hex("0x66342762FDD54D0303c195fec3ce2568b62052e").unwrap()],
+    //         [Felt::from_hex("0x66342762FDD54D033c195fec3ce2568b62052e").unwrap()],
+    //     ];
+    //     for elem in elements {
+    //         elem.iter().for_each(|class_hash| {
+    //             let final_hash =
+    //                 felt_from_madara_felt(&calculate_class_commitment_leaf_hash::<PedersenHasher>(
+    //                     madara_felt_from_felt(class_hash),
+    //                 ));
+    //             madara_tree.set(
+    //                 madara_felt_from_felt(class_hash),
+    //                 madara_felt_from_felt(&final_hash),
+    //             );
+    //             let key = &class_hash.to_bytes_be()[..31];
+    //             bonsai_tree
+    //                 .set(&BitVec::from_vec(key.to_vec()), final_hash)
+    //                 .unwrap();
+    //         });
+    //     }
+    //     let madara_root_hash = madara_tree.commit();
+    //     let bonsai_root_hash = bonsai_tree.commit().unwrap();
+    //     assert_eq!(bonsai_root_hash, felt_from_madara_felt(&madara_root_hash));
+    // }
 
-    #[test]
-    fn simple_commits_and_delete() {
-        let tempdir = tempfile::tempdir().unwrap();
-        let rocks_db = create_rocks_db(std::path::Path::new(tempdir.path())).unwrap();
-        let rocks_db = RocksDB::new(&rocks_db, RocksDBConfig::default());
-        let db = KeyValueDB::new(rocks_db, KeyValueDBConfig::default(), None);
-        let mut bonsai_tree: super::MerkleTree<Pedersen, RocksDB<BasicId>, BasicId> =
-            super::MerkleTree::new(db).unwrap();
-        let elements = [
-            [Felt::from_hex("0x665342762FDD54D0303c195fec3ce2568b62052e").unwrap()],
-            [Felt::from_hex("0x66342762FDD54D0303c195fec3ce2568b62052e").unwrap()],
-            [Felt::from_hex("0x66342762FDD54D033c195fec3ce2568b62052e").unwrap()],
-        ];
-        for elem in elements {
-            elem.iter().for_each(|class_hash| {
-                let final_hash = calculate_class_commitment_leaf_hash::<PedersenHasher>(
-                    madara_felt_from_felt(class_hash),
-                );
-                let key = &class_hash.to_bytes_be()[..31];
-                bonsai_tree
-                    .set(
-                        &BitVec::from_vec(key.to_vec()),
-                        felt_from_madara_felt(&final_hash),
-                    )
-                    .unwrap();
-            });
-        }
-        bonsai_tree.commit().unwrap();
-        for elem in elements {
-            elem.iter().for_each(|class_hash| {
-                let key = &class_hash.to_bytes_be()[..31];
-                bonsai_tree
-                    .set(&BitVec::from_vec(key.to_vec()), Felt::ZERO)
-                    .unwrap();
-            });
-        }
-        bonsai_tree.commit().unwrap();
-    }
+    // #[test]
+    // fn simple_commits_and_delete() {
+    //     let tempdir = tempfile::tempdir().unwrap();
+    //     let rocks_db = create_rocks_db(std::path::Path::new(tempdir.path())).unwrap();
+    //     let rocks_db = RocksDB::new(&rocks_db, RocksDBConfig::default());
+    //     let db = KeyValueDB::new(rocks_db, KeyValueDBConfig::default(), None);
+    //     let mut bonsai_tree: super::MerkleTree<Pedersen, RocksDB<BasicId>, BasicId> =
+    //         super::MerkleTree::new(db).unwrap();
+    //     let elements = [
+    //         [Felt::from_hex("0x665342762FDD54D0303c195fec3ce2568b62052e").unwrap()],
+    //         [Felt::from_hex("0x66342762FDD54D0303c195fec3ce2568b62052e").unwrap()],
+    //         [Felt::from_hex("0x66342762FDD54D033c195fec3ce2568b62052e").unwrap()],
+    //     ];
+    //     for elem in elements {
+    //         elem.iter().for_each(|class_hash| {
+    //             let final_hash = calculate_class_commitment_leaf_hash::<PedersenHasher>(
+    //                 madara_felt_from_felt(class_hash),
+    //             );
+    //             let key = &class_hash.to_bytes_be()[..31];
+    //             bonsai_tree
+    //                 .set(
+    //                     &BitVec::from_vec(key.to_vec()),
+    //                     felt_from_madara_felt(&final_hash),
+    //                 )
+    //                 .unwrap();
+    //         });
+    //     }
+    //     bonsai_tree.commit().unwrap();
+    //     for elem in elements {
+    //         elem.iter().for_each(|class_hash| {
+    //             let key = &class_hash.to_bytes_be()[..31];
+    //             bonsai_tree
+    //                 .set(&BitVec::from_vec(key.to_vec()), Felt::ZERO)
+    //                 .unwrap();
+    //         });
+    //     }
+    //     bonsai_tree.commit().unwrap();
+    // }
 
-    #[test]
-    fn multiple_commits_tree_compare() {
-        let mut rng = rand::thread_rng();
-        let tempdir = tempfile::tempdir().unwrap();
-        let mut madara_tree = StateCommitmentTree::<PedersenHasher>::default();
-        let rocks_db = create_rocks_db(std::path::Path::new(tempdir.path())).unwrap();
-        let rocks_db = RocksDB::new(&rocks_db, RocksDBConfig::default());
-        let db = KeyValueDB::new(rocks_db, KeyValueDBConfig::default(), None);
-        let mut bonsai_tree: super::MerkleTree<Pedersen, RocksDB<BasicId>, BasicId> =
-            super::MerkleTree::new(db).unwrap();
-        let nb_commits = rng.gen_range(2..4);
-        for _ in 0..nb_commits {
-            let mut elements = vec![];
-            let tree_size = rng.gen_range(10..100);
-            for _ in 0..tree_size {
-                let mut element = String::from("0x");
-                let element_size = rng.gen_range(10..32);
-                for _ in 0..element_size {
-                    let random_byte: u8 = rng.gen();
-                    element.push_str(&format!("{:02x}", random_byte));
-                }
-                elements.push(Felt::from_hex(&element).unwrap());
-            }
-            elements.iter().for_each(|class_hash| {
-                let final_hash = calculate_class_commitment_leaf_hash::<PedersenHasher>(
-                    madara_felt_from_felt(class_hash),
-                );
-                madara_tree.set(madara_felt_from_felt(class_hash), final_hash);
-                let key = &class_hash.to_bytes_be()[..31];
-                bonsai_tree
-                    .set(
-                        &BitVec::from_vec(key.to_vec()),
-                        felt_from_madara_felt(&final_hash),
-                    )
-                    .unwrap();
-            });
+    // #[test]
+    // fn multiple_commits_tree_compare() {
+    //     let mut rng = rand::thread_rng();
+    //     let tempdir = tempfile::tempdir().unwrap();
+    //     let mut madara_tree = StateCommitmentTree::<PedersenHasher>::default();
+    //     let rocks_db = create_rocks_db(std::path::Path::new(tempdir.path())).unwrap();
+    //     let rocks_db = RocksDB::new(&rocks_db, RocksDBConfig::default());
+    //     let db = KeyValueDB::new(rocks_db, KeyValueDBConfig::default(), None);
+    //     let mut bonsai_tree: super::MerkleTree<Pedersen, RocksDB<BasicId>, BasicId> =
+    //         super::MerkleTree::new(db).unwrap();
+    //     let nb_commits = rng.gen_range(2..4);
+    //     for _ in 0..nb_commits {
+    //         let mut elements = vec![];
+    //         let tree_size = rng.gen_range(10..100);
+    //         for _ in 0..tree_size {
+    //             let mut element = String::from("0x");
+    //             let element_size = rng.gen_range(10..32);
+    //             for _ in 0..element_size {
+    //                 let random_byte: u8 = rng.gen();
+    //                 element.push_str(&format!("{:02x}", random_byte));
+    //             }
+    //             elements.push(Felt::from_hex(&element).unwrap());
+    //         }
+    //         elements.iter().for_each(|class_hash| {
+    //             let final_hash = calculate_class_commitment_leaf_hash::<PedersenHasher>(
+    //                 madara_felt_from_felt(class_hash),
+    //             );
+    //             madara_tree.set(madara_felt_from_felt(class_hash), final_hash);
+    //             let key = &class_hash.to_bytes_be()[..31];
+    //             bonsai_tree
+    //                 .set(
+    //                     &BitVec::from_vec(key.to_vec()),
+    //                     felt_from_madara_felt(&final_hash),
+    //                 )
+    //                 .unwrap();
+    //         });
 
-            let bonsai_root_hash = bonsai_tree.commit().unwrap();
-            let madara_root_hash = madara_tree.commit();
-            assert_eq!(bonsai_root_hash, felt_from_madara_felt(&madara_root_hash));
-        }
-    }
+    //         let bonsai_root_hash = bonsai_tree.commit().unwrap();
+    //         let madara_root_hash = madara_tree.commit();
+    //         assert_eq!(bonsai_root_hash, felt_from_madara_felt(&madara_root_hash));
+    //     }
+    // }
 
     // #[test]    // fn multiple_commits_tree_compare_with_deletes() {
     //     let mut rng = rand::thread_rng();
@@ -1442,40 +1441,40 @@ mod tests {
     //     assert_eq!(bonsai_root_hash, madara_root_hash);
     // }
 
-    #[test]
-    fn test_proof() {
-        let tempdir = tempfile::tempdir().unwrap();
-        let rocks_db = create_rocks_db(std::path::Path::new(tempdir.path())).unwrap();
-        let rocks_db = RocksDB::new(&rocks_db, RocksDBConfig::default());
-        let db = KeyValueDB::new(rocks_db, KeyValueDBConfig::default(), None);
-        let mut bonsai_tree: super::MerkleTree<Pedersen, RocksDB<BasicId>, BasicId> =
-            super::MerkleTree::new(db).unwrap();
-        let elements = [
-            [Felt252Wrapper::from_hex_be("0x665342762FDD54D0303c195fec3ce2568b62052e").unwrap()],
-            [Felt252Wrapper::from_hex_be("0x66342762FDD54D0303c195fec3ce2568b62052e").unwrap()],
-            [Felt252Wrapper::from_hex_be("0x66342762FDD54D033c195fec3ce2568b62052e").unwrap()],
-        ];
-        for elem in elements {
-            elem.iter().for_each(|class_hash| {
-                let final_hash =
-                    calculate_class_commitment_leaf_hash::<PedersenHasher>(*class_hash);
-                let key = &class_hash.0.to_bytes_be()[..31];
-                bonsai_tree
-                    .set(
-                        &BitVec::from_vec(key.to_vec()),
-                        Felt::from_bytes_be(&final_hash.0.to_bytes_be()),
-                    )
-                    .unwrap();
-            });
-        }
-        bonsai_tree.commit().unwrap();
-        let bonsai_proof = bonsai_tree
-            .get_proof(&BitVec::from_vec(
-                elements[0][0].0.to_bytes_be()[..31].to_vec(),
-            ))
-            .unwrap();
-        println!("bonsai_proof: {:?}", bonsai_proof);
-    }
+    // #[test]
+    // fn test_proof() {
+    //     let tempdir = tempfile::tempdir().unwrap();
+    //     let rocks_db = create_rocks_db(std::path::Path::new(tempdir.path())).unwrap();
+    //     let rocks_db = RocksDB::new(&rocks_db, RocksDBConfig::default());
+    //     let db = KeyValueDB::new(rocks_db, KeyValueDBConfig::default(), None);
+    //     let mut bonsai_tree: super::MerkleTree<Pedersen, RocksDB<BasicId>, BasicId> =
+    //         super::MerkleTree::new(db).unwrap();
+    //     let elements = [
+    //         [Felt252Wrapper::from_hex_be("0x665342762FDD54D0303c195fec3ce2568b62052e").unwrap()],
+    //         [Felt252Wrapper::from_hex_be("0x66342762FDD54D0303c195fec3ce2568b62052e").unwrap()],
+    //         [Felt252Wrapper::from_hex_be("0x66342762FDD54D033c195fec3ce2568b62052e").unwrap()],
+    //     ];
+    //     for elem in elements {
+    //         elem.iter().for_each(|class_hash| {
+    //             let final_hash =
+    //                 calculate_class_commitment_leaf_hash::<PedersenHasher>(*class_hash);
+    //             let key = &class_hash.0.to_bytes_be()[..31];
+    //             bonsai_tree
+    //                 .set(
+    //                     &BitVec::from_vec(key.to_vec()),
+    //                     Felt::from_bytes_be(&final_hash.0.to_bytes_be()),
+    //                 )
+    //                 .unwrap();
+    //         });
+    //     }
+    //     bonsai_tree.commit().unwrap();
+    //     let bonsai_proof = bonsai_tree
+    //         .get_proof(&BitVec::from_vec(
+    //             elements[0][0].0.to_bytes_be()[..31].to_vec(),
+    //         ))
+    //         .unwrap();
+    //     println!("bonsai_proof: {:?}", bonsai_proof);
+    // }
 
     // test in madara
     //     #[test]

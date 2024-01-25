@@ -5,18 +5,18 @@ on:
       - oss
 
 
-name: Check and Lint and wasm
+name: Check and Lint and no-std
 
 jobs:
-  build-wasm:
-    name: Build wasm
+  build-no-std:
+    name: Build no-std
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
       - name: Install rust
         working-directory: ./ensure_no_std
         run: rustup show
-      - name: Build wasm
+      - name: Build no-std
         run: cargo build
         
   fmt:
@@ -49,12 +49,12 @@ jobs:
       - name: Clippy default features
         run: cargo clippy
 
-  clippy-wasm:
+  clippy-no-std:
     name: Clippy
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
       - name: Install rust
         run: rustup show
-      - name: Clippy wasm
+      - name: Clippy no-std
         run: cargo clippy --no-default-features
