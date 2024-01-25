@@ -1,5 +1,6 @@
+#![cfg(feature = "std")]
 use bitvec::{bits, order::Msb0, vec::BitVec};
-use mp_felt::Felt252Wrapper;
+use starknet_types_core::{felt::Felt, hash::Pedersen};
 
 use crate::{
     databases::{create_rocks_db, RocksDB, RocksDBConfig},
@@ -12,12 +13,12 @@ fn trie_height_251() {
     let tempdir = tempfile::tempdir().unwrap();
     let db = create_rocks_db(tempdir.path()).unwrap();
     let config = BonsaiStorageConfig::default();
-    let mut bonsai_storage =
+    let mut bonsai_storage: BonsaiStorage<_, _, Pedersen> =
         BonsaiStorage::new(RocksDB::new(&db, RocksDBConfig::default()), config).unwrap();
     for i in 0..251 {
         let mut key: BitVec<u8, Msb0> = bits![u8, Msb0; 0; 251].to_bitvec();
         key.set(i, true);
-        let value = Felt252Wrapper::from_hex_be("0x01").unwrap();
+        let value = Felt::from_hex("0x01").unwrap();
         bonsai_storage.insert(key.as_bitslice(), &value).unwrap();
     }
     let mut id_builder = BasicIdBuilder::new();
@@ -32,7 +33,7 @@ fn trie_height_251() {
 //     for i in 0..251 {
 //         let mut key: BitVec<u8, Msb0> = bits![u8, Msb0; 0; 251].to_bitvec();
 //         key.set(i, true);
-//         let value = Felt252Wrapper::from_hex_be("0x01").unwrap();
+//         let value = Felt::from_hex_be("0x01").unwrap();
 //         tree.set(key.as_bitslice(), value);
 //     }
 //     let root_hash = tree.commit();

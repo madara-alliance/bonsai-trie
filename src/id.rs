@@ -1,4 +1,6 @@
-use std::{fmt::Debug, hash};
+#[cfg(not(feature = "std"))]
+use alloc::vec::Vec;
+use core::{fmt::Debug, hash};
 
 /// Trait to be implemented on any type that can be used as an ID.
 pub trait Id: hash::Hash + PartialEq + Eq + PartialOrd + Ord + Debug + Copy {

@@ -1,23 +1,24 @@
+#![cfg(feature = "std")]
 use crate::{
     databases::{create_rocks_db, RocksDB, RocksDBConfig},
     id::BasicIdBuilder,
     BonsaiStorage, BonsaiStorageConfig, BonsaiTrieHash,
 };
 use bitvec::vec::BitVec;
-use mp_felt::Felt252Wrapper;
+use starknet_types_core::{felt::Felt, hash::Pedersen};
 
 #[test]
 fn basics() {
     let tempdir = tempfile::tempdir().unwrap();
     let db = create_rocks_db(tempdir.path()).unwrap();
     let config = BonsaiStorageConfig::default();
-    let mut bonsai_storage =
+    let mut bonsai_storage: BonsaiStorage<_, _, Pedersen> =
         BonsaiStorage::new(RocksDB::new(&db, RocksDBConfig::default()), config).unwrap();
     let mut id_builder = BasicIdBuilder::new();
 
     let pair1 = (
         vec![1, 2, 1],
-        &Felt252Wrapper::from_hex_be("0x16342762FDD54D033c195fec3ce2568b62052e").unwrap(),
+        &Felt::from_hex("0x16342762FDD54D033c195fec3ce2568b62052e").unwrap(),
     );
     let id1 = id_builder.new_id();
     let bitvec = BitVec::from_vec(pair1.0.clone());
@@ -28,7 +29,7 @@ fn basics() {
     let id2 = id_builder.new_id();
     let pair2 = (
         vec![1, 2, 2],
-        &Felt252Wrapper::from_hex_be("0x66342762FDD54D3c195fec3ce2568b62052e").unwrap(),
+        &Felt::from_hex("0x66342762FDD54D3c195fec3ce2568b62052e").unwrap(),
     );
     let bitvec = BitVec::from_vec(pair2.0.clone());
     bonsai_storage.insert(&bitvec, pair2.1).unwrap();
@@ -55,13 +56,13 @@ fn unrecorded_revert() {
     let tempdir = tempfile::tempdir().unwrap();
     let db = create_rocks_db(tempdir.path()).unwrap();
     let config = BonsaiStorageConfig::default();
-    let mut bonsai_storage =
+    let mut bonsai_storage: BonsaiStorage<_, _, Pedersen> =
         BonsaiStorage::new(RocksDB::new(&db, RocksDBConfig::default()), config).unwrap();
     let mut id_builder = BasicIdBuilder::new();
 
     let pair1 = (
         vec![1, 2, 3],
-        Felt252Wrapper::from_hex_be("0x66342762FDD54D3c195fec3ce2568b62052e").unwrap(),
+        Felt::from_hex("0x66342762FDD54D3c195fec3ce2568b62052e").unwrap(),
     );
     let id1 = id_builder.new_id();
     let bitvec = BitVec::from_vec(pair1.0.clone());
@@ -77,7 +78,7 @@ fn in_place_revert() {
     let tempdir = tempfile::tempdir().unwrap();
     let db = create_rocks_db(tempdir.path()).unwrap();
     let config = BonsaiStorageConfig::default();
-    let mut bonsai_storage =
+    let mut bonsai_storage: BonsaiStorage<_, _, Pedersen> =
         BonsaiStorage::new(RocksDB::new(&db, RocksDBConfig::default()), config).unwrap();
     let mut id_builder = BasicIdBuilder::new();
 
@@ -97,13 +98,13 @@ fn truncated_revert() {
     let tempdir = tempfile::tempdir().unwrap();
     let db = create_rocks_db(tempdir.path()).unwrap();
     let config = BonsaiStorageConfig::default();
-    let mut bonsai_storage =
+    let mut bonsai_storage: BonsaiStorage<_, _, Pedersen> =
         BonsaiStorage::new(RocksDB::new(&db, RocksDBConfig::default()), config).unwrap();
     let mut id_builder = BasicIdBuilder::new();
 
     let pair1 = (
         vec![1, 2, 1],
-        &Felt252Wrapper::from_hex_be("0x16342762FDD54D033c195fec3ce2568b62052e").unwrap(),
+        &Felt::from_hex("0x16342762FDD54D033c195fec3ce2568b62052e").unwrap(),
     );
     let id1 = id_builder.new_id();
     let bitvec = BitVec::from_vec(pair1.0.clone());
@@ -114,7 +115,7 @@ fn truncated_revert() {
     let id2 = id_builder.new_id();
     let pair2 = (
         vec![1, 2, 2],
-        &Felt252Wrapper::from_hex_be("0x66342762FDD54D3c195fec3ce2568b62052e").unwrap(),
+        &Felt::from_hex("0x66342762FDD54D3c195fec3ce2568b62052e").unwrap(),
     );
     let bitvec = BitVec::from_vec(pair2.0.clone());
     bonsai_storage.insert(&bitvec, pair2.1).unwrap();
@@ -132,13 +133,13 @@ fn double_revert() {
     let tempdir = tempfile::tempdir().unwrap();
     let db = create_rocks_db(tempdir.path()).unwrap();
     let config = BonsaiStorageConfig::default();
-    let mut bonsai_storage =
+    let mut bonsai_storage: BonsaiStorage<_, _, Pedersen> =
         BonsaiStorage::new(RocksDB::new(&db, RocksDBConfig::default()), config).unwrap();
     let mut id_builder = BasicIdBuilder::new();
 
     let pair1 = (
         vec![1, 2, 1],
-        &Felt252Wrapper::from_hex_be("0x16342762FDD54D033c195fec3ce2568b62052e").unwrap(),
+        &Felt::from_hex("0x16342762FDD54D033c195fec3ce2568b62052e").unwrap(),
     );
     let id1 = id_builder.new_id();
     let bitvec = BitVec::from_vec(pair1.0.clone());
@@ -149,7 +150,7 @@ fn double_revert() {
     let id2 = id_builder.new_id();
     let pair2 = (
         vec![1, 2, 2],
-        &Felt252Wrapper::from_hex_be("0x66342762FDD54D3c195fec3ce2568b62052e").unwrap(),
+        &Felt::from_hex("0x66342762FDD54D3c195fec3ce2568b62052e").unwrap(),
     );
     let bitvec = BitVec::from_vec(pair2.0.clone());
     bonsai_storage.insert(&bitvec, pair2.1).unwrap();
@@ -169,13 +170,13 @@ fn remove_and_reinsert() {
     let tempdir = tempfile::tempdir().unwrap();
     let db = create_rocks_db(tempdir.path()).unwrap();
     let config = BonsaiStorageConfig::default();
-    let mut bonsai_storage =
+    let mut bonsai_storage: BonsaiStorage<_, _, Pedersen> =
         BonsaiStorage::new(RocksDB::new(&db, RocksDBConfig::default()), config).unwrap();
     let mut id_builder = BasicIdBuilder::new();
 
     let pair1 = (
         vec![1, 2, 3],
-        Felt252Wrapper::from_hex_be("0x66342762FDD54D3c195fec3ce2568b62052e").unwrap(),
+        Felt::from_hex("0x66342762FDD54D3c195fec3ce2568b62052e").unwrap(),
     );
     let id1 = id_builder.new_id();
     let bitvec = BitVec::from_vec(pair1.0.clone());

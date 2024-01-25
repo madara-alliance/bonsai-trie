@@ -1,3 +1,5 @@
+#[cfg(not(feature = "std"))]
+use alloc::string::String;
 /// All errors that can be returned by BonsaiStorage.
 #[derive(Debug)]
 pub enum BonsaiStorageError {

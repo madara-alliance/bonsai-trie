@@ -6,8 +6,8 @@
 
 use bitvec::order::Msb0;
 use bitvec::slice::BitSlice;
-use mp_felt::Felt252Wrapper;
 use parity_scale_codec::{Decode, Encode};
+use starknet_types_core::felt::Felt;
 
 use super::merkle_tree::Path;
 
@@ -33,7 +33,7 @@ pub enum Node {
     /// A node that has not been fetched from storage yet.
     ///
     /// As such, all we know is its hash.
-    Unresolved(Felt252Wrapper),
+    Unresolved(Felt),
     /// A branch node with exactly two children.
     Binary(BinaryNode),
     /// Describes a path connecting two other nodes.
@@ -42,7 +42,7 @@ pub enum Node {
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Encode, Decode)]
 pub enum NodeHandle {
-    Hash(Felt252Wrapper),
+    Hash(Felt),
     InMemory(NodeId),
 }
 
@@ -50,7 +50,7 @@ pub enum NodeHandle {
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Encode, Decode)]
 pub struct BinaryNode {
     /// The hash of this node.
-    pub hash: Option<Felt252Wrapper>,
+    pub hash: Option<Felt>,
     /// The height of this node in the tree.
     pub height: u64,
     /// [Left](Direction::Left) child.
@@ -64,7 +64,7 @@ pub struct BinaryNode {
 pub struct EdgeNode {
     /// The hash of this node. Is [None] if the node
     /// has not yet been committed.
-    pub hash: Option<Felt252Wrapper>,
+    pub hash: Option<Felt>,
     /// The starting height of this node in the tree.
     pub height: u64,
     /// The path this edge takes.
@@ -157,12 +157,12 @@ impl BinaryNode {
 
 impl Node {
     /// Returns true if the node represents an empty node -- this is defined as a node
-    /// with the [Felt252Wrapper::ZERO].
+    /// with the [Felt::ZERO].
     ///
     /// This can occur for the root node in an empty graph.
     pub fn is_empty(&self) -> bool {
         match self {
-            Node::Unresolved(hash) => hash == &Felt252Wrapper::ZERO,
+            Node::Unresolved(hash) => hash == &Felt::ZERO,
             _ => false,
         }
     }
@@ -180,7 +180,7 @@ impl Node {
         }
     }
 
-    pub fn hash(&self) -> Option<Felt252Wrapper> {
+    pub fn hash(&self) -> Option<Felt> {
         match self {
             Node::Unresolved(hash) => Some(*hash),
             Node::Binary(binary) => binary.hash,
