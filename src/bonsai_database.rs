@@ -1,8 +1,8 @@
-#[cfg(feature = "std")]
-use std::error::Error;
 use crate::id::Id;
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
+#[cfg(feature = "std")]
+use std::error::Error;
 
 /// Key in the database of the different elements that can be stored in the database.
 #[derive(Debug, Hash, PartialEq, Eq)]

@@ -200,13 +200,19 @@ where
 
     /// Remove a key/value in the trie
     /// If the value doesn't exist it will do nothing
-    pub fn remove(&mut self, key: &BitSlice<u8, Msb0>) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
+    pub fn remove(
+        &mut self,
+        key: &BitSlice<u8, Msb0>,
+    ) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
         self.trie.set(key, Felt::ZERO)?;
         Ok(())
     }
 
     /// Get a value in the trie.
-    pub fn get(&self, key: &BitSlice<u8, Msb0>) -> Result<Option<Felt>, BonsaiStorageError<DB::DatabaseError>> {
+    pub fn get(
+        &self,
+        key: &BitSlice<u8, Msb0>,
+    ) -> Result<Option<Felt>, BonsaiStorageError<DB::DatabaseError>> {
         self.trie.get(key)
     }
 

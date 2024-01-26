@@ -4,10 +4,7 @@ use crate::{
     BonsaiDatabase,
 };
 #[cfg(not(feature = "std"))]
-use alloc::{
-    vec::Vec,
-    collections::BTreeMap,
-};
+use alloc::{collections::BTreeMap, vec::Vec};
 use core::{fmt, fmt::Display};
 #[cfg(not(feature = "std"))]
 use hashbrown::HashMap;

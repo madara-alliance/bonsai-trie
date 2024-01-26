@@ -25,7 +25,9 @@ where
     NodeDecodeError(parity_scale_codec::Error),
 }
 
-impl<DatabaseError: DBError> core::convert::From<DatabaseError> for BonsaiStorageError<DatabaseError> {
+impl<DatabaseError: DBError> core::convert::From<DatabaseError>
+    for BonsaiStorageError<DatabaseError>
+{
     fn from(value: DatabaseError) -> Self {
         Self::Database(value)
     }
@@ -38,7 +40,6 @@ impl<DatabaseError: DBError> core::convert::From<parity_scale_codec::Error>
         Self::NodeDecodeError(value)
     }
 }
-
 
 #[cfg(feature = "std")]
 impl<DatabaseError> Display for BonsaiStorageError<DatabaseError>
