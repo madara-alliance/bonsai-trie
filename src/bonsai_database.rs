@@ -1,6 +1,8 @@
+#[cfg(feature = "std")]
 use std::error::Error;
-
 use crate::id::Id;
+#[cfg(not(feature = "std"))]
+use alloc::vec::Vec;
 
 /// Key in the database of the different elements that can be stored in the database.
 #[derive(Debug, Hash, PartialEq, Eq)]
@@ -20,12 +22,19 @@ impl DatabaseKey<'_> {
     }
 }
 
+#[cfg(feature = "std")]
 pub trait DBError: Error + Send + Sync {}
+
+#[cfg(not(feature = "std"))]
+pub trait DBError: Send + Sync {}
 
 /// Trait to be implemented on any type that can be used as a database.
 pub trait BonsaiDatabase {
     type Batch: Default;
+    #[cfg(feature = "std")]
     type DatabaseError: Error + DBError;
+    #[cfg(not(feature = "std"))]
+    type DatabaseError: DBError;
 
     /// Create a new empty batch of changes to be used in `insert`, `remove` and applied in database using `write_batch`.
     fn create_batch(&self) -> Self::Batch;
@@ -72,8 +81,11 @@ pub trait BonsaiDatabase {
 }
 
 pub trait BonsaiPersistentDatabase<ID: Id> {
-    type DatabaseError: Error + DBError;
     type Transaction: BonsaiDatabase<DatabaseError = Self::DatabaseError>;
+    #[cfg(feature = "std")]
+    type DatabaseError: Error + DBError;
+    #[cfg(not(feature = "std"))]
+    type DatabaseError: DBError;
     /// Save a snapshot of the current database state
     /// This function returns a snapshot id that can be used to create a transaction
     fn snapshot(&mut self, id: ID);

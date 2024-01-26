@@ -1,5 +1,8 @@
 use crate::bonsai_database::DatabaseKey;
 
+#[cfg(not(feature = "std"))]
+use alloc::vec::Vec;
+
 /// Key in the database of the different elements that are used in the storage of the trie data.
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub enum TrieKey {

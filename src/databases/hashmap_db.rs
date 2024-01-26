@@ -1,46 +1,37 @@
-use std::{
-    collections::{BTreeMap, HashMap},
-    error::Error,
-    fmt::Display,
-};
-
 use crate::{
     bonsai_database::{BonsaiPersistentDatabase, DBError},
     id::Id,
     BonsaiDatabase,
 };
+#[cfg(not(feature = "std"))]
+use alloc::{
+    vec::Vec,
+    collections::BTreeMap,
+};
+use core::{fmt, fmt::Display};
+#[cfg(not(feature = "std"))]
+use hashbrown::HashMap;
+#[cfg(feature = "std")]
+use std::collections::{BTreeMap, HashMap};
 
 #[derive(Debug)]
 pub struct HashMapDbError {}
 
+#[cfg(feature = "std")]
+impl std::error::Error for HashMapDbError {}
+
 impl Display for HashMapDbError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "")
     }
 }
 
-impl Error for HashMapDbError {}
-
 impl DBError for HashMapDbError {}
 
-#[derive(Clone)]
-pub struct HashMapDbConfig {}
-
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct HashMapDb<ID: Id> {
-    config: HashMapDbConfig,
     db: HashMap<Vec<u8>, Vec<u8>>,
     snapshots: BTreeMap<ID, HashMapDb<ID>>,
-}
-
-impl<ID: Id> HashMapDb<ID> {
-    pub fn new(config: HashMapDbConfig) -> Self {
-        Self {
-            config,
-            db: HashMap::new(),
-            snapshots: BTreeMap::new(),
-        }
-    }
 }
 
 impl<ID: Id> BonsaiDatabase for HashMapDb<ID> {
@@ -115,7 +106,7 @@ impl<ID: Id> BonsaiDatabase for HashMapDb<ID> {
 
     #[cfg(test)]
     fn dump_database(&self) {
-        println!("{:?}", self.db);
+        log::debug!("{:?}", self.db);
     }
 }
 

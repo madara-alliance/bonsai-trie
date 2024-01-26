@@ -1,14 +1,15 @@
+#[cfg(feature = "std")]
 use std::{error::Error, fmt::Display};
-
-use mp_felt::Felt252WrapperError;
 
 use crate::bonsai_database::DBError;
 
+#[cfg(not(feature = "std"))]
+use alloc::string::String;
 /// All errors that can be returned by BonsaiStorage.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug)]
 pub enum BonsaiStorageError<DatabaseError>
 where
-    DatabaseError: Error + DBError,
+    DatabaseError: DBError,
 {
     /// Error from the underlying trie.
     Trie(String),
@@ -19,13 +20,27 @@ where
     /// Error when trying to merge a transactional state.
     Merge(String),
     /// Error from the underlying database.
-    Database(#[from] DatabaseError),
-    /// Error from Felt conversion
-    Felt252WrapperError(#[from] Felt252WrapperError),
+    Database(DatabaseError),
     /// Error when decoding a node
-    NodeDecodeError(#[from] parity_scale_codec::Error),
+    NodeDecodeError(parity_scale_codec::Error),
 }
 
+impl<DatabaseError: DBError> core::convert::From<DatabaseError> for BonsaiStorageError<DatabaseError> {
+    fn from(value: DatabaseError) -> Self {
+        Self::Database(value)
+    }
+}
+
+impl<DatabaseError: DBError> core::convert::From<parity_scale_codec::Error>
+    for BonsaiStorageError<DatabaseError>
+{
+    fn from(value: parity_scale_codec::Error) -> Self {
+        Self::NodeDecodeError(value)
+    }
+}
+
+
+#[cfg(feature = "std")]
 impl<DatabaseError> Display for BonsaiStorageError<DatabaseError>
 where
     DatabaseError: Error + DBError,
@@ -37,7 +52,6 @@ where
             BonsaiStorageError::Transaction(e) => write!(f, "Transaction error: {}", e),
             BonsaiStorageError::Merge(e) => write!(f, "Merge error: {}", e),
             BonsaiStorageError::Database(e) => write!(f, "Database error: {}", e),
-            BonsaiStorageError::Felt252WrapperError(e) => write!(f, "Felt error: {}", e),
             BonsaiStorageError::NodeDecodeError(e) => write!(f, "Node decode error: {}", e),
         }
     }

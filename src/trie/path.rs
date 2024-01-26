@@ -3,6 +3,9 @@ use parity_scale_codec::{Decode, Encode, Error, Input, Output};
 
 use super::{merkle_node::Direction, TrieKey};
 
+#[cfg(not(feature = "std"))]
+use alloc::vec::Vec;
+
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Path(pub BitVec<u8, Msb0>);
 
@@ -96,7 +99,7 @@ impl Path {
 impl From<Path> for TrieKey {
     fn from(path: Path) -> Self {
         let key = if path.0.is_empty() {
-            vec![]
+            Vec::new()
         } else {
             [&[path.0.len() as u8], path.0.as_raw_slice()].concat()
         };
@@ -107,7 +110,7 @@ impl From<Path> for TrieKey {
 impl From<&Path> for TrieKey {
     fn from(path: &Path) -> Self {
         let key = if path.0.is_empty() {
-            vec![]
+            Vec::new()
         } else {
             [&[path.0.len() as u8], path.0.as_raw_slice()].concat()
         };

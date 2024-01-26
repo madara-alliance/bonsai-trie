@@ -1,4 +1,7 @@
+#[cfg(not(feature = "std"))]
+use alloc::{collections::BTreeSet, format, string::ToString, vec::Vec};
 use log::trace;
+#[cfg(feature = "std")]
 use std::collections::BTreeSet;
 
 use crate::{
@@ -95,7 +98,7 @@ where
 
         // Insert flat db changes
         let mut batch = self.db.create_batch();
-        let current_changes = std::mem::take(&mut self.changes_store.current_changes);
+        let current_changes = core::mem::take(&mut self.changes_store.current_changes);
         for (key, change) in current_changes.serialize(&id).iter() {
             self.db
                 .insert(&DatabaseKey::TrieLog(key), change, Some(&mut batch))?;
