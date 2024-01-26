@@ -6,12 +6,20 @@ use super::{merkle_node::Direction, TrieKey};
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
 
+#[cfg(all(feature = "std", test))]
+use rstest::rstest;
+
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Path(pub BitVec<u8, Msb0>);
 
 impl Encode for Path {
     fn encode_to<T: Output + ?Sized>(&self, dest: &mut T) {
-        // Inspired from scale_bits crate but don't use it to avoid copy and u32 length encoding
+        // Copied from scale_bits crate (https://github.com/paritytech/scale-bits/blob/820a3e8e0c9db18ef6acfa2a9a19f738400b0637/src/scale/encode_iter.rs#L28)
+        // but don't use it directly to avoid copy and u32 length encoding
+        // How it works ?
+        // 1. We encode the number of bits in the bitvec as a u8
+        // 2. We build elements of a size of u8 using bit shifting
+        // 3. A last element, not full, is created if there is a remainder of bits
         let iter = self.0.iter();
         let len = iter.len();
         // SAFETY: len is <= 251
@@ -118,9 +126,16 @@ impl From<&Path> for TrieKey {
     }
 }
 
-#[test]
-fn test_shared_path_encode_decode() {
-    let path = Path(BitVec::<u8, Msb0>::from_slice(&[0b10101010, 0b10101010]));
+#[cfg(all(feature = "std", test))]
+#[rstest]
+#[case(&[0b10101010, 0b10101010])]
+#[case(&[])]
+#[case(&[0b10101010])]
+#[case(&[0b00000000])]
+#[case(&[0b11111111])]
+#[case(&[0b11111111, 0b00000000, 0b10101010, 0b10101010, 0b11111111, 0b00000000, 0b10101010, 0b10101010, 0b11111111, 0b00000000, 0b10101010, 0b10101010])]
+fn test_shared_path_encode_decode(#[case] input: &[u8]) {
+    let path = Path(BitVec::<u8, Msb0>::from_slice(input));
     let mut encoded = Vec::new();
     path.encode_to(&mut encoded);
 

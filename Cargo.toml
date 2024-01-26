@@ -46,3 +46,4 @@ pathfinder-merkle-tree = { git = "https://github.com/massalabs/pathfinder.git", 
 pathfinder-storage = { git = "https://github.com/massalabs/pathfinder.git", package = "pathfinder-storage", rev = "b7b6d76a76ab0e10f92e5f84ce099b5f727cb4db" }
 rand = "0.8.5"
 tempfile = "3.8.0"
+rstest = "0.18.2"

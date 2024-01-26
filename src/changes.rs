@@ -37,7 +37,6 @@ impl ChangeBatch {
         }
     }
 
-    //TODO: Use serde
     pub fn serialize<ID: Id>(&self, id: &ID) -> Vec<(Vec<u8>, &[u8])> {
         let id = id.to_bytes();
         self.0
