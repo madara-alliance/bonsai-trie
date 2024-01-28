@@ -90,7 +90,7 @@ use crate::trie::merkle_tree::MerkleTree;
 #[cfg(not(feature = "std"))]
 use alloc::{format, vec::Vec};
 use bitvec::{order::Msb0, slice::BitSlice};
-use bonsai_database::{BonsaiPersistentDatabase, KeyType};
+use bonsai_database::{BonsaiPersistentDatabase, DatabaseKey};
 use changes::ChangeBatch;
 use key_value_db::KeyValueDB;
 use starknet_types_core::{
@@ -163,11 +163,13 @@ impl<ChangeID, DB, H> BonsaiStorage<ChangeID, DB, H>
 where
     DB: BonsaiDatabase,
     ChangeID: id::Id,
-    BonsaiStorageError: core::convert::From<<DB as BonsaiDatabase>::DatabaseError>,
     H: StarkHash,
 {
     /// Create a new bonsai storage instance
-    pub fn new(db: DB, config: BonsaiStorageConfig) -> Result<Self, BonsaiStorageError> {
+    pub fn new(
+        db: DB,
+        config: BonsaiStorageConfig,
+    ) -> Result<Self, BonsaiStorageError<DB::DatabaseError>> {
         let key_value_db = KeyValueDB::new(db, config.into(), None);
         Ok(Self {
             trie: MerkleTree::new(key_value_db)?,
@@ -178,7 +180,7 @@ where
         db: DB,
         config: BonsaiStorageConfig,
         created_at: ChangeID,
-    ) -> Result<Self, BonsaiStorageError> {
+    ) -> Result<Self, BonsaiStorageError<DB::DatabaseError>> {
         let key_value_db = KeyValueDB::new(db, config.into(), Some(created_at));
         Ok(Self {
             trie: MerkleTree::new(key_value_db)?,
@@ -191,32 +193,44 @@ where
         &mut self,
         key: &BitSlice<u8, Msb0>,
         value: &Felt,
-    ) -> Result<(), BonsaiStorageError> {
+    ) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
         self.trie.set(key, *value)?;
         Ok(())
     }
 
     /// Remove a key/value in the trie
     /// If the value doesn't exist it will do nothing
-    pub fn remove(&mut self, key: &BitSlice<u8, Msb0>) -> Result<(), BonsaiStorageError> {
+    pub fn remove(
+        &mut self,
+        key: &BitSlice<u8, Msb0>,
+    ) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
         self.trie.set(key, Felt::ZERO)?;
         Ok(())
     }
 
     /// Get a value in the trie.
-    pub fn get(&self, key: &BitSlice<u8, Msb0>) -> Result<Option<Felt>, BonsaiStorageError> {
+    pub fn get(
+        &self,
+        key: &BitSlice<u8, Msb0>,
+    ) -> Result<Option<Felt>, BonsaiStorageError<DB::DatabaseError>> {
         self.trie.get(key)
     }
 
     /// Checks if the key exists in the trie.
-    pub fn contains(&self, key: &BitSlice<u8, Msb0>) -> Result<bool, BonsaiStorageError> {
+    pub fn contains(
+        &self,
+        key: &BitSlice<u8, Msb0>,
+    ) -> Result<bool, BonsaiStorageError<DB::DatabaseError>> {
         self.trie.contains(key)
     }
 
     /// Go to a specific commit ID.
     /// If insert/remove is called between the last `commit()` and a call to this function,
     /// the in-memory changes will be discarded.
-    pub fn revert_to(&mut self, requested_id: ChangeID) -> Result<(), BonsaiStorageError> {
+    pub fn revert_to(
+        &mut self,
+        requested_id: ChangeID,
+    ) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
         let kv = self.trie.db_mut();
 
         // Clear current changes
@@ -246,7 +260,7 @@ where
             full.extend(
                 ChangeBatch::deserialize(
                     id,
-                    kv.db.get_by_prefix(&KeyType::TrieLog(&id.serialize()))?,
+                    kv.db.get_by_prefix(&DatabaseKey::TrieLog(&id.to_bytes()))?,
                 )
                 .0,
             );
@@ -255,7 +269,7 @@ where
         // Revert changes
         let mut batch = kv.db.create_batch();
         for (key, change) in full.iter().rev() {
-            let key = KeyType::from(key);
+            let key = DatabaseKey::from(key);
             match (&change.old_value, &change.new_value) {
                 (Some(old_value), Some(_)) => {
                     kv.db.insert(&key, old_value, Some(&mut batch))?;
@@ -276,12 +290,13 @@ where
             kv.changes_store.id_queue.push_back(current);
         }
         for id in truncated.iter() {
-            kv.db.remove_by_prefix(&KeyType::TrieLog(&id.serialize()))?;
+            kv.db
+                .remove_by_prefix(&DatabaseKey::TrieLog(&id.to_bytes()))?;
         }
 
         // Write revert changes and trie logs truncation
         kv.db.write_batch(batch)?;
-        self.trie.reset_root_from_db()?;
+        self.trie.reset_to_last_commit()?;
         Ok(())
     }
 
@@ -291,13 +306,16 @@ where
     }
 
     /// Get trie root hash at the latest commit
-    pub fn root_hash(&self) -> Result<BonsaiTrieHash, BonsaiStorageError> {
+    pub fn root_hash(&self) -> Result<BonsaiTrieHash, BonsaiStorageError<DB::DatabaseError>> {
         Ok(self.trie.root_hash())
     }
 
     /// This function must be used with transactional state only.
     /// Similar to `commit` but without optimizations.
-    pub fn transactional_commit(&mut self, id: ChangeID) -> Result<(), BonsaiStorageError> {
+    pub fn transactional_commit(
+        &mut self,
+        id: ChangeID,
+    ) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
         self.trie.commit()?;
         self.trie.db_mut().commit(id)?;
         Ok(())
@@ -317,7 +335,7 @@ where
     pub fn get_proof(
         &self,
         key: &BitSlice<u8, Msb0>,
-    ) -> Result<Vec<ProofNode>, BonsaiStorageError> {
+    ) -> Result<Vec<ProofNode>, BonsaiStorageError<DB::DatabaseError>> {
         self.trie.get_proof(key)
     }
 
@@ -336,17 +354,20 @@ impl<ChangeID, DB, H> BonsaiStorage<ChangeID, DB, H>
 where
     DB: BonsaiDatabase + BonsaiPersistentDatabase<ChangeID>,
     ChangeID: id::Id,
-    BonsaiStorageError: core::convert::From<<DB as BonsaiDatabase>::DatabaseError>,
     H: StarkHash,
 {
     /// Update trie and database using all changes since the last commit.
-    pub fn commit(&mut self, id: ChangeID) -> Result<(), BonsaiStorageError> {
+    pub fn commit(
+        &mut self,
+        id: ChangeID,
+    ) -> Result<(), BonsaiStorageError<<DB as BonsaiDatabase>::DatabaseError>> {
         self.trie.commit()?;
         self.trie.db_mut().commit(id)?;
         self.trie.db_mut().create_snapshot(id);
         Ok(())
     }
 
+    #[allow(clippy::type_complexity)]
     /// Get a transactional state of the trie at a specific commit ID.
     ///
     /// Transactional state allow you to fetch a point-in-time state of the trie. You can
@@ -355,10 +376,10 @@ where
         &self,
         change_id: ChangeID,
         config: BonsaiStorageConfig,
-    ) -> Result<Option<BonsaiStorage<ChangeID, DB::Transaction, H>>, BonsaiStorageError>
-    where
-        BonsaiStorageError: core::convert::From<<DB::Transaction as BonsaiDatabase>::DatabaseError>,
-    {
+    ) -> Result<
+        Option<BonsaiStorage<ChangeID, DB::Transaction, H>>,
+        BonsaiStorageError<<DB::Transaction as BonsaiDatabase>::DatabaseError>,
+    > {
         if let Some(transaction) = self.trie.db_ref().get_transaction(change_id)? {
             Ok(Some(BonsaiStorage::new_from_transactional_state(
                 transaction,
@@ -379,10 +400,7 @@ where
     pub fn merge(
         &mut self,
         transactional_bonsai_storage: BonsaiStorage<ChangeID, DB::Transaction, H>,
-    ) -> Result<(), BonsaiStorageError>
-    where
-        BonsaiStorageError:
-            core::convert::From<<DB as BonsaiPersistentDatabase<ChangeID>>::DatabaseError>,
+    ) -> Result<(), BonsaiStorageError<<DB as BonsaiPersistentDatabase<ChangeID>>::DatabaseError>>
     {
         self.trie
             .db_mut()

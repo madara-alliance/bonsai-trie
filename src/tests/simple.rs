@@ -35,19 +35,7 @@ fn basics() {
     );
     let bitvec = BitVec::from_vec(pair3.0.clone());
     bonsai_storage.insert(&bitvec, &pair3.1).unwrap();
-    println!(
-        "get: {:?}",
-        bonsai_storage.get(&BitVec::from_vec(vec![1, 2, 1]))
-    );
     bonsai_storage.commit(id_builder.new_id()).unwrap();
-    println!(
-        "get: {:?}",
-        bonsai_storage.get(&BitVec::from_vec(vec![1, 2, 2]))
-    );
-    println!(
-        "get: {:?}",
-        bonsai_storage.get(&BitVec::from_vec(vec![1, 2, 3]))
-    );
     let bitvec = BitVec::from_vec(vec![1, 2, 1]);
     bonsai_storage.remove(&bitvec).unwrap();
     assert_eq!(

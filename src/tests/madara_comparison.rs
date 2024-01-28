@@ -24,8 +24,7 @@ fn trie_height_251() {
     let mut id_builder = BasicIdBuilder::new();
     let id = id_builder.new_id();
     bonsai_storage.commit(id).unwrap();
-    let root_hash = bonsai_storage.root_hash().unwrap();
-    println!("root_hash: {:?}", root_hash);
+    bonsai_storage.root_hash().unwrap();
 }
 // Test to add on Madara side to check with a tree of height 251 and see that we have same hash
 // #[test]// fn test_height_251() {

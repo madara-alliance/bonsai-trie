@@ -12,9 +12,8 @@ use rocksdb::{
 };
 
 use crate::{
-    bonsai_database::{BonsaiDatabase, BonsaiPersistentDatabase, KeyType},
+    bonsai_database::{BonsaiDatabase, BonsaiPersistentDatabase, DBError, DatabaseKey},
     id::Id,
-    BonsaiStorageError,
 };
 use log::trace;
 
@@ -89,12 +88,6 @@ pub enum RocksDBError {
     Custom(String),
 }
 
-impl From<RocksDBError> for BonsaiStorageError {
-    fn from(err: RocksDBError) -> Self {
-        Self::Database(err.to_string())
-    }
-}
-
 impl From<Error> for RocksDBError {
     fn from(err: Error) -> Self {
         Self::RocksDB(err)
@@ -109,6 +102,8 @@ impl fmt::Display for RocksDBError {
         }
     }
 }
+
+impl DBError for RocksDBError {}
 
 impl StdError for RocksDBError {
     fn cause(&self) -> Option<&dyn StdError> {
@@ -126,12 +121,12 @@ impl StdError for RocksDBError {
     }
 }
 
-impl KeyType<'_> {
+impl DatabaseKey<'_> {
     fn get_cf(&self) -> &'static str {
         match self {
-            KeyType::Trie(_) => TRIE_CF,
-            KeyType::Flat(_) => FLAT_CF,
-            KeyType::TrieLog(_) => TRIE_LOG_CF,
+            DatabaseKey::Trie(_) => TRIE_CF,
+            DatabaseKey::Flat(_) => FLAT_CF,
+            DatabaseKey::TrieLog(_) => TRIE_LOG_CF,
         }
     }
 }
@@ -186,7 +181,7 @@ where
 
     fn insert(
         &mut self,
-        key: &KeyType,
+        key: &DatabaseKey,
         value: &[u8],
         batch: Option<&mut Self::Batch>,
     ) -> Result<Option<Vec<u8>>, Self::DatabaseError> {
@@ -201,7 +196,7 @@ where
         Ok(old_value)
     }
 
-    fn get(&self, key: &KeyType) -> Result<Option<Vec<u8>>, Self::DatabaseError> {
+    fn get(&self, key: &DatabaseKey) -> Result<Option<Vec<u8>>, Self::DatabaseError> {
         trace!("Getting from RocksDB: {:?}", key);
         let handle = self.db.cf_handle(key.get_cf()).expect(CF_ERROR);
         Ok(self.db.get_cf(&handle, key.as_slice())?)
@@ -209,7 +204,7 @@ where
 
     fn get_by_prefix(
         &self,
-        prefix: &KeyType,
+        prefix: &DatabaseKey,
     ) -> Result<Vec<(Vec<u8>, Vec<u8>)>, Self::DatabaseError> {
         trace!("Getting from RocksDB: {:?}", prefix);
         let handle = self.db.cf_handle(prefix.get_cf()).expect(CF_ERROR);
@@ -232,7 +227,7 @@ where
             .collect())
     }
 
-    fn contains(&self, key: &KeyType) -> Result<bool, Self::DatabaseError> {
+    fn contains(&self, key: &DatabaseKey) -> Result<bool, Self::DatabaseError> {
         trace!("Checking if RocksDB contains: {:?}", key);
         let handle = self.db.cf_handle(key.get_cf()).expect(CF_ERROR);
         Ok(self
@@ -243,7 +238,7 @@ where
 
     fn remove(
         &mut self,
-        key: &KeyType,
+        key: &DatabaseKey,
         batch: Option<&mut Self::Batch>,
     ) -> Result<Option<Vec<u8>>, Self::DatabaseError> {
         trace!("Removing from RocksDB: {:?}", key);
@@ -257,7 +252,7 @@ where
         Ok(old_value)
     }
 
-    fn remove_by_prefix(&mut self, prefix: &KeyType) -> Result<(), Self::DatabaseError> {
+    fn remove_by_prefix(&mut self, prefix: &DatabaseKey) -> Result<(), Self::DatabaseError> {
         trace!("Getting from RocksDB: {:?}", prefix);
         let handle = self.db.cf_handle(prefix.get_cf()).expect(CF_ERROR);
         let iter = self.db.iterator_cf(
@@ -328,7 +323,7 @@ impl<'db> BonsaiDatabase for RocksDBTransaction<'db> {
 
     fn insert(
         &mut self,
-        key: &KeyType,
+        key: &DatabaseKey,
         value: &[u8],
         batch: Option<&mut Self::Batch>,
     ) -> Result<Option<Vec<u8>>, Self::DatabaseError> {
@@ -345,7 +340,7 @@ impl<'db> BonsaiDatabase for RocksDBTransaction<'db> {
         Ok(old_value)
     }
 
-    fn get(&self, key: &KeyType) -> Result<Option<Vec<u8>>, Self::DatabaseError> {
+    fn get(&self, key: &DatabaseKey) -> Result<Option<Vec<u8>>, Self::DatabaseError> {
         trace!("Getting from RocksDB: {:?}", key);
         let handle = self.column_families.get(key.get_cf()).expect(CF_ERROR);
         Ok(self
@@ -355,7 +350,7 @@ impl<'db> BonsaiDatabase for RocksDBTransaction<'db> {
 
     fn get_by_prefix(
         &self,
-        prefix: &KeyType,
+        prefix: &DatabaseKey,
     ) -> Result<Vec<(Vec<u8>, Vec<u8>)>, Self::DatabaseError> {
         trace!("Getting from RocksDB: {:?}", prefix);
         let handle = self.column_families.get(prefix.get_cf()).expect(CF_ERROR);
@@ -378,7 +373,7 @@ impl<'db> BonsaiDatabase for RocksDBTransaction<'db> {
             .collect())
     }
 
-    fn contains(&self, key: &KeyType) -> Result<bool, Self::DatabaseError> {
+    fn contains(&self, key: &DatabaseKey) -> Result<bool, Self::DatabaseError> {
         trace!("Checking if RocksDB contains: {:?}", key);
         let handle = self.column_families.get(key.get_cf()).expect(CF_ERROR);
         Ok(self
@@ -389,7 +384,7 @@ impl<'db> BonsaiDatabase for RocksDBTransaction<'db> {
 
     fn remove(
         &mut self,
-        key: &KeyType,
+        key: &DatabaseKey,
         batch: Option<&mut Self::Batch>,
     ) -> Result<Option<Vec<u8>>, Self::DatabaseError> {
         trace!("Removing from RocksDB: {:?}", key);
@@ -405,7 +400,7 @@ impl<'db> BonsaiDatabase for RocksDBTransaction<'db> {
         Ok(old_value)
     }
 
-    fn remove_by_prefix(&mut self, prefix: &KeyType) -> Result<(), Self::DatabaseError> {
+    fn remove_by_prefix(&mut self, prefix: &DatabaseKey) -> Result<(), Self::DatabaseError> {
         trace!("Getting from RocksDB: {:?}", prefix);
         let mut batch = self.create_batch();
         {

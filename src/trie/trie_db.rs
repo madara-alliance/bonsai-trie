@@ -1,38 +1,61 @@
-use crate::{bonsai_database::KeyType, changes::ChangeKeyType};
+use crate::bonsai_database::DatabaseKey;
+
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
 
-#[derive(Debug, Hash, PartialEq, Eq)]
-pub enum TrieKeyType {
+/// Key in the database of the different elements that are used in the storage of the trie data.
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub enum TrieKey {
     Trie(Vec<u8>),
     Flat(Vec<u8>),
 }
 
-impl TrieKeyType {
+enum TrieKeyType {
+    Trie = 0,
+    Flat = 1,
+}
+
+impl From<TrieKey> for u8 {
+    fn from(value: TrieKey) -> Self {
+        match value {
+            TrieKey::Trie(_) => TrieKeyType::Trie as u8,
+            TrieKey::Flat(_) => TrieKeyType::Flat as u8,
+        }
+    }
+}
+
+impl From<&TrieKey> for u8 {
+    fn from(value: &TrieKey) -> Self {
+        match value {
+            TrieKey::Trie(_) => TrieKeyType::Trie as u8,
+            TrieKey::Flat(_) => TrieKeyType::Flat as u8,
+        }
+    }
+}
+
+impl TrieKey {
+    pub fn from_variant_and_bytes(variant: u8, bytes: Vec<u8>) -> Self {
+        match variant {
+            x if x == TrieKeyType::Trie as u8 => TrieKey::Trie(bytes),
+            x if x == TrieKeyType::Flat as u8 => TrieKey::Flat(bytes),
+            _ => panic!("Invalid trie key type"),
+        }
+    }
+
     pub fn as_slice(&self) -> &[u8] {
         match self {
-            TrieKeyType::Trie(slice) => slice,
-            TrieKeyType::Flat(slice) => slice,
+            TrieKey::Trie(slice) => slice,
+            TrieKey::Flat(slice) => slice,
         }
     }
 }
 
-impl<'a> From<&'a TrieKeyType> for KeyType<'a> {
-    fn from(key: &'a TrieKeyType) -> Self {
+impl<'a> From<&'a TrieKey> for DatabaseKey<'a> {
+    fn from(key: &'a TrieKey) -> Self {
         let key_slice = key.as_slice();
         match key {
-            TrieKeyType::Trie(_) => KeyType::Trie(key_slice),
-            TrieKeyType::Flat(_) => KeyType::Flat(key_slice),
-        }
-    }
-}
-
-impl<'a> From<&'a TrieKeyType> for ChangeKeyType {
-    fn from(key: &'a TrieKeyType) -> Self {
-        let key_slice = key.as_slice();
-        match key {
-            TrieKeyType::Trie(_) => ChangeKeyType::Trie(key_slice.to_vec()),
-            TrieKeyType::Flat(_) => ChangeKeyType::Flat(key_slice.to_vec()),
+            TrieKey::Trie(_) => DatabaseKey::Trie(key_slice),
+            TrieKey::Flat(_) => DatabaseKey::Flat(key_slice),
         }
     }
 }

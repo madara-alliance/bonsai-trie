@@ -184,9 +184,7 @@ fn remove_and_reinsert() {
     bonsai_storage.remove(&bitvec).unwrap();
     bonsai_storage.commit(id1).unwrap();
     let root_hash1 = bonsai_storage.root_hash().unwrap();
-
     let id2 = id_builder.new_id();
-    println!("before second insert");
     bonsai_storage.insert(&bitvec, &pair1.1).unwrap();
     bonsai_storage.commit(id2).unwrap();
 

@@ -9,7 +9,7 @@ use bitvec::slice::BitSlice;
 use parity_scale_codec::{Decode, Encode};
 use starknet_types_core::felt::Felt;
 
-use super::merkle_tree::Path;
+use super::path::Path;
 
 /// Id of a Node within the tree
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Default, PartialOrd, Ord, Hash, Encode, Decode)]
@@ -18,7 +18,7 @@ pub struct NodeId(pub u64);
 impl NodeId {
     /// Mutates the given NodeId to be the next one and returns it.
     pub fn next_id(&mut self) -> NodeId {
-        self.0 += 1;
+        self.0 = self.0.checked_add(1).expect("Node id overflow");
         NodeId(self.0)
     }
 
@@ -49,7 +49,8 @@ pub enum NodeHandle {
 /// Describes the [Node::Binary] variant.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Encode, Decode)]
 pub struct BinaryNode {
-    /// The hash of this node.
+    /// The hash of this node. Is [None] if the node
+    /// has not yet been committed.
     pub hash: Option<Felt>,
     /// The height of this node in the tree.
     pub height: u64,
@@ -216,4 +217,152 @@ impl EdgeNode {
 
         &self.path.0[..common_length]
     }
+}
+
+#[test]
+fn test_path_matches_basic() {
+    let path = Path(
+        BitSlice::<u8, Msb0>::from_slice(&[0b10101010, 0b01010101, 0b10101010, 0b01010101])
+            .to_bitvec(),
+    );
+    let edge = EdgeNode {
+        hash: None,
+        height: 0,
+        path,
+        child: NodeHandle::Hash(Felt::ZERO),
+    };
+
+    let key = BitSlice::<u8, Msb0>::from_slice(&[0b10101010, 0b01010101, 0b10101010, 0b01010101]);
+    assert!(edge.path_matches(key));
+}
+
+#[test]
+fn test_path_matches_with_height() {
+    let path = Path(
+        BitSlice::<u8, Msb0>::from_slice(&[0b10101010, 0b01010101, 0b10101010, 0b01010101])
+            .to_bitvec(),
+    );
+    let edge = EdgeNode {
+        hash: None,
+        height: 8,
+        path,
+        child: NodeHandle::Hash(Felt::ZERO),
+    };
+
+    let key = BitSlice::<u8, Msb0>::from_slice(&[
+        0b10101010, 0b10101010, 0b01010101, 0b10101010, 0b01010101,
+    ]);
+    assert!(edge.path_matches(key));
+}
+
+#[test]
+fn test_path_matches_only_part_with_height() {
+    let path = Path(
+        BitSlice::<u8, Msb0>::from_slice(&[0b10101010, 0b01010101, 0b10101010, 0b01010101])
+            .to_bitvec(),
+    );
+    let edge = EdgeNode {
+        hash: None,
+        height: 8,
+        path,
+        child: NodeHandle::Hash(Felt::ZERO),
+    };
+
+    let key = BitSlice::<u8, Msb0>::from_slice(&[
+        0b10101010, 0b10101010, 0b01010101, 0b10101010, 0b01010101, 0b10101010,
+    ]);
+    assert!(edge.path_matches(key));
+}
+
+#[test]
+fn test_path_dont_match() {
+    let path = Path(
+        BitSlice::<u8, Msb0>::from_slice(&[0b10111010, 0b01010101, 0b10101010, 0b01010101])
+            .to_bitvec(),
+    );
+    let edge = EdgeNode {
+        hash: None,
+        height: 0,
+        path,
+        child: NodeHandle::Hash(Felt::ZERO),
+    };
+
+    let key = BitSlice::<u8, Msb0>::from_slice(&[
+        0b10101010, 0b01010101, 0b10101010, 0b01010101, 0b10101010,
+    ]);
+    assert!(!edge.path_matches(key));
+}
+
+#[test]
+fn test_common_path_basic() {
+    let path = Path(
+        BitSlice::<u8, Msb0>::from_slice(&[0b10101010, 0b01010101, 0b10101010, 0b01010101])
+            .to_bitvec(),
+    );
+    let edge = EdgeNode {
+        hash: None,
+        height: 0,
+        path: path.clone(),
+        child: NodeHandle::Hash(Felt::ZERO),
+    };
+
+    let key = BitSlice::<u8, Msb0>::from_slice(&[0b10101010, 0b01010101, 0b10101010, 0b01010101]);
+    assert_eq!(edge.common_path(key), &path.0);
+}
+
+#[test]
+fn test_common_path_only_part() {
+    let path = Path(
+        BitSlice::<u8, Msb0>::from_slice(&[0b10101010, 0b01010101, 0b10101010, 0b01010101])
+            .to_bitvec(),
+    );
+    let edge = EdgeNode {
+        hash: None,
+        height: 0,
+        path,
+        child: NodeHandle::Hash(Felt::ZERO),
+    };
+
+    let key = BitSlice::<u8, Msb0>::from_slice(&[0b10101010, 0b01010101]);
+    assert_eq!(
+        edge.common_path(key),
+        BitSlice::<u8, Msb0>::from_slice(&[0b10101010, 0b01010101])
+    );
+}
+
+#[test]
+fn test_common_path_part_with_height() {
+    let path = Path(
+        BitSlice::<u8, Msb0>::from_slice(&[0b10101010, 0b01010101, 0b10101010, 0b01010101])
+            .to_bitvec(),
+    );
+    let edge = EdgeNode {
+        hash: None,
+        height: 8,
+        path,
+        child: NodeHandle::Hash(Felt::ZERO),
+    };
+
+    let key = BitSlice::<u8, Msb0>::from_slice(&[0b01010101, 0b10101010]);
+    assert_eq!(
+        edge.common_path(key),
+        BitSlice::<u8, Msb0>::from_slice(&[0b10101010])
+    );
+}
+
+#[test]
+fn test_no_common_path() {
+    let path = Path(
+        BitSlice::<u8, Msb0>::from_slice(&[0b10101010, 0b01010101, 0b10101010, 0b01010101])
+            .to_bitvec(),
+    );
+    let edge = EdgeNode {
+        hash: None,
+        height: 0,
+        path,
+        child: NodeHandle::Hash(Felt::ZERO),
+    };
+
+    let key = BitSlice::<u8, Msb0>::from_slice(&[0b01010101, 0b10101010]);
+    assert_eq!(edge.common_path(key), BitSlice::<u8, Msb0>::empty());
 }

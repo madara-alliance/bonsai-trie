@@ -5,10 +5,10 @@ use log::trace;
 use std::collections::BTreeSet;
 
 use crate::{
-    bonsai_database::{BonsaiDatabase, BonsaiPersistentDatabase, KeyType},
+    bonsai_database::{BonsaiDatabase, BonsaiPersistentDatabase, DatabaseKey},
     changes::{Change, ChangeBatch, ChangeStore},
     id::Id,
-    trie::TrieKeyType,
+    trie::TrieKey,
     BonsaiStorageConfig, BonsaiStorageError,
 };
 
@@ -70,7 +70,6 @@ impl<DB, ID> KeyValueDB<DB, ID>
 where
     DB: BonsaiDatabase,
     ID: Id,
-    BonsaiStorageError: core::convert::From<<DB as BonsaiDatabase>::DatabaseError>,
 {
     pub(crate) fn new(underline_db: DB, config: KeyValueDBConfig, created_at: Option<ID>) -> Self {
         let mut changes_store = ChangeStore::new();
@@ -87,7 +86,7 @@ where
         }
     }
 
-    pub(crate) fn commit(&mut self, id: ID) -> Result<(), BonsaiStorageError> {
+    pub(crate) fn commit(&mut self, id: ID) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
         if Some(&id) > self.changes_store.id_queue.back() {
             self.changes_store.id_queue.push_back(id);
         } else {
@@ -102,15 +101,16 @@ where
         let current_changes = core::mem::take(&mut self.changes_store.current_changes);
         for (key, change) in current_changes.serialize(&id).iter() {
             self.db
-                .insert(&KeyType::TrieLog(key), change, Some(&mut batch))?;
+                .insert(&DatabaseKey::TrieLog(key), change, Some(&mut batch))?;
         }
         self.db.write_batch(batch)?;
 
         if let Some(max_saved_trie_logs) = self.config.max_saved_trie_logs {
             while self.changes_store.id_queue.len() > max_saved_trie_logs {
                 // verified by previous conditional statement
-                let id = self.changes_store.id_queue.pop_front().unwrap().serialize();
-                self.db.remove_by_prefix(&KeyType::TrieLog(&id))?;
+                let id = self.changes_store.id_queue.pop_front().unwrap();
+                self.db
+                    .remove_by_prefix(&DatabaseKey::TrieLog(&id.to_bytes()))?;
             }
         }
         Ok(())
@@ -124,26 +124,32 @@ where
         self.config.clone()
     }
 
-    pub(crate) fn get(&self, key: &TrieKeyType) -> Result<Option<Vec<u8>>, BonsaiStorageError> {
+    pub(crate) fn get(
+        &self,
+        key: &TrieKey,
+    ) -> Result<Option<Vec<u8>>, BonsaiStorageError<DB::DatabaseError>> {
         trace!("Getting from KeyValueDB: {:?}", key);
         Ok(self.db.get(&key.into())?)
     }
 
-    pub(crate) fn contains(&self, key: &TrieKeyType) -> Result<bool, BonsaiStorageError> {
+    pub(crate) fn contains(
+        &self,
+        key: &TrieKey,
+    ) -> Result<bool, BonsaiStorageError<DB::DatabaseError>> {
         trace!("Contains from KeyValueDB: {:?}", key);
         Ok(self.db.contains(&key.into())?)
     }
 
     pub(crate) fn insert(
         &mut self,
-        key: &TrieKeyType,
+        key: &TrieKey,
         value: &[u8],
         batch: Option<&mut DB::Batch>,
-    ) -> Result<(), BonsaiStorageError> {
+    ) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
         trace!("Inserting into KeyValueDB: {:?} {:?}", key, value);
         let old_value = self.db.insert(&key.into(), value, batch)?;
         self.changes_store.current_changes.insert_in_place(
-            key.into(),
+            key.clone(),
             Change {
                 old_value,
                 new_value: Some(value.to_vec()),
@@ -154,13 +160,13 @@ where
 
     pub(crate) fn remove(
         &mut self,
-        key: &TrieKeyType,
+        key: &TrieKey,
         batch: Option<&mut DB::Batch>,
-    ) -> Result<(), BonsaiStorageError> {
+    ) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
         trace!("Removing from KeyValueDB: {:?}", key);
         let old_value = self.db.remove(&key.into(), batch)?;
         self.changes_store.current_changes.insert_in_place(
-            key.into(),
+            key.clone(),
             Change {
                 old_value,
                 new_value: None,
@@ -169,7 +175,10 @@ where
         Ok(())
     }
 
-    pub(crate) fn write_batch(&mut self, batch: DB::Batch) -> Result<(), BonsaiStorageError> {
+    pub(crate) fn write_batch(
+        &mut self,
+        batch: DB::Batch,
+    ) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
         trace!("Writing batch into KeyValueDB");
         Ok(self.db.write_batch(batch)?)
     }
@@ -196,10 +205,10 @@ where
     pub(crate) fn get_transaction(
         &self,
         id: ID,
-    ) -> Result<Option<DB::Transaction>, BonsaiStorageError>
-    where
-        BonsaiStorageError: core::convert::From<<DB::Transaction as BonsaiDatabase>::DatabaseError>,
-    {
+    ) -> Result<
+        Option<DB::Transaction>,
+        BonsaiStorageError<<DB::Transaction as BonsaiDatabase>::DatabaseError>,
+    > {
         let Some(change_id) = self.snap_holder.range(..=id).last() else {
             return Ok(None);
         };
@@ -224,7 +233,7 @@ where
             let changes = ChangeBatch::deserialize(
                 id,
                 self.db
-                    .get_by_prefix(&KeyType::TrieLog(id.serialize().as_ref()))
+                    .get_by_prefix(&DatabaseKey::TrieLog(&id.to_bytes()))
                     .map_err(|_| {
                         BonsaiStorageError::Transaction(format!(
                             "database is missing trie logs for {:?}",
@@ -233,7 +242,7 @@ where
                     })?,
             );
             for (key, change) in changes.0 {
-                let key = KeyType::from(&key);
+                let key = DatabaseKey::from(&key);
                 match (&change.old_value, &change.new_value) {
                     (Some(_), Some(new_value)) => {
                         txn.insert(&key, new_value, Some(&mut batch))?;
@@ -255,11 +264,7 @@ where
     pub(crate) fn merge(
         &mut self,
         transaction: KeyValueDB<DB::Transaction, ID>,
-    ) -> Result<(), BonsaiStorageError>
-    where
-        BonsaiStorageError:
-            core::convert::From<<DB as BonsaiPersistentDatabase<ID>>::DatabaseError>,
-    {
+    ) -> Result<(), BonsaiStorageError<<DB as BonsaiPersistentDatabase<ID>>::DatabaseError>> {
         let Some(created_at) = transaction.created_at else {
             return Err(BonsaiStorageError::Merge(
                 "Transaction has no created_at".to_string(),
