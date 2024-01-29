@@ -102,7 +102,7 @@ mod changes;
 mod key_value_db;
 mod trie;
 
-mod bonsai_database;
+pub mod bonsai_database;
 /// All databases already implemented in this crate.
 pub mod databases;
 mod error;
