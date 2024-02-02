@@ -61,29 +61,17 @@ fn get_changes() {
     let mut bonsai_storage: BonsaiStorage<_, _, Pedersen> =
         BonsaiStorage::new(RocksDB::new(&db, RocksDBConfig::default()), config).unwrap();
     let mut id_builder = BasicIdBuilder::new();
-    let pair1 = (
-        vec![1, 2, 1],
-        Felt::from_hex("0x01").unwrap(),
-    );
+    let pair1 = (vec![1, 2, 1], Felt::from_hex("0x01").unwrap());
     let bitvec = BitVec::from_vec(pair1.0.clone());
     bonsai_storage.insert(&bitvec, &pair1.1).unwrap();
     bonsai_storage.commit(id_builder.new_id()).unwrap();
-    let pair2 = (
-        vec![1, 2, 2],
-        Felt::from_hex("0x01").unwrap(),
-    );
+    let pair2 = (vec![1, 2, 2], Felt::from_hex("0x01").unwrap());
     let bitvec = BitVec::from_vec(pair2.0.clone());
     bonsai_storage.insert(&bitvec, &pair2.1).unwrap();
-    let pair1_edited_1 = (
-        vec![1, 2, 1],
-        Felt::from_hex("0x02").unwrap(),
-    );
+    let pair1_edited_1 = (vec![1, 2, 1], Felt::from_hex("0x02").unwrap());
     let bitvec = BitVec::from_vec(pair1_edited_1.0.clone());
     bonsai_storage.insert(&bitvec, &pair1_edited_1.1).unwrap();
-    let pair1_edited_2 = (
-        vec![1, 2, 1],
-        Felt::from_hex("0x03").unwrap(),
-    );
+    let pair1_edited_2 = (vec![1, 2, 1], Felt::from_hex("0x03").unwrap());
     let bitvec = BitVec::from_vec(pair1_edited_2.0.clone());
     bonsai_storage.insert(&bitvec, &pair1_edited_2.1).unwrap();
     let id = id_builder.new_id();
