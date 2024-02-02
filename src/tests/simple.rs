@@ -66,7 +66,6 @@ fn get_changes() {
         Felt::from_hex("0x66342762FDD54D033c195fec3ce2568b62052e").unwrap(),
     );
     let bitvec = BitVec::from_vec(pair1.0.clone());
-    println!("first = {:?}", bitvec);
     bonsai_storage.insert(&bitvec, &pair1.1).unwrap();
     bonsai_storage.commit(id_builder.new_id()).unwrap();
     let pair2 = (
