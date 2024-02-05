@@ -89,9 +89,10 @@ extern crate alloc;
 use crate::trie::merkle_tree::MerkleTree;
 #[cfg(not(feature = "std"))]
 use alloc::{format, vec::Vec};
-use bitvec::{order::Msb0, slice::BitSlice};
+use bitvec::{order::Msb0, slice::BitSlice, vec::BitVec};
 use bonsai_database::{BonsaiPersistentDatabase, DatabaseKey};
 use changes::ChangeBatch;
+use hashbrown::HashMap;
 use key_value_db::KeyValueDB;
 use starknet_types_core::{
     felt::Felt,
@@ -142,6 +143,16 @@ impl Default for BonsaiStorageConfig {
             snapshot_interval: 5,
         }
     }
+}
+
+/// Structure used to represent a change in the trie for a specific value.
+/// It contains the old value and the new value.
+/// If the `old_value` is None, it means that the key was not present in the trie before the change.
+/// If the `new_value` is None, it means that the key was removed from the trie.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Change {
+    pub old_value: Option<Felt>,
+    pub new_value: Option<Felt>,
 }
 
 /// Structure that hold the trie and all the necessary information to work with it.
@@ -298,6 +309,15 @@ where
         kv.db.write_batch(batch)?;
         self.trie.reset_to_last_commit()?;
         Ok(())
+    }
+
+    /// Get all changes applied at a certain commit ID.
+    #[allow(clippy::type_complexity)]
+    pub fn get_changes(
+        &self,
+        id: ChangeID,
+    ) -> Result<HashMap<BitVec<u8, Msb0>, Change>, BonsaiStorageError<DB::DatabaseError>> {
+        self.trie.db_ref().get_changes(id)
     }
 
     #[cfg(test)]
