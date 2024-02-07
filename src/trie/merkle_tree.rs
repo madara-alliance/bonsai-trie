@@ -1091,8 +1091,12 @@ impl<H: StarkHash, DB: BonsaiDatabase, ID: Id> MerkleTree<H, DB, ID> {
     }
 }
 
-fn bitslice_to_bytes(bitslice: &BitSlice<u8, Msb0>) -> Vec<u8> {
+pub(crate) fn bitslice_to_bytes(bitslice: &BitSlice<u8, Msb0>) -> Vec<u8> {
     [&[bitslice.len() as u8], bitslice.to_bitvec().as_raw_slice()].concat()
+}
+
+pub(crate) fn bytes_to_bitvec(bytes: &[u8]) -> BitVec<u8, Msb0> {
+    BitSlice::from_slice(&bytes[1..]).to_bitvec()
 }
 
 #[cfg(test)]
