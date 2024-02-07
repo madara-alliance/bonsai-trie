@@ -102,14 +102,14 @@ mod changes;
 mod key_value_db;
 mod trie;
 
-pub mod bonsai_database;
+mod bonsai_database;
 /// All databases already implemented in this crate.
 pub mod databases;
 mod error;
 /// Definition and basic implementation of an CommitID
 pub mod id;
 
-pub use bonsai_database::{BonsaiDatabase, DBError};
+pub use bonsai_database::{BonsaiDatabase, DBError, BonsaiPersistentDatabase, DatabaseKey};
 pub use error::BonsaiStorageError;
 pub use trie::merkle_tree::{Membership, ProofNode};
 
