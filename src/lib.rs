@@ -90,7 +90,6 @@ use crate::trie::merkle_tree::MerkleTree;
 #[cfg(not(feature = "std"))]
 use alloc::{format, vec::Vec};
 use bitvec::{order::Msb0, slice::BitSlice, vec::BitVec};
-use bonsai_database::{BonsaiPersistentDatabase, DatabaseKey};
 use changes::ChangeBatch;
 use hashbrown::HashMap;
 use key_value_db::KeyValueDB;
