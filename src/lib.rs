@@ -109,7 +109,7 @@ mod error;
 /// Definition and basic implementation of an CommitID
 pub mod id;
 
-pub use bonsai_database::{BonsaiDatabase, DBError, BonsaiPersistentDatabase, DatabaseKey};
+pub use bonsai_database::{BonsaiDatabase, BonsaiPersistentDatabase, DBError, DatabaseKey};
 pub use error::BonsaiStorageError;
 pub use trie::merkle_tree::{Membership, ProofNode};
 
