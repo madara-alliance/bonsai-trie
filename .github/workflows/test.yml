@@ -20,7 +20,7 @@ jobs:
       - uses: actions-rs/toolchain@v1
         with:
           profile: minimal
-          toolchain: rust
+          toolchain: stable
           override: true
       - name: Cache dependencies
         uses: actions/cache@v2
