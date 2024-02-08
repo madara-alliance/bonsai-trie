@@ -90,7 +90,6 @@ use crate::trie::merkle_tree::MerkleTree;
 #[cfg(not(feature = "std"))]
 use alloc::{format, vec::Vec};
 use bitvec::{order::Msb0, slice::BitSlice, vec::BitVec};
-use bonsai_database::{BonsaiPersistentDatabase, DatabaseKey};
 use changes::ChangeBatch;
 use hashbrown::HashMap;
 use key_value_db::KeyValueDB;
@@ -110,7 +109,7 @@ mod error;
 /// Definition and basic implementation of an CommitID
 pub mod id;
 
-pub use bonsai_database::{BonsaiDatabase, DBError};
+pub use bonsai_database::{BonsaiDatabase, BonsaiPersistentDatabase, DBError, DatabaseKey};
 pub use error::BonsaiStorageError;
 pub use trie::merkle_tree::{Membership, ProofNode};
 
