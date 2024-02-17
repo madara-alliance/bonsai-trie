@@ -5,7 +5,7 @@ use alloc::vec::Vec;
 use std::error::Error;
 
 /// Key in the database of the different elements that can be stored in the database.
-#[derive(Debug, Hash, PartialEq, Eq)]
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum DatabaseKey<'a> {
     Trie(&'a [u8]),
     Flat(&'a [u8]),
