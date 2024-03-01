@@ -17,6 +17,12 @@ impl Id for BasicId {
     }
 }
 
+impl From<u64> for BasicId {
+    fn from(id: u64) -> Self {
+        BasicId(id)
+    }
+}
+
 /// A builder for basic IDs.
 pub struct BasicIdBuilder {
     last_id: u64,
