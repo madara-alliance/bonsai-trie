@@ -17,12 +17,6 @@ impl Id for BasicId {
     }
 }
 
-impl From<u64> for BasicId {
-    fn from(id: u64) -> Self {
-        BasicId(id)
-    }
-}
-
 /// A builder for basic IDs.
 pub struct BasicIdBuilder {
     last_id: u64,
@@ -45,5 +39,9 @@ impl BasicIdBuilder {
         let id = BasicId(self.last_id);
         self.last_id = self.last_id.checked_add(1).expect("Id overflow");
         id
+    }
+
+    pub fn block_number(id: u64) -> BasicId {
+        BasicId(id)
     }
 }
