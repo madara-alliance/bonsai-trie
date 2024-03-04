@@ -54,7 +54,8 @@ impl BasicIdBuilder {
 
     /// Create a new ID (unique).
     pub fn new_id(&mut self) -> BasicId {
+        let id = BasicId(self.last_id);
         self.last_id = self.last_id.checked_add(1).expect("Id overflow");
-        BasicId::new(self.last_id - 1)
+        id
     }
 }
