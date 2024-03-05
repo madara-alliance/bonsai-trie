@@ -35,11 +35,6 @@ rocksdb = { optional = true, version = "0.21.0", features = [
 ] }
 
 [dev-dependencies]
-mp-felt = { git = "https://github.com/keep-starknet-strange/madara.git", branch = "main", package = "mp-felt", features = [
-    "parity-scale-codec",
-    "serde",
-] }
-mp-hashers = { git = "https://github.com/keep-starknet-strange/madara.git", branch = "main", package = "mp-hashers" }
 pathfinder-common = { git = "https://github.com/massalabs/pathfinder.git", package = "pathfinder-common", rev = "b7b6d76a76ab0e10f92e5f84ce099b5f727cb4db" }
 pathfinder-crypto = { git = "https://github.com/massalabs/pathfinder.git", package = "pathfinder-crypto", rev = "b7b6d76a76ab0e10f92e5f84ce099b5f727cb4db" }
 pathfinder-merkle-tree = { git = "https://github.com/massalabs/pathfinder.git", package = "pathfinder-merkle-tree", rev = "b7b6d76a76ab0e10f92e5f84ce099b5f727cb4db" }

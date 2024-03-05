@@ -3,12 +3,12 @@ use alloc::vec::Vec;
 use core::{fmt::Debug, hash};
 
 /// Trait to be implemented on any type that can be used as an ID.
-pub trait Id: hash::Hash + PartialEq + Eq + PartialOrd + Ord + Debug + Copy {
+pub trait Id: hash::Hash + PartialEq + Eq + PartialOrd + Ord + Debug + Copy + Default {
     fn to_bytes(&self) -> Vec<u8>;
 }
 
 /// A basic ID type that can be used for testing.
-#[derive(Hash, PartialEq, Eq, PartialOrd, Ord, Debug, Clone, Copy)]
+#[derive(Hash, PartialEq, Eq, PartialOrd, Ord, Debug, Clone, Copy, Default)]
 pub struct BasicId(u64);
 
 impl Id for BasicId {
