@@ -225,7 +225,11 @@ impl<H: StarkHash, DB: BonsaiDatabase, ID: Id> MerkleTree<H, DB, ID> {
                 binary.hash = Some(hash);
                 binary.left = NodeHandle::Hash(left_hash);
                 binary.right = NodeHandle::Hash(right_hash);
-                let key_bytes = [&[path.0.len() as u8], path.0.as_raw_slice()].concat();
+                let key_bytes = if path.0.is_empty() {
+                    vec![]
+                } else {
+                    [&[path.0.len() as u8], path.0.as_raw_slice()].concat()
+                };
                 self.db.insert(
                     &TrieKey::Trie(key_bytes),
                     &Node::Binary(binary).encode(),
