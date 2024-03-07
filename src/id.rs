@@ -11,9 +11,27 @@ pub trait Id: hash::Hash + PartialEq + Eq + PartialOrd + Ord + Debug + Copy + De
 #[derive(Hash, PartialEq, Eq, PartialOrd, Ord, Debug, Clone, Copy, Default)]
 pub struct BasicId(u64);
 
+impl BasicId {
+    /// Constructor for creating a new `BasicId` from a `u64`.
+    pub fn new(id: u64) -> Self {
+        BasicId(id)
+    }
+
+    /// Converts the ID to a byte vector.
+    pub fn to_bytes(&self) -> Vec<u8> {
+        self.0.to_be_bytes().to_vec()
+    }
+}
+
 impl Id for BasicId {
     fn to_bytes(&self) -> Vec<u8> {
-        self.0.to_be_bytes().to_vec()
+        self.to_bytes()
+    }
+}
+
+impl From<u64> for BasicId {
+    fn from(item: u64) -> Self {
+        BasicId::new(item)
     }
 }
 
