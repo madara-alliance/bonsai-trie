@@ -851,24 +851,26 @@ impl<H: StarkHash, DB: BonsaiDatabase, ID: Id> MerkleTree<H, DB, ID> {
                 let next = binary_node.get_child(next_direction);
                 match next {
                     NodeHandle::Hash(_) => {
-                        let node = self.get_trie_branch_in_db_from_path(&path)?.ok_or(
-                            BonsaiStorageError::Trie("Couldn't fetch node in db".to_string()),
-                        )?;
-                        self.latest_node_id.next_id();
-                        self.storage_nodes.0.insert(self.latest_node_id, node);
-                        nodes.push(self.latest_node_id);
-                        match next_direction {
-                            Direction::Left => {
-                                binary_node.left = NodeHandle::InMemory(self.latest_node_id)
-                            }
-                            Direction::Right => {
-                                binary_node.right = NodeHandle::InMemory(self.latest_node_id)
-                            }
-                        };
-                        self.storage_nodes
-                            .0
-                            .insert(root_id, Node::Binary(binary_node));
-                        self.preload_nodes_subtree(dst, self.latest_node_id, path, nodes)
+                        let node = self.get_trie_branch_in_db_from_path(&path)?;
+                        if let Some(node) = node {
+                            self.latest_node_id.next_id();
+                            self.storage_nodes.0.insert(self.latest_node_id, node);
+                            nodes.push(self.latest_node_id);
+                            match next_direction {
+                                Direction::Left => {
+                                    binary_node.left = NodeHandle::InMemory(self.latest_node_id)
+                                }
+                                Direction::Right => {
+                                    binary_node.right = NodeHandle::InMemory(self.latest_node_id)
+                                }
+                            };
+                            self.storage_nodes
+                                .0
+                                .insert(root_id, Node::Binary(binary_node));
+                            self.preload_nodes_subtree(dst, self.latest_node_id, path, nodes)
+                        } else {
+                            Ok(())
+                        }
                     }
                     NodeHandle::InMemory(next_id) => {
                         nodes.push(next_id);
