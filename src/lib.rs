@@ -202,6 +202,17 @@ where
         Ok(Self { tries })
     }
 
+    /// Initialize a new trie with the given identifier.
+    /// This function is useful when you want to create a new trie in the database without inserting any value.
+    /// If the trie already exists, it will do nothing.
+    /// When you insert a value in a trie, it will automatically create the trie if it doesn't exist.
+    pub fn init_tree(
+        &mut self,
+        identifier: &[u8],
+    ) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
+        self.tries.init_tree(identifier)
+    }
+
     /// Insert a new key/value in the trie, overwriting the previous value if it exists.
     /// If the value already exists it will overwrite it.
     pub fn insert(
