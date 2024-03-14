@@ -320,7 +320,6 @@ where
     }
 
     /// Get all changes applied at a certain commit ID.
-    /// TODO: Split changes by identifier
     #[allow(clippy::type_complexity)]
     pub fn get_changes(
         &self,

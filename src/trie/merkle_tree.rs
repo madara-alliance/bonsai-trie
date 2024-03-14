@@ -163,11 +163,12 @@ impl<H: StarkHash, DB: BonsaiDatabase, CommitID: Id> MerkleTrees<H, DB, CommitID
         }
     }
 
-    //TODO: Use a common batch for all
     pub(crate) fn commit(&mut self) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
+        let mut batch = self.db.create_batch();
         for tree in self.trees.values_mut() {
-            tree.commit(&mut self.db)?;
+            tree.commit(&mut self.db, &mut batch)?;
         }
+        self.db.write_batch(batch)?;
         Ok(())
     }
 
@@ -222,8 +223,10 @@ enum InsertOrRemove<T> {
 }
 
 /// Note to developers : Must be used to build a key for the database.
-pub fn build_db_key(identifier: &[u8], key: &[u8]) -> Vec<u8> {
-    let mut db_key = identifier.to_owned();
+// Allow because needed for no-std
+#[allow(clippy::ptr_arg)]
+pub fn build_db_key(identifier: &Vec<u8>, key: &[u8]) -> Vec<u8> {
+    let mut db_key = identifier.clone();
     db_key.extend_from_slice(key);
     db_key
 }
@@ -292,31 +295,30 @@ impl<H: StarkHash> MerkleTree<H> {
     pub fn commit<DB: BonsaiDatabase, ID: Id>(
         &mut self,
         db: &mut KeyValueDB<DB, ID>,
+        batch: &mut DB::Batch,
     ) -> Result<Felt, BonsaiStorageError<DB::DatabaseError>> {
-        let mut batch = db.create_batch();
         for node_key in mem::take(&mut self.death_row) {
-            db.remove(&node_key, Some(&mut batch))?;
+            db.remove(&node_key, Some(batch))?;
         }
         let root_hash =
-            self.commit_subtree(db, self.root_handle, Path(BitVec::new()), &mut batch)?;
+            self.commit_subtree(db, self.root_handle, Path(BitVec::new()), batch)?;
         for (key, value) in mem::take(&mut self.cache_leaf_modified) {
             match value {
                 InsertOrRemove::Insert(value) => {
                     db.insert(
                         &TrieKey::Flat(build_db_key(&self.identifier, &key)),
                         &value.encode(),
-                        Some(&mut batch),
+                        Some(batch),
                     )?;
                 }
                 InsertOrRemove::Remove => {
                     db.remove(
                         &TrieKey::Flat(build_db_key(&self.identifier, &key)),
-                        Some(&mut batch),
+                        Some(batch),
                     )?;
                 }
             }
         }
-        db.write_batch(batch)?;
         self.latest_node_id.reset();
         self.root_hash = root_hash;
         self.root_handle = NodeHandle::Hash(root_hash);
