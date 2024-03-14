@@ -300,8 +300,7 @@ impl<H: StarkHash> MerkleTree<H> {
         for node_key in mem::take(&mut self.death_row) {
             db.remove(&node_key, Some(batch))?;
         }
-        let root_hash =
-            self.commit_subtree(db, self.root_handle, Path(BitVec::new()), batch)?;
+        let root_hash = self.commit_subtree(db, self.root_handle, Path(BitVec::new()), batch)?;
         for (key, value) in mem::take(&mut self.cache_leaf_modified) {
             match value {
                 InsertOrRemove::Insert(value) => {
