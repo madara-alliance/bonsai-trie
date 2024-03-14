@@ -113,6 +113,7 @@ fn assert_eq_proof(bonsai_proof: &[ProofNode], pathfinder_proof: &[TrieNode]) {
 
 #[test]
 fn basic_proof() {
+    let identifier = vec![];
     let tempdir = tempfile::tempdir().unwrap();
     let db = create_rocks_db(tempdir.path()).unwrap();
     let config = BonsaiStorageConfig::default();
@@ -128,7 +129,9 @@ fn basic_proof() {
         Felt::from_hex("0x66342762FDD54D033c195fec3ce2568b62052e").unwrap(),
     );
     let bitvec = BitVec::from_vec(pair1.0.clone());
-    bonsai_storage.insert(&bitvec, &pair1.1).unwrap();
+    bonsai_storage
+        .insert(&identifier, &bitvec, &pair1.1)
+        .unwrap();
     pathfinder_merkle_tree
         .set(
             &storage,
@@ -141,7 +144,9 @@ fn basic_proof() {
         Felt::from_hex("0x66342762FD54D033c195fec3ce2568b62052e").unwrap(),
     );
     let bitvec = BitVec::from_vec(pair2.0.clone());
-    bonsai_storage.insert(&bitvec, &pair2.1).unwrap();
+    bonsai_storage
+        .insert(&identifier, &bitvec, &pair2.1)
+        .unwrap();
     pathfinder_merkle_tree
         .set(
             &storage,
@@ -154,7 +159,9 @@ fn basic_proof() {
         Felt::from_hex("0x66342762FD54D033c195fec3ce2568b62052e").unwrap(),
     );
     let bitvec = BitVec::from_vec(pair3.0.clone());
-    bonsai_storage.insert(&bitvec, &pair3.1).unwrap();
+    bonsai_storage
+        .insert(&identifier, &bitvec, &pair3.1)
+        .unwrap();
     pathfinder_merkle_tree
         .set(
             &storage,
@@ -165,7 +172,7 @@ fn basic_proof() {
     bonsai_storage.commit(id_builder.new_id()).unwrap();
     let (_, root_id) = commit_and_persist(pathfinder_merkle_tree.clone(), &mut storage);
     let bonsai_proof = bonsai_storage
-        .get_proof(&BitVec::from_vec(vec![1, 2, 1]))
+        .get_proof(&identifier, &BitVec::from_vec(vec![1, 2, 1]))
         .unwrap();
     let pathfinder_proof =
         pathfinder_merkle_tree::tree::MerkleTree::<PedersenHash, 251>::get_proof(
@@ -177,7 +184,7 @@ fn basic_proof() {
     assert_eq_proof(&bonsai_proof, &pathfinder_proof);
     assert_eq!(
         BonsaiStorage::<BasicId, RocksDB<BasicId>, Pedersen>::verify_proof(
-            bonsai_storage.root_hash().unwrap(),
+            bonsai_storage.root_hash(&identifier).unwrap(),
             &BitVec::from_vec(vec![1, 2, 1]),
             pair1.1,
             &bonsai_proof
@@ -188,6 +195,7 @@ fn basic_proof() {
 
 #[test]
 fn multiple_proofs() {
+    let identifier = vec![];
     let tempdir = tempfile::tempdir().unwrap();
     let db = create_rocks_db(tempdir.path()).unwrap();
     let config = BonsaiStorageConfig::default();
@@ -211,7 +219,7 @@ fn multiple_proofs() {
         let value = Felt::from_hex(&element).unwrap();
         let key = &value.to_bytes_be()[..31];
         bonsai_storage
-            .insert(&BitVec::from_vec(key.to_vec()), &value)
+            .insert(&identifier, &BitVec::from_vec(key.to_vec()), &value)
             .unwrap();
         pathfinder_merkle_tree
             .set(
@@ -226,7 +234,7 @@ fn multiple_proofs() {
     let (_, root_id) = commit_and_persist(pathfinder_merkle_tree.clone(), &mut storage);
     for element in elements.iter() {
         let proof = bonsai_storage
-            .get_proof(&BitVec::from_vec(element.0.clone()))
+            .get_proof(&identifier, &BitVec::from_vec(element.0.clone()))
             .unwrap();
         let pathfinder_proof =
             pathfinder_merkle_tree::tree::MerkleTree::<PedersenHash, 251>::get_proof(
@@ -238,7 +246,7 @@ fn multiple_proofs() {
         assert_eq_proof(&proof, &pathfinder_proof);
         assert_eq!(
             BonsaiStorage::<BasicId, RocksDB<BasicId>, Pedersen>::verify_proof(
-                bonsai_storage.root_hash().unwrap(),
+                bonsai_storage.root_hash(&identifier).unwrap(),
                 &BitVec::from_vec(element.0.clone()),
                 element.1,
                 &proof
@@ -250,6 +258,7 @@ fn multiple_proofs() {
 
 #[test]
 fn one_element_proof() {
+    let identifier = vec![];
     let tempdir = tempfile::tempdir().unwrap();
     let db = create_rocks_db(tempdir.path()).unwrap();
     let config = BonsaiStorageConfig::default();
@@ -265,7 +274,9 @@ fn one_element_proof() {
         Felt::from_hex("0x66342762FDD54D033c195fec3ce2568b62052e").unwrap(),
     );
     let bitvec = BitVec::from_vec(pair1.0.clone());
-    bonsai_storage.insert(&bitvec, &pair1.1).unwrap();
+    bonsai_storage
+        .insert(&identifier, &bitvec, &pair1.1)
+        .unwrap();
     pathfinder_merkle_tree
         .set(
             &storage,
@@ -276,7 +287,7 @@ fn one_element_proof() {
     bonsai_storage.commit(id_builder.new_id()).unwrap();
     let (_, root_id) = commit_and_persist(pathfinder_merkle_tree.clone(), &mut storage);
     let bonsai_proof = bonsai_storage
-        .get_proof(&BitVec::from_vec(vec![1, 2, 1]))
+        .get_proof(&identifier, &BitVec::from_vec(vec![1, 2, 1]))
         .unwrap();
     let pathfinder_proof =
         pathfinder_merkle_tree::tree::MerkleTree::<PedersenHash, 251>::get_proof(
@@ -288,7 +299,7 @@ fn one_element_proof() {
     assert_eq_proof(&bonsai_proof, &pathfinder_proof);
     assert_eq!(
         BonsaiStorage::<BasicId, RocksDB<BasicId>, Pedersen>::verify_proof(
-            bonsai_storage.root_hash().unwrap(),
+            bonsai_storage.root_hash(&identifier).unwrap(),
             &BitVec::from_vec(vec![1, 2, 1]),
             pair1.1,
             &bonsai_proof
@@ -299,6 +310,7 @@ fn one_element_proof() {
 
 #[test]
 fn zero_not_crashing() {
+    let identifier = vec![];
     let tempdir = tempfile::tempdir().unwrap();
     let db = create_rocks_db(tempdir.path()).unwrap();
     let config = BonsaiStorageConfig::default();
@@ -308,6 +320,6 @@ fn zero_not_crashing() {
     let mut id_builder = BasicIdBuilder::new();
     bonsai_storage.commit(id_builder.new_id()).unwrap();
     bonsai_storage
-        .get_proof(&BitVec::from_vec(vec![1, 2, 1]))
-        .unwrap();
+        .get_proof(&identifier, &BitVec::from_vec(vec![1, 2, 1]))
+        .expect_err("Should error");
 }

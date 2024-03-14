@@ -9,6 +9,7 @@ use starknet_types_core::{felt::Felt, hash::Pedersen};
 
 #[test]
 fn basics() {
+    let identifier = vec![];
     let tempdir = tempfile::tempdir().unwrap();
     let db = create_rocks_db(tempdir.path()).unwrap();
     let config = BonsaiStorageConfig::default();
@@ -20,34 +21,40 @@ fn basics() {
         Felt::from_hex("0x66342762FDD54D033c195fec3ce2568b62052e").unwrap(),
     );
     let bitvec = BitVec::from_vec(pair1.0.clone());
-    bonsai_storage.insert(&bitvec, &pair1.1).unwrap();
+    bonsai_storage
+        .insert(&identifier, &bitvec, &pair1.1)
+        .unwrap();
     bonsai_storage.commit(id_builder.new_id()).unwrap();
     let pair2 = (
         vec![1, 2, 2],
         Felt::from_hex("0x66342762FD54D033c195fec3ce2568b62052e").unwrap(),
     );
     let bitvec = BitVec::from_vec(pair2.0.clone());
-    bonsai_storage.insert(&bitvec, &pair2.1).unwrap();
+    bonsai_storage
+        .insert(&identifier, &bitvec, &pair2.1)
+        .unwrap();
     bonsai_storage.commit(id_builder.new_id()).unwrap();
     let pair3 = (
         vec![1, 2, 3],
         Felt::from_hex("0x66342762FD54D033c195fec3ce2568b62052e").unwrap(),
     );
     let bitvec = BitVec::from_vec(pair3.0.clone());
-    bonsai_storage.insert(&bitvec, &pair3.1).unwrap();
+    bonsai_storage
+        .insert(&identifier, &bitvec, &pair3.1)
+        .unwrap();
     bonsai_storage.commit(id_builder.new_id()).unwrap();
     let bitvec = BitVec::from_vec(vec![1, 2, 1]);
-    bonsai_storage.remove(&bitvec).unwrap();
+    bonsai_storage.remove(&identifier, &bitvec).unwrap();
     assert_eq!(
         bonsai_storage
-            .get(&BitVec::from_vec(vec![1, 2, 1]))
+            .get(&identifier, &BitVec::from_vec(vec![1, 2, 1]))
             .unwrap(),
         None
     );
     bonsai_storage.commit(id_builder.new_id()).unwrap();
     assert_eq!(
         bonsai_storage
-            .get(&BitVec::from_vec(vec![1, 2, 1]))
+            .get(&identifier, &BitVec::from_vec(vec![1, 2, 1]))
             .unwrap(),
         None
     );
@@ -55,6 +62,7 @@ fn basics() {
 
 #[test]
 fn root_hash_similar_rocks_db() {
+    let identifier = vec![];
     let root_hash_1 = {
         let tempdir = tempfile::tempdir().unwrap();
         let db = create_rocks_db(tempdir.path()).unwrap();
@@ -68,14 +76,18 @@ fn root_hash_similar_rocks_db() {
                 .unwrap(),
         );
         let bitvec = BitVec::from_vec(pair1.0.clone());
-        bonsai_storage.insert(&bitvec, &pair1.1).unwrap();
+        bonsai_storage
+            .insert(&identifier, &bitvec, &pair1.1)
+            .unwrap();
         let pair2 = (
             vec![1, 2, 2],
             Felt::from_hex("0x100bd6fbfced88ded1b34bd1a55b747ce3a9fde9a914bca75571e4496b56443")
                 .unwrap(),
         );
         let bitvec = BitVec::from_vec(pair2.0.clone());
-        bonsai_storage.insert(&bitvec, &pair2.1).unwrap();
+        bonsai_storage
+            .insert(&identifier, &bitvec, &pair2.1)
+            .unwrap();
         bonsai_storage.commit(id_builder.new_id()).unwrap();
         let pair3 = (
             vec![1, 2, 3],
@@ -83,16 +95,20 @@ fn root_hash_similar_rocks_db() {
                 .unwrap(),
         );
         let bitvec = BitVec::from_vec(pair3.0.clone());
-        bonsai_storage.insert(&bitvec, &pair3.1).unwrap();
+        bonsai_storage
+            .insert(&identifier, &bitvec, &pair3.1)
+            .unwrap();
         let pair4 = (
             vec![1, 2, 4],
             Felt::from_hex("0x02808c7d8f3745e55655ad3f51f096d0c06a41f3d76caf96bad80f9be9ced171")
                 .unwrap(),
         );
         let bitvec = BitVec::from_vec(pair4.0.clone());
-        bonsai_storage.insert(&bitvec, &pair4.1).unwrap();
+        bonsai_storage
+            .insert(&identifier, &bitvec, &pair4.1)
+            .unwrap();
         bonsai_storage.commit(id_builder.new_id()).unwrap();
-        bonsai_storage.root_hash().unwrap()
+        bonsai_storage.root_hash(&identifier).unwrap()
     };
     let root_hash_2 = {
         let tempdir = tempfile::tempdir().unwrap();
@@ -107,16 +123,20 @@ fn root_hash_similar_rocks_db() {
                 .unwrap(),
         );
         let bitvec = BitVec::from_vec(pair1.0.clone());
-        bonsai_storage.insert(&bitvec, &pair1.1).unwrap();
+        bonsai_storage
+            .insert(&identifier, &bitvec, &pair1.1)
+            .unwrap();
         let pair2 = (
             vec![1, 2, 4],
             Felt::from_hex("0x02808c7d8f3745e55655ad3f51f096d0c06a41f3d76caf96bad80f9be9ced171")
                 .unwrap(),
         );
         let bitvec = BitVec::from_vec(pair2.0.clone());
-        bonsai_storage.insert(&bitvec, &pair2.1).unwrap();
+        bonsai_storage
+            .insert(&identifier, &bitvec, &pair2.1)
+            .unwrap();
         bonsai_storage.commit(id_builder.new_id()).unwrap();
-        bonsai_storage.root_hash().unwrap()
+        bonsai_storage.root_hash(&identifier).unwrap()
     };
     println!("root_hash_1: {:?}", root_hash_1.to_string());
     println!("root_hash_2: {:?}", root_hash_2.to_string());
@@ -129,6 +149,7 @@ fn starknet_specific() {
         address: &'static str,
         state_hash: &'static str,
     }
+    let identifier = vec![];
 
     let tempdir1 = tempfile::tempdir().unwrap();
     let db1 = create_rocks_db(tempdir1.path()).unwrap();
@@ -160,10 +181,10 @@ fn starknet_specific() {
         let key = Felt::from_hex(key).unwrap().to_bytes_be().view_bits()[5..].to_bitvec();
         let value = Felt::from_hex(value).unwrap();
         bonsai_storage1
-            .insert(&key, &value)
+            .insert(&identifier, &key, &value)
             .expect("Failed to insert storage update into trie");
         bonsai_storage2
-            .insert(&key, &value)
+            .insert(&identifier, &key, &value)
             .expect("Failed to insert storage update into trie");
     }
 
@@ -184,10 +205,10 @@ fn starknet_specific() {
         let value = Felt::from_hex(value).unwrap();
 
         bonsai_storage1
-            .insert(&key, &value)
+            .insert(&identifier, &key, &value)
             .expect("Failed to insert storage update into trie");
         bonsai_storage2
-            .insert(&key, &value)
+            .insert(&identifier, &key, &value)
             .expect("Failed to insert storage update into trie");
     }
 
@@ -196,20 +217,21 @@ fn starknet_specific() {
         .commit(id)
         .expect("Failed to commit to bonsai storage");
     let root_hash1 = bonsai_storage1
-        .root_hash()
+        .root_hash(&identifier)
         .expect("Failed to get root hash");
 
     bonsai_storage2
         .commit(id)
         .expect("Failed to commit to bonsai storage");
     let root_hash2 = bonsai_storage2
-        .root_hash()
+        .root_hash(&identifier)
         .expect("Failed to get root hash");
     assert_eq!(root_hash1, root_hash2);
 }
 
 #[test]
 fn root_hash_similar_hashmap_db() {
+    let identifier = vec![];
     let root_hash_1 = {
         let db = HashMapDb::<BasicId>::default();
         let config = BonsaiStorageConfig::default();
@@ -222,14 +244,18 @@ fn root_hash_similar_hashmap_db() {
                 .unwrap(),
         );
         let bitvec = BitVec::from_vec(pair1.0.clone());
-        bonsai_storage.insert(&bitvec, &pair1.1).unwrap();
+        bonsai_storage
+            .insert(&identifier, &bitvec, &pair1.1)
+            .unwrap();
         let pair2 = (
             vec![1, 2, 2],
             Felt::from_hex("0x100bd6fbfced88ded1b34bd1a55b747ce3a9fde9a914bca75571e4496b56443")
                 .unwrap(),
         );
         let bitvec = BitVec::from_vec(pair2.0.clone());
-        bonsai_storage.insert(&bitvec, &pair2.1).unwrap();
+        bonsai_storage
+            .insert(&identifier, &bitvec, &pair2.1)
+            .unwrap();
         bonsai_storage.commit(id_builder.new_id()).unwrap();
         let pair3 = (
             vec![1, 2, 3],
@@ -237,16 +263,20 @@ fn root_hash_similar_hashmap_db() {
                 .unwrap(),
         );
         let bitvec = BitVec::from_vec(pair3.0.clone());
-        bonsai_storage.insert(&bitvec, &pair3.1).unwrap();
+        bonsai_storage
+            .insert(&identifier, &bitvec, &pair3.1)
+            .unwrap();
         let pair4 = (
             vec![1, 2, 4],
             Felt::from_hex("0x02808c7d8f3745e55655ad3f51f096d0c06a41f3d76caf96bad80f9be9ced171")
                 .unwrap(),
         );
         let bitvec = BitVec::from_vec(pair4.0.clone());
-        bonsai_storage.insert(&bitvec, &pair4.1).unwrap();
+        bonsai_storage
+            .insert(&identifier, &bitvec, &pair4.1)
+            .unwrap();
         bonsai_storage.commit(id_builder.new_id()).unwrap();
-        bonsai_storage.root_hash().unwrap()
+        bonsai_storage.root_hash(&identifier).unwrap()
     };
     let root_hash_2 = {
         let db = HashMapDb::<BasicId>::default();
@@ -260,16 +290,20 @@ fn root_hash_similar_hashmap_db() {
                 .unwrap(),
         );
         let bitvec = BitVec::from_vec(pair1.0.clone());
-        bonsai_storage.insert(&bitvec, &pair1.1).unwrap();
+        bonsai_storage
+            .insert(&identifier, &bitvec, &pair1.1)
+            .unwrap();
         let pair2 = (
             vec![1, 2, 4],
             Felt::from_hex("0x02808c7d8f3745e55655ad3f51f096d0c06a41f3d76caf96bad80f9be9ced171")
                 .unwrap(),
         );
         let bitvec = BitVec::from_vec(pair2.0.clone());
-        bonsai_storage.insert(&bitvec, &pair2.1).unwrap();
+        bonsai_storage
+            .insert(&identifier, &bitvec, &pair2.1)
+            .unwrap();
         bonsai_storage.commit(id_builder.new_id()).unwrap();
-        bonsai_storage.root_hash().unwrap()
+        bonsai_storage.root_hash(&identifier).unwrap()
     };
     println!("root_hash_1: {:?}", root_hash_1.to_string());
     println!("root_hash_2: {:?}", root_hash_2.to_string());
@@ -278,6 +312,7 @@ fn root_hash_similar_hashmap_db() {
 
 #[test]
 fn double_insert() {
+    let identifier = vec![];
     struct ContractState {
         address: &'static str,
         state_hash: &'static str,
@@ -320,21 +355,91 @@ fn double_insert() {
         let bitkey = key.to_bytes_be().view_bits()[5..].to_bitvec();
         let value = Felt::from_hex(value).unwrap();
         bonsai_storage
-            .insert(&bitkey, &value)
+            .insert(&identifier, &bitkey, &value)
             .expect("Failed to insert storage update into trie");
         // fails here for key 0x313ad57fdf765addc71329abf8d74ac2bce6d46da8c2b9b82255a5076620301
         // and value 0x453ae0c9610197b18b13645c44d3d0a407083d96562e8752aab3fab616cecb0
-        bonsai_storage.insert(&bitkey, &value).expect(&format!(
-            "Failed to insert storage update into trie for key {key:#x} & value {value:#x}"
-        ));
+        bonsai_storage
+            .insert(&identifier, &bitkey, &value)
+            .unwrap_or_else(|_| {
+                panic!(
+                    "Failed to insert storage update into trie for key {key:#x} & value {value:#x}"
+                )
+            });
     }
     bonsai_storage.commit(id_builder.new_id()).unwrap();
-    let root_hash = bonsai_storage.root_hash().unwrap();
+    let root_hash = bonsai_storage.root_hash(&identifier).unwrap();
     println!("root hash: {root_hash:#x}");
 }
 
 #[test]
+fn double_identifier() {
+    let identifier = vec![];
+    let identifier2 = vec![1, 3, 1];
+    struct ContractState {
+        address: &'static str,
+        state_hash: &'static str,
+    }
+    let tempdir = tempfile::tempdir().unwrap();
+    let db = create_rocks_db(tempdir.path()).unwrap();
+    let config = BonsaiStorageConfig::default();
+    let mut bonsai_storage: BonsaiStorage<_, _, Pedersen> =
+        BonsaiStorage::new(RocksDB::new(&db, RocksDBConfig::default()), config).unwrap();
+    let mut id_builder = BasicIdBuilder::new();
+    let contract_states = vec![
+        ContractState {
+            address: "0x0000000000000000000000000000000000000000000000000000000000000005",
+            state_hash: "0x000000000000000000000000000000000000000000000000000000000000022b",
+        },
+        ContractState {
+            address: "0x0313ad57fdf765addc71329abf8d74ac2bce6d46da8c2b9b82255a5076620300",
+            state_hash: "0x04e7e989d58a17cd279eca440c5eaa829efb6f9967aaad89022acbe644c39b36",
+        },
+        // This seems to be what is causing the problem in case of double insertions.
+        // Other value are fine
+        ContractState {
+            address: "0x313ad57fdf765addc71329abf8d74ac2bce6d46da8c2b9b82255a5076620301",
+            state_hash: "0x453ae0c9610197b18b13645c44d3d0a407083d96562e8752aab3fab616cecb0",
+        },
+        ContractState {
+            address: "0x05aee31408163292105d875070f98cb48275b8c87e80380b78d30647e05854d5",
+            state_hash: "0x00000000000000000000000000000000000000000000000000000000000007e5",
+        },
+        ContractState {
+            address: "0x06cf6c2f36d36b08e591e4489e92ca882bb67b9c39a3afccf011972a8de467f0",
+            state_hash: "0x07ab344d88124307c07b56f6c59c12f4543e9c96398727854a322dea82c73240",
+        },
+    ];
+    for contract_state in contract_states {
+        let key = contract_state.address;
+        let value = contract_state.state_hash;
+
+        let key = Felt::from_hex(key).unwrap();
+        let bitkey = key.to_bytes_be().view_bits()[5..].to_bitvec();
+        let value = Felt::from_hex(value).unwrap();
+        bonsai_storage
+            .insert(&identifier, &bitkey, &value)
+            .expect("Failed to insert storage update into trie");
+        // fails here for key 0x313ad57fdf765addc71329abf8d74ac2bce6d46da8c2b9b82255a5076620301
+        // and value 0x453ae0c9610197b18b13645c44d3d0a407083d96562e8752aab3fab616cecb0
+        bonsai_storage
+            .insert(&identifier2, &bitkey, &value)
+            .unwrap_or_else(|_| {
+                panic!(
+                    "Failed to insert storage update into trie for key {key:#x} & value {value:#x}"
+                )
+            });
+    }
+    bonsai_storage.commit(id_builder.new_id()).unwrap();
+    let root_hash = bonsai_storage.root_hash(&identifier).unwrap();
+    println!("root hash: {root_hash:#x}");
+    let root_hash2 = bonsai_storage.root_hash(&identifier2).unwrap();
+    assert_eq!(root_hash, root_hash2);
+}
+
+#[test]
 fn get_changes() {
+    let identifier = vec![];
     let tempdir = tempfile::tempdir().unwrap();
     let db = create_rocks_db(tempdir.path()).unwrap();
     let config = BonsaiStorageConfig::default();
@@ -343,17 +448,25 @@ fn get_changes() {
     let mut id_builder = BasicIdBuilder::new();
     let pair1 = (vec![1, 2, 1], Felt::from_hex("0x01").unwrap());
     let bitvec = BitVec::from_vec(pair1.0.clone());
-    bonsai_storage.insert(&bitvec, &pair1.1).unwrap();
+    bonsai_storage
+        .insert(&identifier, &bitvec, &pair1.1)
+        .unwrap();
     bonsai_storage.commit(id_builder.new_id()).unwrap();
     let pair2 = (vec![1, 2, 2], Felt::from_hex("0x01").unwrap());
     let bitvec = BitVec::from_vec(pair2.0.clone());
-    bonsai_storage.insert(&bitvec, &pair2.1).unwrap();
+    bonsai_storage
+        .insert(&identifier, &bitvec, &pair2.1)
+        .unwrap();
     let pair1_edited_1 = (vec![1, 2, 1], Felt::from_hex("0x02").unwrap());
     let bitvec = BitVec::from_vec(pair1_edited_1.0.clone());
-    bonsai_storage.insert(&bitvec, &pair1_edited_1.1).unwrap();
+    bonsai_storage
+        .insert(&identifier, &bitvec, &pair1_edited_1.1)
+        .unwrap();
     let pair1_edited_2 = (vec![1, 2, 1], Felt::from_hex("0x03").unwrap());
     let bitvec = BitVec::from_vec(pair1_edited_2.0.clone());
-    bonsai_storage.insert(&bitvec, &pair1_edited_2.1).unwrap();
+    bonsai_storage
+        .insert(&identifier, &bitvec, &pair1_edited_2.1)
+        .unwrap();
     let id = id_builder.new_id();
     bonsai_storage.commit(id).unwrap();
     let changes = bonsai_storage.get_changes(id).unwrap();

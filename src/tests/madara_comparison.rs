@@ -10,6 +10,7 @@ use crate::{
 
 #[test]
 fn trie_height_251() {
+    let identifier = vec![];
     let tempdir = tempfile::tempdir().unwrap();
     let db = create_rocks_db(tempdir.path()).unwrap();
     let config = BonsaiStorageConfig::default();
@@ -19,12 +20,14 @@ fn trie_height_251() {
         let mut key: BitVec<u8, Msb0> = bits![u8, Msb0; 0; 251].to_bitvec();
         key.set(i, true);
         let value = Felt::from_hex("0x01").unwrap();
-        bonsai_storage.insert(key.as_bitslice(), &value).unwrap();
+        bonsai_storage
+            .insert(&identifier, key.as_bitslice(), &value)
+            .unwrap();
     }
     let mut id_builder = BasicIdBuilder::new();
     let id = id_builder.new_id();
     bonsai_storage.commit(id).unwrap();
-    bonsai_storage.root_hash().unwrap();
+    bonsai_storage.root_hash(&identifier).unwrap();
 }
 // Test to add on Madara side to check with a tree of height 251 and see that we have same hash
 // #[test]// fn test_height_251() {
