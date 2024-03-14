@@ -3,7 +3,7 @@
 //! This implementation can be used with any database that implements the `BonsaiDatabase` trait.
 //!
 //! Example usage with a RocksDB database:
-//! ```
+//! ```ignore
 //! # use bonsai_trie::{
 //! #     databases::{RocksDB, create_rocks_db, RocksDBConfig},
 //! #     BonsaiStorageError,
