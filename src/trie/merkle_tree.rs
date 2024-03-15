@@ -633,7 +633,7 @@ impl<H: StarkHash> MerkleTree<H> {
         let parent_branch_node = node_iter.next();
         match branch_node {
             Some(node_id) => {
-                let mut new_edge =
+                let new_edge =
                     {
                         let node = self.storage_nodes.0.get_mut(&node_id).ok_or(
                             BonsaiStorageError::Trie("Node not found in memory".to_string()),
@@ -660,24 +660,23 @@ impl<H: StarkHash> MerkleTree<H> {
                         self.merge_edges::<DB>(&mut edge)?;
                         edge
                     };
-                 // Check the parent of the new edge. If it is also an edge, then they must merge.
-                 if let Some(node_id) = parent_branch_node {
+                // Check the parent of the new edge. If it is also an edge, then they must merge.
+                if let Some(parent_node_id) = parent_branch_node {
                     // Get a mutable reference to the parent node to merge them
-                    let parent_node = self
-                        .storage_nodes
-                        .0
-                        .get_mut(&node_id)
-                        .ok_or(BonsaiStorageError::Trie(
-                            "Node not found in memory".to_string(),
-                        ))?;
+                    let parent_node = self.storage_nodes.0.get_mut(&parent_node_id).ok_or(
+                        BonsaiStorageError::Trie("Node not found in memory".to_string()),
+                    )?;
                     if let Node::Edge(parent_edge) = parent_node {
                         parent_edge.path.0.extend_from_bitslice(&new_edge.path.0);
                         parent_edge.child = new_edge.child;
-                        new_edge = parent_edge.clone();
+                        // Replace the old binary node with the new edge node.
+                        self.storage_nodes
+                            .0
+                            .insert(parent_node_id, Node::Edge(parent_edge));
+                    } else {
+                        self.storage_nodes.0.insert(node_id, Node::Edge(new_edge));
                     }
                 }
-                // Replace the old binary node with the new edge node.
-                self.storage_nodes.0.insert(node_id, Node::Edge(new_edge));
             }
             None => {
                 // We reached the root without a hitting binary node. The new tree
