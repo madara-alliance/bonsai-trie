@@ -676,49 +676,6 @@ impl<H: StarkHash> MerkleTree<H> {
                 return Ok(());
             }
         };
-
-        // Check the parent of the new edge. If it is also an edge, then they must merge.
-        if let Some(node_id) = parent_branch_node {
-            let node = self
-                .storage_nodes
-                .0
-                .get(&node_id)
-                .ok_or(BonsaiStorageError::Trie(
-                    "Node not found in memory".to_string(),
-                ))?;
-            // If it's an edge node and the child is in memory and it's an edge too we
-            // return the child otherwise we leave
-            let child =
-                if let Node::Edge(edge) = node {
-                    match edge.child {
-                        NodeHandle::Hash(_) => return Ok(()),
-                        NodeHandle::InMemory(child_id) => {
-                            let child_node = self.storage_nodes.0.get(&child_id).ok_or(
-                                BonsaiStorageError::Trie("Node not found in memory".to_string()),
-                            )?;
-                            if let Node::Edge(child_edge) = child_node {
-                                child_edge.clone()
-                            } else {
-                                return Ok(());
-                            }
-                        }
-                    }
-                } else {
-                    return Ok(());
-                };
-            // Get a mutable reference to the parent node to merge them
-            let edge = self
-                .storage_nodes
-                .0
-                .get_mut(&node_id)
-                .ok_or(BonsaiStorageError::Trie(
-                    "Node not found in memory".to_string(),
-                ))?;
-            if let Node::Edge(edge) = edge {
-                edge.path.0.extend_from_bitslice(&child.path.0);
-                edge.child = child.child;
-            }
-        }
         Ok(())
     }
 
