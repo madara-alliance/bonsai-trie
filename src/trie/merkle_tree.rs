@@ -669,10 +669,6 @@ impl<H: StarkHash> MerkleTree<H> {
                     if let Node::Edge(parent_edge) = parent_node {
                         parent_edge.path.0.extend_from_bitslice(&new_edge.path.0);
                         parent_edge.child = new_edge.child;
-                        // Replace the old binary node with the new edge node.
-                        self.storage_nodes
-                            .0
-                            .insert(parent_node_id, Node::Edge(parent_edge));
                     } else {
                         self.storage_nodes.0.insert(node_id, Node::Edge(new_edge));
                     }
