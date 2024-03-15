@@ -638,21 +638,22 @@ impl<H: StarkHash> MerkleTree<H> {
                         let node = self.storage_nodes.0.get_mut(&node_id).ok_or(
                             BonsaiStorageError::Trie("Node not found in memory".to_string()),
                         )?;
-                        let (direction, height) = {
-                            // SAFETY: This node must be a binary node due to the iteration condition.
-                            let binary = node.as_binary().unwrap();
-                            (binary.direction(key).invert(), binary.height)
-                        };
+                        // SAFETY: This node must be a binary node due to the iteration condition.
+                        let binary = node.as_binary().unwrap();
+                        let (direction, height) =
+                            { (binary.direction(key).invert(), binary.height) };
                         // Create an edge node to replace the old binary node
                         // i.e. with the remaining child (note the direction invert),
                         //      and a path of just a single bit.
-                        last_binary_path.0.push(direction.into());
                         let path = Path(once(bool::from(direction)).collect::<BitVec<_, _>>());
                         let mut edge = EdgeNode {
                             hash: None,
                             height,
                             path,
-                            child: NodeHandle::InMemory(self.latest_node_id),
+                            child: match direction {
+                                Direction::Left => binary.left,
+                                Direction::Right => binary.right,
+                            },
                         };
 
                         // Merge the remaining child if it's an edge.
@@ -1001,6 +1002,34 @@ impl<H: StarkHash> MerkleTree<H> {
             // We call recursively the function with the "child-side" node.
             Node::Binary(mut binary_node) => {
                 let next_direction = binary_node.direction(dst);
+                let other_direction = next_direction.invert();
+                let other_child = binary_node.get_child(other_direction);
+                match other_child {
+                    NodeHandle::Hash(_) => {
+                        let mut second_path = path.clone();
+                        second_path.0.push(bool::from(other_direction));
+                        let node = self.get_trie_branch_in_db_from_path(db, &second_path)?;
+                        if let Some(node) = node {
+                            self.latest_node_id.next_id();
+                            self.storage_nodes.0.insert(self.latest_node_id, node);
+                            nodes.push(self.latest_node_id);
+                            match other_direction {
+                                Direction::Left => {
+                                    binary_node.left = NodeHandle::InMemory(self.latest_node_id)
+                                }
+                                Direction::Right => {
+                                    binary_node.right = NodeHandle::InMemory(self.latest_node_id)
+                                }
+                            };
+                            self.storage_nodes
+                                .0
+                                .insert(root_id, Node::Binary(binary_node.clone()));
+                        }
+                    }
+                    NodeHandle::InMemory(other_id) => {
+                        nodes.push(other_id);
+                    }
+                };
                 path.0.push(bool::from(next_direction));
                 let next = binary_node.get_child(next_direction);
                 match next {
