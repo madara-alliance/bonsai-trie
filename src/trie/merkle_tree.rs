@@ -969,34 +969,6 @@ impl<H: StarkHash> MerkleTree<H> {
             // We call recursively the function with the "child-side" node.
             Node::Binary(mut binary_node) => {
                 let next_direction = binary_node.direction(dst);
-                let other_direction = next_direction.invert();
-                let other_child = binary_node.get_child(other_direction);
-                match other_child {
-                    NodeHandle::Hash(_) => {
-                        let mut second_path = path.clone();
-                        second_path.0.push(bool::from(other_direction));
-                        let node = self.get_trie_branch_in_db_from_path(db, &second_path)?;
-                        if let Some(node) = node {
-                            self.latest_node_id.next_id();
-                            self.storage_nodes.0.insert(self.latest_node_id, node);
-                            nodes.push(self.latest_node_id);
-                            match other_direction {
-                                Direction::Left => {
-                                    binary_node.left = NodeHandle::InMemory(self.latest_node_id)
-                                }
-                                Direction::Right => {
-                                    binary_node.right = NodeHandle::InMemory(self.latest_node_id)
-                                }
-                            };
-                            self.storage_nodes
-                                .0
-                                .insert(root_id, Node::Binary(binary_node.clone()));
-                        }
-                    }
-                    NodeHandle::InMemory(other_id) => {
-                        nodes.push(other_id);
-                    }
-                };
                 path.0.push(bool::from(next_direction));
                 let next = binary_node.get_child(next_direction);
                 match next {
