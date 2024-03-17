@@ -622,6 +622,11 @@ impl<H: StarkHash> MerkleTree<H> {
                     for _ in 0..edge.path.0.len() {
                         last_binary_path.0.pop();
                     }
+                    let mut new_path = Path(BitVec::new());
+                    for i in last_binary_path.0.iter() {
+                        new_path.0.push(*i);
+                    }
+                    last_binary_path = new_path;
                     let path: Vec<u8> = (&last_binary_path).into();
                     self.death_row
                         .push(TrieKey::Trie(build_db_key(&self.identifier, &path)));
@@ -642,6 +647,8 @@ impl<H: StarkHash> MerkleTree<H> {
                         let binary = node.as_binary().unwrap();
                         let (direction, height) =
                             { (binary.direction(key).invert(), binary.height) };
+                        last_binary_path.0.pop();
+                        last_binary_path.0.push(bool::from(direction));
                         // Create an edge node to replace the old binary node
                         // i.e. with the remaining child (note the direction invert),
                         //      and a path of just a single bit.
@@ -657,7 +664,7 @@ impl<H: StarkHash> MerkleTree<H> {
                         };
 
                         // Merge the remaining child if it's an edge.
-                        self.merge_edges::<DB>(&mut edge)?;
+                        self.merge_edges::<DB, ID>(&mut edge, db, &last_binary_path)?;
                         edge
                     };
                 // Check the parent of the new edge. If it is also an edge, then they must merge.
@@ -1062,20 +1069,29 @@ impl<H: StarkHash> MerkleTree<H> {
     /// # Arguments
     ///
     /// * `parent` - The parent node to merge the child with.
-    fn merge_edges<DB: BonsaiDatabase>(
+    fn merge_edges<DB: BonsaiDatabase, ID: Id>(
         &self,
         parent: &mut EdgeNode,
+        db: &KeyValueDB<DB, ID>,
+        path: &Path,
     ) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
         let child_node = match parent.child {
-            NodeHandle::Hash(_) => return Ok(()),
-            NodeHandle::InMemory(child_id) => {
-                self.storage_nodes
-                    .0
-                    .get(&child_id)
-                    .ok_or(BonsaiStorageError::Trie(
-                        "Couldn't fetch node in memory".to_string(),
-                    ))?
+            NodeHandle::Hash(_) => {
+                let node = self.get_trie_branch_in_db_from_path(db, &path)?;
+                if let Some(node) = node {
+                    node
+                } else {
+                    return Ok(());
+                }
             }
+            NodeHandle::InMemory(child_id) => self
+                .storage_nodes
+                .0
+                .get(&child_id)
+                .ok_or(BonsaiStorageError::Trie(
+                    "Couldn't fetch node in memory".to_string(),
+                ))?
+                .clone(),
         };
         if let Node::Edge(child_edge) = child_node {
             parent.path.0.extend_from_bitslice(&child_edge.path.0);
