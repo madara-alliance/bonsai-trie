@@ -668,7 +668,7 @@ fn test_block_7_starknet() {
         let key = Felt::from_hex(key_hex).unwrap();
         let value = Felt::from_hex(value_hex).unwrap();
         bonsai_storage
-            .insert(&identifier, keyer(key).as_bitslice(), &value.into())
+            .insert(identifier, keyer(key).as_bitslice(), &value)
             .expect("Failed to insert storage update into trie");
     }
 
@@ -678,12 +678,12 @@ fn test_block_7_starknet() {
         .commit(id)
         .expect("Failed to commit to bonsai storage");
     let root_hash = bonsai_storage
-        .root_hash(&identifier)
+        .root_hash(identifier)
         .expect("Failed to get root hash");
 
     println!("Expected: 0x0297DE74ABD178CAF7EA2F1AE1B4588CA7433B1B11A98172B6F56E3E02739FD0\nFound: {root_hash:#x}");
     assert_eq!(
-        Felt::from(root_hash),
+        root_hash,
         Felt::from_hex("0x0297DE74ABD178CAF7EA2F1AE1B4588CA7433B1B11A98172B6F56E3E02739FD0")
             .unwrap()
     );
@@ -737,7 +737,7 @@ fn test_block_7_starknet() {
         let key = Felt::from_hex(key_hex).unwrap();
         let value = Felt::from_hex(value_hex).unwrap();
         bonsai_storage
-            .insert(&identifier, keyer(key).as_bitslice(), &value.into())
+            .insert(identifier, keyer(key).as_bitslice(), &value)
             .expect("Failed to insert storage update into trie");
     }
 
@@ -746,12 +746,12 @@ fn test_block_7_starknet() {
         .commit(id)
         .expect("Failed to commit to bonsai storage");
     let root_hash = bonsai_storage
-        .root_hash(&identifier)
+        .root_hash(identifier)
         .expect("Failed to get root hash");
 
     println!("Expected: 0x07A4CA1440AF3858CEB11386BA7E2A0FC553BB73E741043218845D820009BCCB\nFound: {root_hash:#x}");
     assert_eq!(
-        Felt::from(root_hash),
+        root_hash,
         Felt::from_hex("0x07A4CA1440AF3858CEB11386BA7E2A0FC553BB73E741043218845D820009BCCB")
             .unwrap()
     );
@@ -772,7 +772,7 @@ fn test_block_7_starknet() {
         let key = Felt::from_hex(key_hex).unwrap();
         let value = Felt::from_hex(value_hex).unwrap();
         bonsai_storage
-            .insert(&identifier, keyer(key).as_bitslice(), &value.into())
+            .insert(identifier, keyer(key).as_bitslice(), &value)
             .expect("Failed to insert storage update into trie");
     }
 
@@ -781,12 +781,12 @@ fn test_block_7_starknet() {
         .commit(id)
         .expect("Failed to commit to bonsai storage");
     let root_hash = bonsai_storage
-        .root_hash(&identifier)
+        .root_hash(identifier)
         .expect("Failed to get root hash");
 
     println!("Expected: 0x002363DCD04D065C6B50A4D46F930EBC91AC7F4B15DCF1B0A8D0165B0BA0F143\nFound: {root_hash:#x}");
     assert_eq!(
-        Felt::from(root_hash),
+        root_hash,
         Felt::from_hex("0x002363DCD04D065C6B50A4D46F930EBC91AC7F4B15DCF1B0A8D0165B0BA0F143")
             .unwrap()
     );
@@ -798,7 +798,7 @@ fn test_block_7_starknet() {
         let key = Felt::from_hex(key_hex).unwrap();
         let value = Felt::from_hex(value_hex).unwrap();
         bonsai_storage
-            .insert(&identifier, keyer(key).as_bitslice(), &value.into())
+            .insert(identifier, keyer(key).as_bitslice(), &value)
             .expect("Failed to insert storage update into trie");
     }
 
@@ -807,12 +807,12 @@ fn test_block_7_starknet() {
         .commit(id)
         .expect("Failed to commit to bonsai storage");
     let root_hash = bonsai_storage
-        .root_hash(&identifier)
+        .root_hash(identifier)
         .expect("Failed to get root hash");
 
     println!("Expected: 0x00C656C01BB43291BEA976CEACE3AFE89A5621045E3B6F23E4BCFFFBB4B66832\nFound: {root_hash:#x}");
     assert_eq!(
-        Felt::from(root_hash),
+        root_hash,
         Felt::from_hex("0x00C656C01BB43291BEA976CEACE3AFE89A5621045E3B6F23E4BCFFFBB4B66832")
             .unwrap()
     );
@@ -824,7 +824,7 @@ fn test_block_7_starknet() {
         let key = Felt::from_hex(key_hex).unwrap();
         let value = Felt::from_hex(value_hex).unwrap();
         bonsai_storage
-            .insert(&identifier, keyer(key).as_bitslice(), &value.into())
+            .insert(identifier, keyer(key).as_bitslice(), &value)
             .expect("Failed to insert storage update into trie");
     }
 
@@ -833,12 +833,12 @@ fn test_block_7_starknet() {
         .commit(id)
         .expect("Failed to commit to bonsai storage");
     let root_hash = bonsai_storage
-        .root_hash(&identifier)
+        .root_hash(identifier)
         .expect("Failed to get root hash");
 
     println!("Expected: 0x032C61E78534A30DD005DB4B9136AA64893CC2F6E10C4535DD6F29BFB2ADC726\nFound: {root_hash:#x}");
     assert_eq!(
-        Felt::from(root_hash),
+        root_hash,
         Felt::from_hex("0x032C61E78534A30DD005DB4B9136AA64893CC2F6E10C4535DD6F29BFB2ADC726")
             .unwrap()
     );
@@ -886,10 +886,10 @@ fn test_block_7_starknet_2() {
     ];
 
     for (key_hex, value_hex) in block_5.iter() {
-        let key = Felt::from_hex(key_hex).unwrap().into();
+        let key = Felt::from_hex(key_hex).unwrap();
         let value = Felt::from_hex(value_hex).unwrap();
         bonsai_storage
-            .insert(&identifier, keyer(key).as_bitslice(), &value.into())
+            .insert(identifier, keyer(key).as_bitslice(), &value)
             .expect("Failed to insert storage update into trie");
     }
 
@@ -899,12 +899,12 @@ fn test_block_7_starknet_2() {
         .commit(id)
         .expect("Failed to commit to bonsai storage");
     let root_hash = bonsai_storage
-        .root_hash(&identifier)
+        .root_hash(identifier)
         .expect("Failed to get root hash");
 
     println!("Expected: 0x03846F4AE281ADBCC68518766579DB77C27EF31955E9FC3183C397C2731A7627\nFound: {root_hash:#x}");
     assert_eq!(
-        Felt::from(root_hash),
+        root_hash,
         Felt::from_hex("0x03846F4AE281ADBCC68518766579DB77C27EF31955E9FC3183C397C2731A7627")
             .unwrap()
     );
@@ -926,10 +926,10 @@ fn test_block_7_starknet_2() {
     ];
 
     for (key_hex, value_hex) in block_6.iter() {
-        let key = Felt::from_hex(key_hex).unwrap().into();
+        let key = Felt::from_hex(key_hex).unwrap();
         let value = Felt::from_hex(value_hex).unwrap();
         bonsai_storage
-            .insert(&identifier, keyer(key).as_bitslice(), &value.into())
+            .insert(identifier, keyer(key).as_bitslice(), &value)
             .expect("Failed to insert storage update into trie");
     }
 
@@ -938,12 +938,12 @@ fn test_block_7_starknet_2() {
         .commit(id)
         .expect("Failed to commit to bonsai storage");
     let root_hash = bonsai_storage
-        .root_hash(&identifier)
+        .root_hash(identifier)
         .expect("Failed to get root hash");
 
     println!("Expected: 0x06E02FE529D3CBDCC5324D0981F991E777DAFC3F0C24E7CB56CE3D379BE9B510\nFound: {root_hash:#x}");
     assert_eq!(
-        Felt::from(root_hash),
+        root_hash,
         Felt::from_hex("0x06E02FE529D3CBDCC5324D0981F991E777DAFC3F0C24E7CB56CE3D379BE9B510")
             .unwrap()
     );
@@ -952,10 +952,10 @@ fn test_block_7_starknet_2() {
     let block_7 = [("0x5", "0x0")];
 
     for (key_hex, value_hex) in block_7.iter() {
-        let key = Felt::from_hex(key_hex).unwrap().into();
+        let key = Felt::from_hex(key_hex).unwrap();
         let value = Felt::from_hex(value_hex).unwrap();
         bonsai_storage
-            .insert(&identifier, keyer(key).as_bitslice(), &value.into())
+            .insert(identifier, keyer(key).as_bitslice(), &value)
             .expect("Failed to insert storage update into trie");
     }
 
@@ -964,12 +964,12 @@ fn test_block_7_starknet_2() {
         .commit(id)
         .expect("Failed to commit to bonsai storage");
     let root_hash = bonsai_storage
-        .root_hash(&identifier)
+        .root_hash(identifier)
         .expect("Failed to get root hash");
 
     println!("Expected: 0x0528E360EA90E94F670451A76A7698900F0F7C1F2E88583F8B0162D486BF7947\nFound: {root_hash:#x}");
     assert_eq!(
-        Felt::from(root_hash),
+        root_hash,
         Felt::from_hex("0x0528E360EA90E94F670451A76A7698900F0F7C1F2E88583F8B0162D486BF7947")
             .unwrap()
     )

@@ -1077,7 +1077,7 @@ impl<H: StarkHash> MerkleTree<H> {
     ) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
         let child_node = match parent.child {
             NodeHandle::Hash(_) => {
-                let node = self.get_trie_branch_in_db_from_path(db, &path)?;
+                let node = self.get_trie_branch_in_db_from_path(db, path)?;
                 if let Some(node) = node {
                     node
                 } else {
