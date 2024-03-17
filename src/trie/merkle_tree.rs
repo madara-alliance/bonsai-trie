@@ -679,6 +679,8 @@ impl<H: StarkHash> MerkleTree<H> {
                     } else {
                         self.storage_nodes.0.insert(node_id, Node::Edge(new_edge));
                     }
+                } else {
+                    self.storage_nodes.0.insert(node_id, Node::Edge(new_edge));
                 }
             }
             None => {
