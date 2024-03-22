@@ -997,7 +997,7 @@ fn test_block_9() {
         let key = Felt::from_hex(key_hex).unwrap();
         let value = Felt::from_hex(value_hex).unwrap();
         bonsai_storage
-            .insert(&identifier, keyer(key).as_bitslice(), &value.into())
+            .insert(identifier, keyer(key).as_bitslice(), &value)
             .expect("Failed to insert storage update into trie");
     }
 
@@ -1007,12 +1007,12 @@ fn test_block_9() {
         .commit(id)
         .expect("Failed to commit to bonsai storage");
     let root_hash = bonsai_storage
-        .root_hash(&identifier)
+        .root_hash(identifier)
         .expect("Failed to get root hash");
 
     println!("Expected: 0x010AA5D1D36847AE64BA074B3A878BFD1A9AEAA952F6777C727EEA6AE6B2C99F\nFound: {root_hash:#x}");
     assert_eq!(
-        Felt::from(root_hash),
+        root_hash,
         Felt::from_hex("0x010AA5D1D36847AE64BA074B3A878BFD1A9AEAA952F6777C727EEA6AE6B2C99F")
             .unwrap()
     );
@@ -1021,10 +1021,10 @@ fn test_block_9() {
     let block_9 = [("0x5", "0x0")];
 
     for (key_hex, value_hex) in block_9.iter() {
-        let key = Felt::from_hex(key_hex).unwrap().into();
+        let key = Felt::from_hex(key_hex).unwrap();
         let value = Felt::from_hex(value_hex).unwrap();
         bonsai_storage
-            .insert(&identifier, keyer(key).as_bitslice(), &value.into())
+            .insert(identifier, keyer(key).as_bitslice(), &value)
             .expect("Failed to insert storage update into trie");
     }
 
@@ -1033,12 +1033,12 @@ fn test_block_9() {
         .commit(id)
         .expect("Failed to commit to bonsai storage");
     let root_hash = bonsai_storage
-        .root_hash(&identifier)
+        .root_hash(identifier)
         .expect("Failed to get root hash");
 
     println!("Expected: 0x00072F7E2EC1A2F05342503B49AECD83E14884AE374A8570F2F6F7B868CF94AE\nFound: {root_hash:#x}");
     assert_eq!(
-        Felt::from(root_hash),
+        root_hash,
         Felt::from_hex("0x00072F7E2EC1A2F05342503B49AECD83E14884AE374A8570F2F6F7B868CF94AE")
             .unwrap()
     );

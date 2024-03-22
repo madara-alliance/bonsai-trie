@@ -165,6 +165,7 @@ impl<H: StarkHash + Send + Sync, DB: BonsaiDatabase, CommitID: Id> MerkleTrees<H
     }
 
     pub(crate) fn commit(&mut self) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
+        #[allow(clippy::type_complexity)]
         let db_changes: Vec<
             Result<
                 HashMap<TrieKey, InsertOrRemove<Vec<u8>>>,
@@ -313,6 +314,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
     }
 
     /// Calculate all the new hashes and the root hash.
+    #[allow(clippy::type_complexity)]
     pub(crate) fn get_updates<DB: BonsaiDatabase>(
         &mut self,
     ) -> Result<HashMap<TrieKey, InsertOrRemove<Vec<u8>>>, BonsaiStorageError<DB::DatabaseError>>
@@ -564,12 +566,10 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
                                     Direction::Left => binary.left = NodeHandle::Hash(value),
                                     Direction::Right => binary.right = NodeHandle::Hash(value),
                                 };
-
-                                return;
                             }
                         }
                         _ => {}
-                    };
+                    }
                 });
                 for (id, node) in nodes_to_add {
                     self.storage_nodes.0.insert(id, node);
