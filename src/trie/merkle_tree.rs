@@ -602,8 +602,10 @@ impl<H: StarkHash> MerkleTree<H> {
         // and other remaining child node -- if they're also edges.
         //
         // Then we are done.
-
         let key_bytes = bitslice_to_bytes(key);
+        if db.get(&TrieKey::Flat(build_db_key(&self.identifier, &key_bytes)))?.is_none() {
+            return Ok(());
+        }
         self.cache_leaf_modified
             .insert(key_bytes.clone(), InsertOrRemove::Remove);
 
