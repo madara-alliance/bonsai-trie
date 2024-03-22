@@ -448,6 +448,21 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         if value == Felt::ZERO {
             return self.delete_leaf(db, key);
         }
+        let key_bytes = bitslice_to_bytes(key);
+        if let Some(value_stored) = self.cache_leaf_modified.get(&key_bytes) {
+            if let InsertOrRemove::Insert(value_db) = value_stored {
+                if &value == value_db {
+                    return Ok(());
+                }
+            }
+        }
+        if let Some(value_db) =
+            db.get(&TrieKey::Flat(build_db_key(&self.identifier, &key_bytes)))?
+        {
+            if value == Felt::decode(&mut value_db.as_slice()).unwrap() {
+                return Ok(());
+            }
+        }
         let path = self.preload_nodes(db, key)?;
         // There are three possibilities.
         //
@@ -478,7 +493,6 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
                             if branch_height == key.len() {
                                 edge.child = NodeHandle::Hash(value);
                                 // The leaf already exists, we simply change its value.
-                                let key_bytes = bitslice_to_bytes(key);
                                 self.cache_leaf_modified
                                     .insert(key_bytes, InsertOrRemove::Insert(value));
                                 return;
@@ -493,7 +507,6 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
 
                             // The new leaf branch of the binary node.
                             // (this may be edge -> leaf, or just leaf depending).
-                            let key_bytes = bitslice_to_bytes(key);
                             self.cache_leaf_modified
                                 .insert(key_bytes, InsertOrRemove::Insert(value));
 
