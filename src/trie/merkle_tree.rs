@@ -630,7 +630,8 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         let key_bytes = bitslice_to_bytes(key);
         if db
             .get(&TrieKey::Flat(build_db_key(&self.identifier, &key_bytes)))?
-            .is_none() && !self.cache_leaf_modified.contains_key(&key_bytes)
+            .is_none()
+            && !self.cache_leaf_modified.contains_key(&key_bytes)
         {
             return Ok(());
         }
