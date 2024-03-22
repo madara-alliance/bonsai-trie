@@ -554,7 +554,7 @@ impl<H: StarkHash> MerkleTree<H> {
                                     Direction::Left => binary.left = NodeHandle::Hash(value),
                                     Direction::Right => binary.right = NodeHandle::Hash(value),
                                 };
-                                
+
                                 return;
                             }
                         }
@@ -618,7 +618,10 @@ impl<H: StarkHash> MerkleTree<H> {
         //
         // Then we are done.
         let key_bytes = bitslice_to_bytes(key);
-        if db.get(&TrieKey::Flat(build_db_key(&self.identifier, &key_bytes)))?.is_none() {
+        if db
+            .get(&TrieKey::Flat(build_db_key(&self.identifier, &key_bytes)))?
+            .is_none()
+        {
             return Ok(());
         }
         self.cache_leaf_modified
