@@ -163,7 +163,7 @@ pub struct BonsaiStorage<ChangeID, DB, H>
 where
     DB: BonsaiDatabase,
     ChangeID: id::Id,
-    H: StarkHash,
+    H: StarkHash + Send + Sync,
 {
     tries: MerkleTrees<H, DB, ChangeID>,
 }
@@ -175,7 +175,7 @@ impl<ChangeID, DB, H> BonsaiStorage<ChangeID, DB, H>
 where
     DB: BonsaiDatabase,
     ChangeID: id::Id,
-    H: StarkHash,
+    H: StarkHash + Send + Sync,
 {
     /// Create a new bonsai storage instance
     pub fn new(
@@ -287,6 +287,9 @@ where
         // Accumulate changes from requested to last recorded
         let mut full = Vec::new();
         for id in kv.changes_store.id_queue.iter().skip(id_position).rev() {
+            if id == &requested_id {
+                break;
+            }
             full.extend(
                 ChangeBatch::deserialize(
                     id,
@@ -397,7 +400,7 @@ impl<ChangeID, DB, H> BonsaiStorage<ChangeID, DB, H>
 where
     DB: BonsaiDatabase + BonsaiPersistentDatabase<ChangeID>,
     ChangeID: id::Id,
-    H: StarkHash,
+    H: StarkHash + Send + Sync,
 {
     /// Update trie and database using all changes since the last commit.
     pub fn commit(

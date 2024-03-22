@@ -11,6 +11,7 @@ use derive_more::Constructor;
 #[cfg(not(feature = "std"))]
 use hashbrown::HashMap;
 use parity_scale_codec::{Decode, Encode};
+use rayon::prelude::*;
 use starknet_types_core::{felt::Felt, hash::StarkHash};
 #[cfg(feature = "std")]
 use std::collections::HashMap;
@@ -63,13 +64,13 @@ impl ProofNode {
     }
 }
 
-pub(crate) struct MerkleTrees<H: StarkHash, DB: BonsaiDatabase, CommitID: Id> {
+pub(crate) struct MerkleTrees<H: StarkHash + Send + Sync, DB: BonsaiDatabase, CommitID: Id> {
     pub db: KeyValueDB<DB, CommitID>,
     _hasher: PhantomData<H>,
     pub trees: HashMap<Vec<u8>, MerkleTree<H>>,
 }
 
-impl<H: StarkHash, DB: BonsaiDatabase, CommitID: Id> MerkleTrees<H, DB, CommitID> {
+impl<H: StarkHash + Send + Sync, DB: BonsaiDatabase, CommitID: Id> MerkleTrees<H, DB, CommitID> {
     pub(crate) fn new(db: KeyValueDB<DB, CommitID>) -> Self {
         Self {
             db,
@@ -164,9 +165,29 @@ impl<H: StarkHash, DB: BonsaiDatabase, CommitID: Id> MerkleTrees<H, DB, CommitID
     }
 
     pub(crate) fn commit(&mut self) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
+        let db_changes: Vec<
+            Result<
+                HashMap<TrieKey, InsertOrRemove<Vec<u8>>>,
+                BonsaiStorageError<DB::DatabaseError>,
+            >,
+        > = self
+            .trees
+            .par_iter_mut()
+            .map(|(_, tree)| tree.get_updates::<DB>())
+            .collect();
         let mut batch = self.db.create_batch();
-        for tree in self.trees.values_mut() {
-            tree.commit(&mut self.db, &mut batch)?;
+        for changes in db_changes {
+            let changes = changes?;
+            for (key, value) in changes {
+                match value {
+                    InsertOrRemove::Insert(value) => {
+                        self.db.insert(&key, &value, Some(&mut batch))?;
+                    }
+                    InsertOrRemove::Remove => {
+                        self.db.remove(&key, Some(&mut batch))?;
+                    }
+                }
+            }
         }
         self.db.write_batch(batch)?;
         Ok(())
@@ -217,7 +238,7 @@ pub struct MerkleTree<H: StarkHash> {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-enum InsertOrRemove<T> {
+pub(crate) enum InsertOrRemove<T> {
     Insert(T),
     Remove,
 }
@@ -231,7 +252,7 @@ pub fn build_db_key(identifier: &Vec<u8>, key: &[u8]) -> Vec<u8> {
     db_key
 }
 
-impl<H: StarkHash> MerkleTree<H> {
+impl<H: StarkHash + Send + Sync> MerkleTree<H> {
     /// Less visible initialization for `MerkleTree<T>` as the main entry points should be
     /// [`MerkleTree::<RcNodeStorage>::load`] for persistent trees and [`MerkleTree::empty`] for
     /// transient ones.
@@ -291,37 +312,30 @@ impl<H: StarkHash> MerkleTree<H> {
         Ok(())
     }
 
-    /// Persists all changes to storage and returns the new root hash.
-    pub fn commit<DB: BonsaiDatabase, ID: Id>(
+    /// Calculate all the new hashes and the root hash.
+    pub(crate) fn get_updates<DB: BonsaiDatabase>(
         &mut self,
-        db: &mut KeyValueDB<DB, ID>,
-        batch: &mut DB::Batch,
-    ) -> Result<Felt, BonsaiStorageError<DB::DatabaseError>> {
+    ) -> Result<HashMap<TrieKey, InsertOrRemove<Vec<u8>>>, BonsaiStorageError<DB::DatabaseError>>
+    {
+        let mut updates = HashMap::new();
         for node_key in mem::take(&mut self.death_row) {
-            db.remove(&node_key, Some(batch))?;
+            updates.insert(node_key, InsertOrRemove::Remove);
         }
-        let root_hash = self.commit_subtree(db, self.root_handle, Path(BitVec::new()), batch)?;
+        let root_hash =
+            self.commit_subtree::<DB>(&mut updates, self.root_handle, Path(BitVec::new()))?;
         for (key, value) in mem::take(&mut self.cache_leaf_modified) {
-            match value {
-                InsertOrRemove::Insert(value) => {
-                    db.insert(
-                        &TrieKey::Flat(build_db_key(&self.identifier, &key)),
-                        &value.encode(),
-                        Some(batch),
-                    )?;
-                }
-                InsertOrRemove::Remove => {
-                    db.remove(
-                        &TrieKey::Flat(build_db_key(&self.identifier, &key)),
-                        Some(batch),
-                    )?;
-                }
-            }
+            updates.insert(
+                TrieKey::Flat(build_db_key(&self.identifier, &key)),
+                match value {
+                    InsertOrRemove::Insert(value) => InsertOrRemove::Insert(value.encode()),
+                    InsertOrRemove::Remove => InsertOrRemove::Remove,
+                },
+            );
         }
         self.latest_node_id.reset();
         self.root_hash = root_hash;
         self.root_handle = NodeHandle::Hash(root_hash);
-        Ok(root_hash)
+        Ok(updates)
     }
 
     /// Persists any changes in this subtree to storage.
@@ -335,12 +349,11 @@ impl<H: StarkHash> MerkleTree<H> {
     /// # Arguments
     ///
     /// * `node` - The top node from the subtree to commit.
-    fn commit_subtree<DB: BonsaiDatabase, ID: Id>(
+    fn commit_subtree<DB: BonsaiDatabase>(
         &mut self,
-        db: &mut KeyValueDB<DB, ID>,
+        updates: &mut HashMap<TrieKey, InsertOrRemove<Vec<u8>>>,
         node_handle: NodeHandle,
         path: Path,
-        batch: &mut DB::Batch,
     ) -> Result<Felt, BonsaiStorageError<DB::DatabaseError>> {
         use Node::*;
         let node_id = match node_handle {
@@ -357,11 +370,10 @@ impl<H: StarkHash> MerkleTree<H> {
             ))? {
             Unresolved(hash) => {
                 if path.0.is_empty() {
-                    db.insert(
-                        &TrieKey::Trie(build_db_key(&self.identifier, &[])),
-                        &Node::Unresolved(hash).encode(),
-                        Some(batch),
-                    )?;
+                    updates.insert(
+                        TrieKey::Trie(build_db_key(&self.identifier, &[])),
+                        InsertOrRemove::Insert(Node::Unresolved(hash).encode()),
+                    );
                     Ok(hash)
                 } else {
                     Ok(hash)
@@ -369,9 +381,9 @@ impl<H: StarkHash> MerkleTree<H> {
             }
             Binary(mut binary) => {
                 let left_path = path.new_with_direction(Direction::Left);
-                let left_hash = self.commit_subtree(db, binary.left, left_path, batch)?;
+                let left_hash = self.commit_subtree::<DB>(updates, binary.left, left_path)?;
                 let right_path = path.new_with_direction(Direction::Right);
-                let right_hash = self.commit_subtree(db, binary.right, right_path, batch)?;
+                let right_hash = self.commit_subtree::<DB>(updates, binary.right, right_path)?;
                 let hash = H::hash(&left_hash, &right_hash);
                 binary.hash = Some(hash);
                 binary.left = NodeHandle::Hash(left_hash);
@@ -381,18 +393,17 @@ impl<H: StarkHash> MerkleTree<H> {
                 } else {
                     [&[path.0.len() as u8], path.0.as_raw_slice()].concat()
                 };
-                db.insert(
-                    &TrieKey::Trie(build_db_key(&self.identifier, &key_bytes)),
-                    &Node::Binary(binary).encode(),
-                    Some(batch),
-                )?;
+                updates.insert(
+                    TrieKey::Trie(build_db_key(&self.identifier, &key_bytes)),
+                    InsertOrRemove::Insert(Node::Binary(binary).encode()),
+                );
                 Ok(hash)
             }
 
             Edge(mut edge) => {
                 let mut child_path = path.clone();
                 child_path.0.extend(&edge.path.0);
-                let child_hash = self.commit_subtree(db, edge.child, child_path, batch)?;
+                let child_hash = self.commit_subtree::<DB>(updates, edge.child, child_path)?;
                 let mut bytes = [0u8; 32];
                 bytes.view_bits_mut::<Msb0>()[256 - edge.path.0.len()..]
                     .copy_from_bitslice(&edge.path.0);
@@ -411,11 +422,10 @@ impl<H: StarkHash> MerkleTree<H> {
                 } else {
                     [&[path.0.len() as u8], path.0.as_raw_slice()].concat()
                 };
-                db.insert(
-                    &TrieKey::Trie(build_db_key(&self.identifier, &key_bytes)),
-                    &Node::Edge(edge).encode(),
-                    Some(batch),
-                )?;
+                updates.insert(
+                    TrieKey::Trie(build_db_key(&self.identifier, &key_bytes)),
+                    InsertOrRemove::Insert(Node::Edge(edge).encode()),
+                );
                 Ok(hash)
             }
         }
@@ -620,7 +630,7 @@ impl<H: StarkHash> MerkleTree<H> {
         let key_bytes = bitslice_to_bytes(key);
         if db
             .get(&TrieKey::Flat(build_db_key(&self.identifier, &key_bytes)))?
-            .is_none()
+            .is_none() && !self.cache_leaf_modified.contains_key(&key_bytes)
         {
             return Ok(());
         }
