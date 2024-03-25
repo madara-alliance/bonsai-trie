@@ -11,6 +11,7 @@ use derive_more::Constructor;
 #[cfg(not(feature = "std"))]
 use hashbrown::HashMap;
 use parity_scale_codec::{Decode, Encode};
+#[cfg(feature = "std")]
 use rayon::prelude::*;
 use starknet_types_core::{felt::Felt, hash::StarkHash};
 #[cfg(feature = "std")]
@@ -166,6 +167,19 @@ impl<H: StarkHash + Send + Sync, DB: BonsaiDatabase, CommitID: Id> MerkleTrees<H
 
     pub(crate) fn commit(&mut self) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
         #[allow(clippy::type_complexity)]
+        #[cfg(not(feature = "std"))]
+        let db_changes: Vec<
+            Result<
+                HashMap<TrieKey, InsertOrRemove<Vec<u8>>>,
+                BonsaiStorageError<DB::DatabaseError>,
+            >,
+        > = self
+            .trees
+            .iter_mut()
+            .map(|(_, tree)| tree.get_updates::<DB>())
+            .collect();
+        #[allow(clippy::type_complexity)]
+        #[cfg(feature = "std")]
         let db_changes: Vec<
             Result<
                 HashMap<TrieKey, InsertOrRemove<Vec<u8>>>,
@@ -449,11 +463,9 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
             return self.delete_leaf(db, key);
         }
         let key_bytes = bitslice_to_bytes(key);
-        if let Some(value_stored) = self.cache_leaf_modified.get(&key_bytes) {
-            if let InsertOrRemove::Insert(value_db) = value_stored {
-                if &value == value_db {
-                    return Ok(());
-                }
+        if let Some(InsertOrRemove::Insert(value_db)) = self.cache_leaf_modified.get(&key_bytes) {
+            if &value == value_db {
+                return Ok(());
             }
         }
         if let Some(value_db) =
