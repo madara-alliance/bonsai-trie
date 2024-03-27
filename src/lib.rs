@@ -286,10 +286,14 @@ where
 
         // Accumulate changes from requested to last recorded
         let mut full = Vec::new();
-        for id in kv.changes_store.id_queue.iter().skip(id_position).rev() {
-            if id == &requested_id {
-                break;
-            }
+        for id in kv
+            .changes_store
+            .id_queue
+            .iter()
+            .skip(id_position)
+            .rev()
+            .take_while(|id| *id != &requested_id)
+        {
             full.extend(
                 ChangeBatch::deserialize(
                     id,
@@ -383,6 +387,14 @@ where
         key: &BitSlice<u8, Msb0>,
     ) -> Result<Vec<ProofNode>, BonsaiStorageError<DB::DatabaseError>> {
         self.tries.get_proof(identifier, key)
+    }
+
+    /// Get all the keys in a specific trie.
+    pub fn get_keys(
+        &self,
+        identifier: &[u8],
+    ) -> Result<Vec<Vec<u8>>, BonsaiStorageError<DB::DatabaseError>> {
+        self.tries.get_keys(identifier)
     }
 
     /// Verifies a merkle-proof for a given `key` and `value`.

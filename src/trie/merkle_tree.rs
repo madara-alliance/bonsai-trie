@@ -165,6 +165,23 @@ impl<H: StarkHash + Send + Sync, DB: BonsaiDatabase, CommitID: Id> MerkleTrees<H
         }
     }
 
+    pub(crate) fn get_keys(
+        &self,
+        identifier: &[u8],
+    ) -> Result<Vec<Vec<u8>>, BonsaiStorageError<DB::DatabaseError>> {
+        self.db
+            .db
+            .get_by_prefix(&crate::DatabaseKey::Flat(identifier))
+            .map(|key_value_pairs| {
+                // Remove the identifier from the key
+                key_value_pairs
+                    .into_iter()
+                    .map(|(key, _value)| key[identifier.len()..].to_vec())
+                    .collect()
+            })
+            .map_err(|e| e.into())
+    }
+
     pub(crate) fn commit(&mut self) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
         #[allow(clippy::type_complexity)]
         #[cfg(not(feature = "std"))]

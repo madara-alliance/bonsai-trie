@@ -58,6 +58,7 @@ fn basics() {
             .unwrap(),
         None
     );
+    assert_eq!(bonsai_storage.get_keys(&identifier).unwrap().len(), 2);
 }
 
 #[test]
@@ -374,7 +375,7 @@ fn double_insert() {
 
 #[test]
 fn double_identifier() {
-    let identifier = vec![];
+    let identifier = vec![2, 3];
     let identifier2 = vec![1, 3, 1];
     struct ContractState {
         address: &'static str,
@@ -435,6 +436,11 @@ fn double_identifier() {
     println!("root hash: {root_hash:#x}");
     let root_hash2 = bonsai_storage.root_hash(&identifier2).unwrap();
     assert_eq!(root_hash, root_hash2);
+    assert_eq!(
+        bonsai_storage.get_keys(&identifier).unwrap(),
+        bonsai_storage.get_keys(&identifier2).unwrap()
+    );
+    assert_eq!(bonsai_storage.get_keys(&identifier).unwrap().len(), 5);
 }
 
 #[test]
