@@ -104,6 +104,7 @@ impl Path {
     }
 }
 
+/// Convert Path to Vec<u8> can be used, for example, to create keys for the database
 impl From<Path> for Vec<u8> {
     fn from(path: Path) -> Self {
         let key = if path.0.is_empty() {

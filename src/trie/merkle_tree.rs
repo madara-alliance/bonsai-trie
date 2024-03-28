@@ -22,6 +22,7 @@ use crate::{error::BonsaiStorageError, id::Id, BonsaiDatabase, KeyValueDB};
 use super::{
     merkle_node::{BinaryNode, Direction, EdgeNode, Node, NodeHandle, NodeId},
     path::Path,
+    trie_db::TrieKeyType,
     TrieKey,
 };
 
@@ -275,15 +276,6 @@ pub(crate) enum InsertOrRemove<T> {
     Remove,
 }
 
-/// Note to developers : Must be used to build a key for the database.
-// Allow because needed for no-std
-#[allow(clippy::ptr_arg)]
-pub fn build_db_key(identifier: &Vec<u8>, key: &[u8]) -> Vec<u8> {
-    let mut db_key = identifier.clone();
-    db_key.extend_from_slice(key);
-    db_key
-}
-
 impl<H: StarkHash + Send + Sync> MerkleTree<H> {
     /// Less visible initialization for `MerkleTree<T>` as the main entry points should be
     /// [`MerkleTree::<RcNodeStorage>::load`] for persistent trees and [`MerkleTree::empty`] for
@@ -294,12 +286,12 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         identifier: Vec<u8>,
     ) -> Result<Self, BonsaiStorageError<DB::DatabaseError>> {
         let nodes_mapping: HashMap<NodeId, Node> = HashMap::new();
-        let root_node = db.get(&TrieKey::Trie(build_db_key(&identifier, &[])))?;
+        let root_node = db.get(&TrieKey::new(&identifier, TrieKeyType::Trie, &[]))?;
         let node = if let Some(root_node) = root_node {
             Node::decode(&mut root_node.as_slice())?
         } else {
             db.insert(
-                &TrieKey::Trie(build_db_key(&identifier, &[])),
+                &TrieKey::new(&identifier, TrieKeyType::Trie, &[]),
                 &Node::Unresolved(Felt::ZERO).encode(),
                 None,
             )?;
@@ -358,7 +350,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
             self.commit_subtree::<DB>(&mut updates, self.root_handle, Path(BitVec::new()))?;
         for (key, value) in mem::take(&mut self.cache_leaf_modified) {
             updates.insert(
-                TrieKey::Flat(build_db_key(&self.identifier, &key)),
+                TrieKey::new(&self.identifier, TrieKeyType::Flat, &key),
                 match value {
                     InsertOrRemove::Insert(value) => InsertOrRemove::Insert(value.encode()),
                     InsertOrRemove::Remove => InsertOrRemove::Remove,
@@ -404,7 +396,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
             Unresolved(hash) => {
                 if path.0.is_empty() {
                     updates.insert(
-                        TrieKey::Trie(build_db_key(&self.identifier, &[])),
+                        TrieKey::new(&self.identifier, TrieKeyType::Trie, &[]),
                         InsertOrRemove::Insert(Node::Unresolved(hash).encode()),
                     );
                     Ok(hash)
@@ -421,13 +413,9 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
                 binary.hash = Some(hash);
                 binary.left = NodeHandle::Hash(left_hash);
                 binary.right = NodeHandle::Hash(right_hash);
-                let key_bytes = if path.0.is_empty() {
-                    vec![]
-                } else {
-                    [&[path.0.len() as u8], path.0.as_raw_slice()].concat()
-                };
+                let key_bytes: Vec<u8> = path.into();
                 updates.insert(
-                    TrieKey::Trie(build_db_key(&self.identifier, &key_bytes)),
+                    TrieKey::new(&self.identifier, TrieKeyType::Trie, &key_bytes),
                     InsertOrRemove::Insert(Node::Binary(binary).encode()),
                 );
                 Ok(hash)
@@ -450,13 +438,9 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
                 let hash = H::hash(&child_hash, &felt_path) + length;
                 edge.hash = Some(hash);
                 edge.child = NodeHandle::Hash(child_hash);
-                let key_bytes = if path.0.is_empty() {
-                    vec![]
-                } else {
-                    [&[path.0.len() as u8], path.0.as_raw_slice()].concat()
-                };
+                let key_bytes: Vec<u8> = path.into();
                 updates.insert(
-                    TrieKey::Trie(build_db_key(&self.identifier, &key_bytes)),
+                    TrieKey::new(&self.identifier, TrieKeyType::Trie, &key_bytes),
                     InsertOrRemove::Insert(Node::Edge(edge).encode()),
                 );
                 Ok(hash)
@@ -485,9 +469,11 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
                 return Ok(());
             }
         }
-        if let Some(value_db) =
-            db.get(&TrieKey::Flat(build_db_key(&self.identifier, &key_bytes)))?
-        {
+        if let Some(value_db) = db.get(&TrieKey::new(
+            &self.identifier,
+            TrieKeyType::Flat,
+            &key_bytes,
+        ))? {
             if value == Felt::decode(&mut value_db.as_slice()).unwrap() {
                 return Ok(());
             }
@@ -671,7 +657,11 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         // Then we are done.
         let key_bytes = bitslice_to_bytes(key);
         if db
-            .get(&TrieKey::Flat(build_db_key(&self.identifier, &key_bytes)))?
+            .get(&TrieKey::new(
+                &self.identifier,
+                TrieKeyType::Flat,
+                &key_bytes,
+            ))?
             .is_none()
             && !self.cache_leaf_modified.contains_key(&key_bytes)
         {
@@ -702,7 +692,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
                     last_binary_path = new_path;
                     let path: Vec<u8> = (&last_binary_path).into();
                     self.death_row
-                        .push(TrieKey::Trie(build_db_key(&self.identifier, &path)));
+                        .push(TrieKey::new(&self.identifier, TrieKeyType::Trie, &path));
                 }
             }
             !node.is_binary()
@@ -792,7 +782,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
                 InsertOrRemove::Insert(value) => return Ok(Some(*value)),
             }
         }
-        db.get(&TrieKey::Flat(build_db_key(&self.identifier, &key)))
+        db.get(&TrieKey::new(&self.identifier, TrieKeyType::Flat, &key))
             .map(|r| r.map(|opt| Felt::decode(&mut opt.as_slice()).unwrap()))
     }
 
@@ -808,7 +798,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
                 InsertOrRemove::Insert(_) => return Ok(true),
             }
         }
-        db.contains(&TrieKey::Flat(build_db_key(&self.identifier, &key)))
+        db.contains(&TrieKey::new(&self.identifier, TrieKeyType::Flat, &key))
     }
 
     /// Returns the list of nodes along the path.
@@ -1124,7 +1114,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         path: &Path,
     ) -> Result<Option<Node>, BonsaiStorageError<DB::DatabaseError>> {
         let path: Vec<u8> = path.into();
-        db.get(&TrieKey::Trie(build_db_key(&self.identifier, &path)))?
+        db.get(&TrieKey::new(&self.identifier, TrieKeyType::Trie, &path))?
             .map(|node| {
                 Node::decode(&mut node.as_slice()).map_err(|err| {
                     BonsaiStorageError::Trie(format!("Couldn't decode node: {}", err))
