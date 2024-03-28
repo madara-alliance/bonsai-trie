@@ -36,7 +36,7 @@ impl From<&TrieKey> for u8 {
 
 impl TrieKey {
     pub fn new(identifier: &[u8], key_type: TrieKeyType, key: &[u8]) -> Self {
-        let mut final_key = identifier.to_owned();
+        let mut final_key = identifier.to_vec();
         final_key.extend_from_slice(key);
         match key_type {
             TrieKeyType::Trie => TrieKey::Trie(final_key),

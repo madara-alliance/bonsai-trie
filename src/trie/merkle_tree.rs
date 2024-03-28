@@ -1,5 +1,5 @@
 #[cfg(not(feature = "std"))]
-use alloc::{format, string::ToString, vec, vec::Vec};
+use alloc::{format, string::ToString, vec::Vec};
 use bitvec::{
     prelude::{BitSlice, BitVec, Msb0},
     view::BitView,
