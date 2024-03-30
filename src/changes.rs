@@ -15,6 +15,7 @@ pub struct Change {
 }
 
 #[derive(Debug, Default)]
+#[derive(Clone)]
 pub struct ChangeBatch(pub(crate) HashMap<TrieKey, Change>);
 
 const KEY_SEPARATOR: u8 = 0x00;
@@ -115,6 +116,7 @@ impl ChangeBatch {
     }
 }
 
+#[derive(Clone)]
 pub struct ChangeStore<ID>
 where
     ID: Id,

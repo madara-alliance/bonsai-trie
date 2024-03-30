@@ -18,6 +18,7 @@ use crate::{
 };
 
 /// Crate Trie <= KeyValueDB => BonsaiDatabase
+#[derive(Clone)]
 pub struct KeyValueDB<DB, ID>
 where
     DB: BonsaiDatabase,

@@ -36,6 +36,7 @@ rocksdb = { optional = true, version = "0.21.0", features = [
 ] }
 
 [dev-dependencies]
+pprof = { version = "0.3", features = ["flamegraph"] }
 pathfinder-common = { git = "https://github.com/massalabs/pathfinder.git", package = "pathfinder-common", rev = "b7b6d76a76ab0e10f92e5f84ce099b5f727cb4db" }
 pathfinder-crypto = { git = "https://github.com/massalabs/pathfinder.git", package = "pathfinder-crypto", rev = "b7b6d76a76ab0e10f92e5f84ce099b5f727cb4db" }
 pathfinder-merkle-tree = { git = "https://github.com/massalabs/pathfinder.git", package = "pathfinder-merkle-tree", rev = "b7b6d76a76ab0e10f92e5f84ce099b5f727cb4db" }
@@ -43,3 +44,8 @@ pathfinder-storage = { git = "https://github.com/massalabs/pathfinder.git", pack
 rand = "0.8.5"
 tempfile = "3.8.0"
 rstest = "0.18.2"
+criterion = "0.5.1"
+
+[[bench]]
+name = "storage"
+harness = false

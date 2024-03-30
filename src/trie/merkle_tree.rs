@@ -68,15 +68,24 @@ impl ProofNode {
 
 pub(crate) struct MerkleTrees<H: StarkHash + Send + Sync, DB: BonsaiDatabase, CommitID: Id> {
     pub db: KeyValueDB<DB, CommitID>,
-    _hasher: PhantomData<H>,
     pub trees: HashMap<Vec<u8>, MerkleTree<H>>,
+}
+
+impl<H: StarkHash + Send + Sync, DB: BonsaiDatabase + Clone, CommitID: Id> Clone
+    for MerkleTrees<H, DB, CommitID>
+{
+    fn clone(&self) -> Self {
+        Self {
+            db: self.db.clone(),
+            trees: self.trees.clone(),
+        }
+    }
 }
 
 impl<H: StarkHash + Send + Sync, DB: BonsaiDatabase, CommitID: Id> MerkleTrees<H, DB, CommitID> {
     pub(crate) fn new(db: KeyValueDB<DB, CommitID>) -> Self {
         Self {
             db,
-            _hasher: PhantomData,
             trees: HashMap::new(),
         }
     }
@@ -270,7 +279,23 @@ pub struct MerkleTree<H: StarkHash> {
     _hasher: PhantomData<H>,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+// NB: #[derive(Clone)] does not work because it expands to an impl block which forces H: Clone, which Pedersen/Poseidon aren't.
+impl<H: StarkHash> Clone for MerkleTree<H> {
+    fn clone(&self) -> Self {
+        Self {
+            root_handle: self.root_handle.clone(),
+            root_hash: self.root_hash.clone(),
+            identifier: self.identifier.clone(),
+            storage_nodes: self.storage_nodes.clone(),
+            latest_node_id: self.latest_node_id.clone(),
+            death_row: self.death_row.clone(),
+            cache_leaf_modified: self.cache_leaf_modified.clone(),
+            _hasher: PhantomData,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum InsertOrRemove<T> {
     Insert(T),
     Remove,
