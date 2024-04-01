@@ -1,7 +1,7 @@
 use bitvec::{order::Msb0, vec::BitVec};
 use parity_scale_codec::{Decode, Encode, Error, Input, Output};
 
-use super::{merkle_node::Direction, TrieKey};
+use super::merkle_node::Direction;
 
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
@@ -104,25 +104,26 @@ impl Path {
     }
 }
 
-impl From<Path> for TrieKey {
+/// Convert Path to Vec<u8> can be used, for example, to create keys for the database
+impl From<Path> for Vec<u8> {
     fn from(path: Path) -> Self {
         let key = if path.0.is_empty() {
             Vec::new()
         } else {
             [&[path.0.len() as u8], path.0.as_raw_slice()].concat()
         };
-        TrieKey::Trie(key)
+        key
     }
 }
 
-impl From<&Path> for TrieKey {
+impl From<&Path> for Vec<u8> {
     fn from(path: &Path) -> Self {
         let key = if path.0.is_empty() {
             Vec::new()
         } else {
             [&[path.0.len() as u8], path.0.as_raw_slice()].concat()
         };
-        TrieKey::Trie(key)
+        key
     }
 }
 

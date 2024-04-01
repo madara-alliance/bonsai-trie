@@ -55,16 +55,19 @@ fn main() {
     // Create a simple incremental ID builder for commit IDs.
     // This is not necessary, you can use any kind of strictly monotonically increasing value to tag your commits. 
     let mut id_builder = BasicIdBuilder::new();
+
+    // Define an idenfitier for a trie. All insert, get, remove and root hash will use this identifier. Define multiple identifier to use multiple tries that have separate root hash.
+    let identifier = vec![];
     
     // Insert an item `pair1`.
     let pair1 = (vec![1, 2, 1], Felt::from_hex("0x66342762FDD54D033c195fec3ce2568b62052e").unwrap());
     let bitvec_1 = BitVec::from_vec(pair1.0.clone());
-    bonsai_storage.insert(&bitvec_1, &pair1.1).unwrap();
+    bonsai_storage.insert(&identifier, &bitvec_1, &pair1.1).unwrap();
 
     // Insert a second item `pair2`.
     let pair2 = (vec![1, 2, 2], Felt::from_hex("0x66342762FD54D033c195fec3ce2568b62052e").unwrap());
     let bitvec = BitVec::from_vec(pair2.0.clone());
-    bonsai_storage.insert(&bitvec, &pair2.1).unwrap();
+    bonsai_storage.insert(&identifier, &bitvec, &pair2.1).unwrap();
 
     // Commit the insertion of `pair1` and `pair2`.
     let id1 = id_builder.new_id()
@@ -73,31 +76,31 @@ fn main() {
     // Insert a new item `pair3`.
     let pair3 = (vec![1, 2, 2], Felt::from_hex("0x664D033c195fec3ce2568b62052e").unwrap());
     let bitvec = BitVec::from_vec(pair3.0.clone());
-    bonsai_storage.insert(&bitvec, &pair3.1).unwrap();
+    bonsai_storage.insert(&identifier, &bitvec, &pair3.1).unwrap();
 
     // Commit the insertion of `pair3`. Save the commit ID to the `revert_to_id` variable.
     let revert_to_id = id_builder.new_id();
     bonsai_storage.commit(revert_to_id);
 
     // Remove `pair3`.
-    bonsai_storage.remove(&bitvec).unwrap();
+    bonsai_storage.remove(&identifier, &bitvec).unwrap();
 
     // Commit the removal of `pair3`.
     bonsai_storage.commit(id_builder.new_id());
 
     // Print the root hash and item `pair1`.
-    println!("root: {:#?}", bonsai_storage.root_hash());
+    println!("root: {:#?}", bonsai_storage.root_hash(&identifier));
     println!(
         "value: {:#?}",
-        bonsai_storage.get(&bitvec_1).unwrap()
+        bonsai_storage.get(&identifier, &bitvec_1).unwrap()
     );
 
     // Revert the collection state back to the commit tagged by the `revert_to_id` variable.
     bonsai_storage.revert_to(revert_to_id).unwrap();
 
     // Print the root hash and item `pair3`.
-    println!("root: {:#?}", bonsai_storage.root_hash());
-    println!("value: {:#?}", bonsai_storage.get(&bitvec).unwrap());
+    println!("root: {:#?}", bonsai_storage.root_hash(&identifier));
+    println!("value: {:#?}", bonsai_storage.get(&identifier, &bitvec).unwrap());
 
     // Launch two threads that will simultaneously take transactional states to the commit identified by `id1`,
     // asserting in both of them that the item `pair1` is present and has the right value.
@@ -108,7 +111,7 @@ fn main() {
                 .unwrap()
                 .unwrap();
             let bitvec = BitVec::from_vec(pair1.0.clone());
-            assert_eq!(bonsai_at_txn.get(&bitvec).unwrap().unwrap(), pair1.1);
+            assert_eq!(bonsai_at_txn.get(&identifier, &bitvec).unwrap().unwrap(), pair1.1);
         });
 
         s.spawn(|| {
@@ -117,13 +120,13 @@ fn main() {
                 .unwrap()
                 .unwrap();
             let bitvec = BitVec::from_vec(pair1.0.clone());
-            assert_eq!(bonsai_at_txn.get(&bitvec).unwrap().unwrap(), pair1.1);
+            assert_eq!(bonsai_at_txn.get(&identifier, &bitvec).unwrap().unwrap(), pair1.1);
         });
     });
 
     // Read item `pair1`.
     let pair1_val = bonsai_storage
-        .get(&BitVec::from_vec(vec![1, 2, 2]))
+        .get(&identifier, &BitVec::from_vec(vec![1, 2, 2]))
         .unwrap();
 
     // Insert a new item and commit.
@@ -132,15 +135,15 @@ fn main() {
         Felt::from_hex("0x66342762FDD54D033c195fec3ce2568b62052e").unwrap(),
     );
     bonsai_storage
-        .insert(&BitVec::from_vec(pair4.0.clone()), &pair4.1)
+        .insert(&identifier, &BitVec::from_vec(pair4.0.clone()), &pair4.1)
         .unwrap();
     bonsai_storage.commit(id_builder.new_id()).unwrap();
     let proof = bonsai_storage
-        .get_proof(&BitVec::from_vec(pair3.0.clone()))
+        .get_proof(&identifier, &BitVec::from_vec(pair3.0.clone()))
         .unwrap();
     assert_eq!(
         BonsaiStorage::<BasicId, RocksDB<BasicId>>::verify_proof(
-            bonsai_storage.root_hash().unwrap(),
+            bonsai_storage.root_hash(&identifier).unwrap(),
             &BitVec::from_vec(pair3.0.clone()),
             pair3.1,
             &proof

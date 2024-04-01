@@ -3,4 +3,4 @@ pub mod merkle_tree;
 mod path;
 mod trie_db;
 
-pub use trie_db::TrieKey;
+pub(crate) use trie_db::TrieKey;
