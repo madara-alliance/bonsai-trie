@@ -1,5 +1,5 @@
 #[cfg(not(feature = "std"))]
-use alloc::{format, string::ToString, vec::Vec};
+use alloc::{format, string::ToString, vec::Vec, vec};
 use bitvec::{
     prelude::{BitSlice, BitVec, Msb0},
     view::BitView,
@@ -395,13 +395,13 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         node_handle: &NodeHandle,
     ) -> Result<NodeOrFelt, BonsaiStorageError<DB::DatabaseError>> {
         let node_id = match node_handle {
-            NodeHandle::Hash(hash) => return Ok(NodeOrFelt::Felt(hash.clone())),
+            NodeHandle::Hash(hash) => return Ok(NodeOrFelt::Felt(*hash)),
             NodeHandle::InMemory(root_id) => root_id,
         };
         let node = self
             .storage_nodes
             .0
-            .get(&node_id)
+            .get(node_id)
             .ok_or(BonsaiStorageError::Trie(
                 "Couldn't fetch node in the temporary storage".to_string(),
             ))?;
@@ -427,7 +427,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         use Node::*;
 
         match node {
-            Unresolved(hash) => Ok(hash.clone()),
+            Unresolved(hash) => Ok(*hash),
             Binary(binary) => {
                 // we check if we have one or two changed children
 
