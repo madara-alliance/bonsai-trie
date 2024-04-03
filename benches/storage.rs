@@ -113,11 +113,21 @@ fn five_updates(c: &mut Criterion) {
         b.iter_batched(
             || bonsai_storage.clone(),
             |mut bonsai_storage| {
-                bonsai_storage.insert(&[], &BitVec::from_vec(vec![0, 1, 2, 3, 4, 5]), &felt).unwrap();
-                bonsai_storage.insert(&[], &BitVec::from_vec(vec![0, 2, 2, 5, 4, 5]), &felt).unwrap();
-                bonsai_storage.insert(&[], &BitVec::from_vec(vec![0, 1, 2, 3, 3, 5]), &felt).unwrap();
-                bonsai_storage.insert(&[], &BitVec::from_vec(vec![0, 1, 1, 3, 99, 3]), &felt).unwrap();
-                bonsai_storage.insert(&[], &BitVec::from_vec(vec![0, 1, 2, 3, 4, 6]), &felt).unwrap();
+                bonsai_storage
+                    .insert(&[], &BitVec::from_vec(vec![0, 1, 2, 3, 4, 5]), &felt)
+                    .unwrap();
+                bonsai_storage
+                    .insert(&[], &BitVec::from_vec(vec![0, 2, 2, 5, 4, 5]), &felt)
+                    .unwrap();
+                bonsai_storage
+                    .insert(&[], &BitVec::from_vec(vec![0, 1, 2, 3, 3, 5]), &felt)
+                    .unwrap();
+                bonsai_storage
+                    .insert(&[], &BitVec::from_vec(vec![0, 1, 1, 3, 99, 3]), &felt)
+                    .unwrap();
+                bonsai_storage
+                    .insert(&[], &BitVec::from_vec(vec![0, 1, 2, 3, 4, 6]), &felt)
+                    .unwrap();
                 bonsai_storage.commit(id_builder.new_id()).unwrap();
             },
             criterion::BatchSize::LargeInput,
