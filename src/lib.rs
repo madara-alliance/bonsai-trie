@@ -168,6 +168,7 @@ where
     tries: MerkleTrees<H, DB, ChangeID>,
 }
 
+#[cfg(feature = "bench")]
 impl<ChangeID, DB, H> Clone for BonsaiStorage<ChangeID, DB, H>
 where
     DB: BonsaiDatabase + Clone,

@@ -71,6 +71,7 @@ pub(crate) struct MerkleTrees<H: StarkHash + Send + Sync, DB: BonsaiDatabase, Co
     pub trees: HashMap<Vec<u8>, MerkleTree<H>>,
 }
 
+#[cfg(feature = "bench")]
 impl<H: StarkHash + Send + Sync, DB: BonsaiDatabase + Clone, CommitID: Id> Clone
     for MerkleTrees<H, DB, CommitID>
 {
@@ -268,6 +269,7 @@ pub struct MerkleTree<H: StarkHash> {
 }
 
 // NB: #[derive(Clone)] does not work because it expands to an impl block which forces H: Clone, which Pedersen/Poseidon aren't.
+#[cfg(feature = "bench")]
 impl<H: StarkHash> Clone for MerkleTree<H> {
     fn clone(&self) -> Self {
         Self {

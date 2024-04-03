@@ -7,6 +7,8 @@ version = "0.1.0"
 default = ["std", "rocksdb"]
 rocksdb = ["dep:rocksdb"]
 std = ["parity-scale-codec/std", "bitvec/std", "starknet-types-core/std"]
+# internal
+bench = []
 
 [dependencies]
 bitvec = { version = "1", default-features = false, features = ["alloc"] }
@@ -48,4 +50,5 @@ criterion = "0.5.1"
 
 [[bench]]
 name = "storage"
+required-features = ["bench"]
 harness = false
