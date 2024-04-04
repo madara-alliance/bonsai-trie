@@ -397,6 +397,14 @@ where
         self.tries.get_keys(identifier)
     }
 
+    /// Get all the key-value pairs in a specific trie.
+    pub fn get_key_value_pairs(
+        &self,
+        identifier: &[u8],
+    ) -> Result<Vec<(Vec<u8>, Vec<u8>)>, BonsaiStorageError<DB::DatabaseError>> {
+        self.tries.get_key_value_pairs(identifier)
+    }
+
     /// Verifies a merkle-proof for a given `key` and `value`.
     pub fn verify_proof(
         root: Felt,

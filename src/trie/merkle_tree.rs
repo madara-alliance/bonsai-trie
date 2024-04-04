@@ -177,7 +177,29 @@ impl<H: StarkHash + Send + Sync, DB: BonsaiDatabase, CommitID: Id> MerkleTrees<H
                 // Remove the identifier from the key
                 key_value_pairs
                     .into_iter()
-                    .map(|(key, _value)| key[identifier.len()..].to_vec())
+                    // FIXME: this does not filter out keys values correctly for `HashMapDb` due
+                    // to branches and leafs not being differenciated
+                    .filter(|(key, _value)| key.len() > identifier.len())
+                    .map(|(key, _value)| key[identifier.len() + 1..].to_vec())
+                    .collect()
+            })
+            .map_err(|e| e.into())
+    }
+
+    pub(crate) fn get_key_value_pairs(
+        &self,
+        identifier: &[u8],
+    ) -> Result<Vec<(Vec<u8>, Vec<u8>)>, BonsaiStorageError<DB::DatabaseError>> {
+        self.db
+            .db
+            .get_by_prefix(&crate::DatabaseKey::Flat(identifier))
+            .map(|key_value_pairs| {
+                key_value_pairs
+                    .into_iter()
+                    // FIXME: this does not filter out keys values correctly for `HashMapDb` due
+                    // to branches and leafs not being differenciated
+                    .filter(|(key, _value)| key.len() > identifier.len())
+                    .map(|(key, value)| (key[identifier.len() + 1..].to_vec(), value))
                     .collect()
             })
             .map_err(|e| e.into())
@@ -1316,13 +1338,19 @@ mod tests {
     use indexmap::IndexMap;
     use starknet_types_core::{felt::Felt, hash::Pedersen};
 
-    use crate::{databases::HashMapDb, id::BasicId, BonsaiStorage, BonsaiStorageConfig};
+    use crate::{
+        databases::{create_rocks_db, HashMapDb, RocksDB, RocksDBConfig},
+        id::BasicId,
+        BonsaiStorage, BonsaiStorageConfig,
+    };
 
     #[test_log::test]
     // The whole point of this test is to make sure it is possible to reconstruct the original
     // keys from the data present in the db.
     fn test_key_retrieval() {
-        let db = HashMapDb::<BasicId>::default();
+        let tempdir = tempfile::tempdir().unwrap();
+        let rocksdb = create_rocks_db(tempdir.path()).unwrap();
+        let db = RocksDB::new(&rocksdb, RocksDBConfig::default());
         let mut bonsai =
             BonsaiStorage::<BasicId, _, Pedersen>::new(db, BonsaiStorageConfig::default()).unwrap();
 
@@ -1736,6 +1764,24 @@ mod tests {
                 assert!(storage.contains_key(&k));
             }
         }
+
+        // makes sure retrieving key-value pairs works for each contract
+        for (contract_address, storage) in storage_map.iter() {
+            log::info!(
+                "contract address (read): {:#064x}",
+                Felt::from_bytes_be_slice(contract_address)
+            );
+
+            let kv = bonsai.get_key_value_pairs(contract_address).unwrap();
+            log::debug!("{kv:?}");
+            for (k, v) in kv {
+                let k = Felt::from_bytes_be_slice(&k);
+                let v = Felt::from_bytes_be_slice(&v);
+                log::info!("checking for key-value pair:({k:#064x}, {v:#064x})");
+
+                assert_eq!(*storage.get(&k).unwrap(), v);
+            }
+        }
     }
 
     fn str_to_felt_bytes(hex: &str) -> [u8; 32] {
@@ -1743,10 +1789,7 @@ mod tests {
     }
 
     fn truncate(key: &[u8]) -> BitVec<u8, Msb0> {
-        let mut bits = key.view_bits().to_owned();
-
-        bits.retain(|idx, _| idx <= 251);
-        bits
+        key.view_bits()[5..].to_owned()
     }
     // use crate::{
     //     databases::{create_rocks_db, RocksDB, RocksDBConfig},
