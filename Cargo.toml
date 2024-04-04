@@ -43,3 +43,4 @@ pathfinder-storage = { git = "https://github.com/massalabs/pathfinder.git", pack
 rand = "0.8.5"
 tempfile = "3.8.0"
 rstest = "0.18.2"
+test-log = "0.2.15"
