@@ -1,4 +1,4 @@
-use crate::{trie::merkle_tree::bytes_to_bitvec, Change as ExternChange};
+use crate::{id::BasicId, trie::merkle_tree::bytes_to_bitvec, Change as ExternChange};
 #[cfg(not(feature = "std"))]
 use alloc::{collections::BTreeSet, format, string::ToString, vec::Vec};
 use bitvec::{order::Msb0, vec::BitVec};
@@ -168,6 +168,10 @@ where
     ) -> Result<Option<Vec<u8>>, BonsaiStorageError<DB::DatabaseError>> {
         trace!("Getting from KeyValueDB: {:?}", key);
         Ok(self.db.get(&key.into())?)
+    }
+
+    pub(crate) fn get_latest_id(&self) -> Option<ID> {
+        self.changes_store.id_queue.back().cloned()
     }
 
     pub(crate) fn contains(

@@ -405,6 +405,11 @@ where
         self.tries.get_key_value_pairs(identifier)
     }
 
+    /// Get the id from the latest commit, or `None` if no commit has taken place yet.
+    pub fn get_latest_id(&self) -> Option<ChangeID> {
+        self.tries.db_ref().get_latest_id()
+    }
+
     /// Verifies a merkle-proof for a given `key` and `value`.
     pub fn verify_proof(
         root: Felt,
