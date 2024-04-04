@@ -1312,19 +1312,16 @@ pub(crate) fn bytes_to_bitvec(bytes: &[u8]) -> BitVec<u8, Msb0> {
 #[cfg(test)]
 #[cfg(all(test, feature = "std"))]
 mod tests {
-    use std::collections::HashMap;
-
-    use bitvec::{order::Msb0, slice::BitSlice};
+    use bitvec::{order::Msb0, vec::BitVec, view::BitView};
+    use indexmap::IndexMap;
     use starknet_types_core::{felt::Felt, hash::Pedersen};
 
     use crate::{databases::HashMapDb, id::BasicId, BonsaiStorage, BonsaiStorageConfig};
 
     #[test_log::test]
-    /// The whole point of this test is to experiment with inserting keys into the database without
-    /// truncating the first 5 bits to which which parts of the lib are causing errors with this.
-    /// Testing is done over the contract storage of the first few blocks, with a single commit
-    /// between each block.
-    fn test_node_decode_error() {
+    // The whole point of this test is to make sure it is possible to reconstruct the original
+    // keys from the data present in the db.
+    fn test_key_retrieval() {
         let db = HashMapDb::<BasicId>::default();
         let mut bonsai =
             BonsaiStorage::<BasicId, _, Pedersen>::new(db, BonsaiStorageConfig::default()).unwrap();
@@ -1527,56 +1524,6 @@ mod tests {
             ),
         ];
 
-        for (contract_address, storage) in block_0.iter() {
-            bonsai.init_tree(contract_address).unwrap();
-
-            for (key, value) in storage {
-                let key = BitSlice::<u8, Msb0>::from_slice(key);
-                let value = &Felt::from_bytes_be_slice(value);
-
-                bonsai.insert(contract_address, key, value).unwrap();
-            }
-        }
-        bonsai.commit(BasicId::new(0)).unwrap();
-        assert!(bonsai
-            .get_transactional_state(BasicId::new(0), BonsaiStorageConfig::default())
-            .is_ok());
-
-        // aggregates all changes made so far, keeping only the latest storage
-        // in case of storage updates
-        let mut storage_map = HashMap::<Vec<u8>, HashMap<Vec<u8>, Vec<u8>>>::new();
-        for (contract_address, storage) in block_0.iter() {
-            let map = storage_map
-                .entry(contract_address.to_vec())
-                .or_insert(HashMap::new());
-
-            for (key, value) in storage {
-                map.insert(key.to_vec(), value.to_vec());
-            }
-        }
-
-        log::info!("checking after block 0");
-        for (contract_address, storage) in storage_map {
-            log::info!(
-                "contract address: {:#064x}",
-                Felt::from_bytes_be_slice(&contract_address)
-            );
-            assert!(bonsai.init_tree(&contract_address).is_ok());
-
-            for (key, value) in storage {
-                let key1 = BitSlice::<u8, Msb0>::from_slice(&key);
-                let value1 = Felt::from_bytes_be_slice(&value);
-
-                match bonsai.get(&contract_address, &key1) {
-                    Ok(Some(value2)) => assert_eq!(value1, value2),
-                    _ => {
-                        log::info!("Missing key {:#064x}", Felt::from_bytes_be_slice(&key));
-                        panic!("Values do not match insertions!")
-                    }
-                }
-            }
-        }
-
         let block_1 = vec![
             (
                 str_to_felt_bytes(
@@ -1674,54 +1621,6 @@ mod tests {
             ),
         ];
 
-        for (contract_address, storage) in block_1.iter() {
-            bonsai.init_tree(contract_address).unwrap();
-
-            for (key, value) in storage {
-                let key = BitSlice::<u8, Msb0>::from_slice(key);
-                let value = &Felt::from_bytes_be_slice(value);
-
-                bonsai.insert(contract_address, key, value).unwrap();
-            }
-        }
-        bonsai.commit(BasicId::new(1)).unwrap();
-        assert!(bonsai
-            .get_transactional_state(BasicId::new(1), BonsaiStorageConfig::default())
-            .is_ok());
-
-        let mut storage_map = HashMap::<Vec<u8>, HashMap<Vec<u8>, Vec<u8>>>::new();
-        for (contract_address, storage) in block_0.iter().chain(block_1.iter()) {
-            let map = storage_map
-                .entry(contract_address.to_vec())
-                .or_insert(HashMap::new());
-
-            for (key, value) in storage {
-                map.insert(key.to_vec(), value.to_vec());
-            }
-        }
-
-        log::info!("checking after block 1");
-        for (contract_address, storage) in storage_map {
-            log::info!(
-                "contract address: {:#064x}",
-                Felt::from_bytes_be_slice(&contract_address)
-            );
-            assert!(bonsai.init_tree(&contract_address).is_ok());
-
-            for (key, value) in storage {
-                let key1 = BitSlice::<u8, Msb0>::from_slice(&key);
-                let value1 = Felt::from_bytes_be_slice(&value);
-
-                match bonsai.get(&contract_address, &key1) {
-                    Ok(Some(value2)) => assert_eq!(value1, value2),
-                    _ => {
-                        log::info!("Missing key {:#064x}", Felt::from_bytes_be_slice(&key));
-                        panic!("Values do not match insertions!")
-                    }
-                }
-            }
-        }
-
         let block_2 = vec![
             (
                 str_to_felt_bytes(
@@ -1777,60 +1676,77 @@ mod tests {
             ),
         ];
 
-        for (contract_address, storage) in block_2.iter() {
-            bonsai.init_tree(contract_address).unwrap();
+        let blocks = block_0.iter().chain(block_1.iter()).chain(block_2.iter());
 
-            for (key, value) in storage {
-                let key = BitSlice::<u8, Msb0>::from_slice(key);
-                let value = &Felt::from_bytes_be_slice(value);
+        // Inserts all storage updates into the bonsai
+        for (contract_address, storage) in blocks.clone() {
+            log::info!(
+                "contract address (write): {:#064x}",
+                Felt::from_bytes_be_slice(contract_address)
+            );
+            assert!(bonsai.init_tree(contract_address).is_ok());
 
-                bonsai.insert(contract_address, key, value).unwrap();
+            for (k, v) in storage {
+                // truncate only keeps the first 251 bits in a key
+                // so there should be no error during insertion
+                let ktrunc = &truncate(k);
+                let kfelt0 = Felt::from_bytes_be_slice(k);
+                let kfelt1 = Felt::from_bytes_be_slice(ktrunc.as_raw_slice());
+
+                // quick sanity check to make sure truncating a key does not remove any data
+                assert_eq!(kfelt0, kfelt1);
+
+                let v = &Felt::from_bytes_be_slice(v);
+                assert!(bonsai.insert(contract_address, ktrunc, v).is_ok());
             }
         }
-        bonsai.commit(BasicId::new(2)).unwrap();
+        assert!(bonsai.commit(BasicId::new(0)).is_ok());
 
-        let mut storage_map = HashMap::<Vec<u8>, HashMap<Vec<u8>, Vec<u8>>>::new();
-        for (contract_address, storage) in
-            block_0.iter().chain(block_1.iter()).chain(block_2.iter())
-        {
+        // aggreates all storage changes to their latest state
+        // (replacements are takent into account)
+        let mut storage_map = IndexMap::<Vec<u8>, IndexMap<Felt, Felt>>::new();
+        for (contract_address, storage) in blocks.clone() {
             let map = storage_map
                 .entry(contract_address.to_vec())
-                .or_insert(HashMap::new());
+                .or_insert(IndexMap::new());
 
-            for (key, value) in storage {
-                map.insert(key.to_vec(), value.to_vec());
+            for (k, v) in storage {
+                let k = Felt::from_bytes_be_slice(k);
+                let v = Felt::from_bytes_be_slice(v);
+                map.insert(k, v);
             }
         }
 
-        log::info!("checking after block 2");
-        for (contract_address, storage) in storage_map {
+        // checks for each contract if the original key can be reconstructed
+        // from the data stored in the db
+        for (contract_address, storage) in storage_map.iter() {
             log::info!(
-                "contract address: {:#064x}",
-                Felt::from_bytes_be_slice(&contract_address)
+                "contract address (read): {:#064x}",
+                Felt::from_bytes_be_slice(contract_address)
             );
-            assert!(bonsai.init_tree(&contract_address).is_ok());
 
-            for (key, value) in storage {
-                let key1 = BitSlice::<u8, Msb0>::from_slice(&key);
-                let value1 = Felt::from_bytes_be_slice(&value);
+            let keys = bonsai.get_keys(contract_address).unwrap();
+            log::debug!("{keys:?}");
+            for k in keys {
+                // if all has gone well, the db should contain the first 251 bits of the key,
+                // which should represent the entirety of the data
+                let k = Felt::from_bytes_be_slice(&k);
+                log::info!("looking for key: {k:#064x}");
 
-                match bonsai.get(&contract_address, &key1) {
-                    Ok(Some(value2)) => assert_eq!(value1, value2),
-                    _ => {
-                        log::info!("Missing key {:#064x}", Felt::from_bytes_be_slice(&key));
-                        panic!("Values do not match insertions!")
-                    }
-                }
+                assert!(storage.contains_key(&k));
             }
         }
-
-        assert!(bonsai
-            .get_transactional_state(BasicId::new(2), BonsaiStorageConfig::default())
-            .is_ok())
     }
 
     fn str_to_felt_bytes(hex: &str) -> [u8; 32] {
         Felt::from_hex(hex).unwrap().to_bytes_be()
+    }
+
+    fn truncate(key: &[u8]) -> BitVec<u8, Msb0> {
+        let mut bits = key.view_bits().to_owned();
+
+        bits.retain(|idx, _| idx <= 251);
+        bits
     }
     // use crate::{
     //     databases::{create_rocks_db, RocksDB, RocksDBConfig},
