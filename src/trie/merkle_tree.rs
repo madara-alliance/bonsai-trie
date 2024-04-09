@@ -179,13 +179,19 @@ impl<H: StarkHash + Send + Sync, DB: BonsaiDatabase, CommitID: Id> MerkleTrees<H
                     .into_iter()
                     // FIXME: this does not filter out keys values correctly for `HashMapDb` due
                     // to branches and leafs not being differenciated
-                    .filter(|(key, _value)| key.len() > identifier.len())
-                    .map(|(key, _value)| key[identifier.len() + 1..].to_vec())
+                    .filter_map(|(key, _value)| {
+                        if key.len() > identifier.len() {
+                            Some(key[identifier.len() + 1..].to_vec())
+                        } else {
+                            None
+                        }
+                    })
                     .collect()
             })
             .map_err(|e| e.into())
     }
 
+    #[allow(clippy::type_complexity)]
     pub(crate) fn get_key_value_pairs(
         &self,
         identifier: &[u8],
@@ -198,8 +204,13 @@ impl<H: StarkHash + Send + Sync, DB: BonsaiDatabase, CommitID: Id> MerkleTrees<H
                     .into_iter()
                     // FIXME: this does not filter out keys values correctly for `HashMapDb` due
                     // to branches and leafs not being differenciated
-                    .filter(|(key, _value)| key.len() > identifier.len())
-                    .map(|(key, value)| (key[identifier.len() + 1..].to_vec(), value))
+                    .filter_map(|(key, value)| {
+                        if key.len() > identifier.len() {
+                            Some((key[identifier.len() + 1..].to_vec(), value))
+                        } else {
+                            None
+                        }
+                    })
                     .collect()
             })
             .map_err(|e| e.into())

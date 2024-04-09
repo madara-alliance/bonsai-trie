@@ -1,4 +1,4 @@
-use crate::{id::BasicId, trie::merkle_tree::bytes_to_bitvec, Change as ExternChange};
+use crate::{trie::merkle_tree::bytes_to_bitvec, Change as ExternChange};
 #[cfg(not(feature = "std"))]
 use alloc::{collections::BTreeSet, format, string::ToString, vec::Vec};
 use bitvec::{order::Msb0, vec::BitVec};

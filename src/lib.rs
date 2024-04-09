@@ -398,6 +398,7 @@ where
     }
 
     /// Get all the key-value pairs in a specific trie.
+    #[allow(clippy::type_complexity)]
     pub fn get_key_value_pairs(
         &self,
         identifier: &[u8],
