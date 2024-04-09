@@ -160,10 +160,6 @@ impl<H: StarkHash + Send + Sync, DB: BonsaiDatabase, CommitID: Id> MerkleTrees<H
         &self.db
     }
 
-    pub(crate) fn db(self) -> KeyValueDB<DB, CommitID> {
-        self.db
-    }
-
     pub(crate) fn root_hash(
         &self,
         identifier: &[u8],
@@ -296,7 +292,7 @@ pub struct MerkleTree<H: StarkHash> {
     /// The list of nodes that should be removed from the underlying database during the next commit.
     death_row: Vec<TrieKey>,
     /// The list of leaves that have been modified during the current commit.
-    cache_leaf_modified: HashMap<Vec<u8>, InsertOrRemove<Felt>>,
+    pub cache_leaf_modified: HashMap<Vec<u8>, InsertOrRemove<Felt>>,
     /// The hasher used to hash the nodes.
     _hasher: PhantomData<H>,
 }

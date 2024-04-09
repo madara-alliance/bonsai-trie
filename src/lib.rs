@@ -87,7 +87,7 @@
 #[cfg(not(feature = "std"))]
 extern crate alloc;
 
-use crate::trie::merkle_tree::MerkleTree;
+use crate::trie::merkle_tree::{bytes_to_bitvec, MerkleTree};
 #[cfg(not(feature = "std"))]
 use alloc::{format, vec::Vec};
 use bitvec::{order::Msb0, slice::BitSlice, vec::BitVec};
@@ -489,8 +489,55 @@ where
         transactional_bonsai_storage: BonsaiStorage<ChangeID, DB::Transaction, H>,
     ) -> Result<(), BonsaiStorageError<<DB as BonsaiPersistentDatabase<ChangeID>>::DatabaseError>>
     {
-        self.tries
-            .db_mut()
-            .merge(transactional_bonsai_storage.tries.db())
+        // Applying changes (all cache_leaf_modified) before calling
+        //self.tries.db_mut().merge() work for all test but one
+        //(merge_with_uncommitted_remove, it fails with RocksDB.Busy error,
+        //which seems to be related to use of OptimisticTransactions, but
+        //removing them does not solve this particular problem but causes
+        //others).
+
+        //Applying changes after call to merge() would imply a big refactor as
+        //merge take ownership of  its arguments, hence changes are not
+        //available anymore.
+
+        //Hence the solution which is a tradeoff between the two solutions:
+        //1. memorize changes
+        //2. merge tries
+        //3. apply changes
+
+        // memoryze changes
+        let MerkleTrees { db, trees, .. } = transactional_bonsai_storage.tries;
+
+        self.tries.db_mut().merge(db)?;
+
+        // apply changes
+        for (identifier, tree) in trees {
+            for (k, op) in tree.cache_leaf_modified {
+                match op {
+                    crate::trie::merkle_tree::InsertOrRemove::Insert(v) => {
+                        self.insert(&identifier, &bytes_to_bitvec(&k), &v)
+                            .map_err(|e| {
+                                BonsaiStorageError::Merge(format!(
+                                    "While merging insert({:?} {}) faced error: {}",
+                                    k,
+                                    v,
+                                    e.to_string()
+                                ))
+                            })?;
+                    }
+                    crate::trie::merkle_tree::InsertOrRemove::Remove => {
+                        self.remove(&identifier, &bytes_to_bitvec(&k))
+                            .map_err(|e| {
+                                BonsaiStorageError::Merge(format!(
+                                    "While merging remove({:?}) faced error: {}",
+                                    k,
+                                    e.to_string()
+                                ))
+                            })?;
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 }
