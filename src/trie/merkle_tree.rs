@@ -418,6 +418,9 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         }
     }
 
+    /// Compute the hashes of all of the updated nodes in the merkle tree. This step
+    /// is separate from [`commit_subtree`] as it is done in parallel using rayon.
+    /// Computed hashes are pushed to the `hashes` vector, depth first.
     fn compute_hashes<DB: BonsaiDatabase>(
         &self,
         node: &Node,
@@ -514,7 +517,13 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
     ///
     /// # Arguments
     ///
-    /// * `node` - The top node from the subtree to commit.
+    /// * `node_handle` - The top node from the subtree to commit.
+    /// * `hashes` - The precomputed hashes for the subtree as returned by [`compute_hashes`].
+    ///   The order is depth first, left to right.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the precomputed `hashes` do not match the length of the modified subtree.
     fn commit_subtree<DB: BonsaiDatabase>(
         &mut self,
         updates: &mut Vec<(TrieKey, InsertOrRemove<Vec<u8>>)>,
@@ -522,7 +531,6 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         path: Path,
         hashes: &mut impl Iterator<Item = Felt>,
     ) -> Result<Felt, BonsaiStorageError<DB::DatabaseError>> {
-        use Node::*;
         let node_id = match node_handle {
             NodeHandle::Hash(hash) => return Ok(hash),
             NodeHandle::InMemory(root_id) => root_id,
@@ -535,7 +543,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
             .ok_or(BonsaiStorageError::Trie(
                 "Couldn't fetch node in the temporary storage".to_string(),
             ))? {
-            Unresolved(hash) => {
+            Node::Unresolved(hash) => {
                 if path.0.is_empty() {
                     updates.push((
                         TrieKey::new(&self.identifier, TrieKeyType::Trie, &[]),
@@ -546,7 +554,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
                     Ok(hash)
                 }
             }
-            Binary(mut binary) => {
+            Node::Binary(mut binary) => {
                 let left_path = path.new_with_direction(Direction::Left);
                 let left_hash =
                     self.commit_subtree::<DB>(updates, binary.left, left_path, hashes)?;
@@ -564,8 +572,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
                 ));
                 Ok(hash)
             }
-
-            Edge(mut edge) => {
+            Node::Edge(mut edge) => {
                 let mut child_path = path.clone();
                 child_path.0.extend(&edge.path.0);
                 let child_hash =

@@ -153,6 +153,13 @@ fn main() {
 }
 ```
 
+## Build and run benchmarks
+
+This crate uses `rayon` to parallelize hash computations. As such, results will vary depending on the number of cores of your cpu.
+```
+cargo bench
+```
+
 ## Acknowledgements
 
 - Shout out to [Danno Ferrin](https://github.com/shemnon) and [Karim Taam](https://github.com/matkt) for their work on Bonsai. This project is heavily inspired by their work.
