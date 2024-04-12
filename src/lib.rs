@@ -411,6 +411,20 @@ where
         self.tries.get_keys(identifier)
     }
 
+    /// Get all the key-value pairs in a specific trie.
+    #[allow(clippy::type_complexity)]
+    pub fn get_key_value_pairs(
+        &self,
+        identifier: &[u8],
+    ) -> Result<Vec<(Vec<u8>, Vec<u8>)>, BonsaiStorageError<DB::DatabaseError>> {
+        self.tries.get_key_value_pairs(identifier)
+    }
+
+    /// Get the id from the latest commit, or `None` if no commit has taken place yet.
+    pub fn get_latest_id(&self) -> Option<ChangeID> {
+        self.tries.db_ref().get_latest_id()
+    }
+
     /// Verifies a merkle-proof for a given `key` and `value`.
     pub fn verify_proof(
         root: Felt,
