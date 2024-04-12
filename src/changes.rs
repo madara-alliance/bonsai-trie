@@ -15,6 +15,7 @@ pub struct Change {
 }
 
 #[derive(Debug, Default)]
+#[cfg_attr(feature = "bench", derive(Clone))]
 pub struct ChangeBatch(pub(crate) HashMap<TrieKey, Change>);
 
 const KEY_SEPARATOR: u8 = 0x00;
@@ -115,6 +116,7 @@ impl ChangeBatch {
     }
 }
 
+#[cfg_attr(feature = "bench", derive(Clone))]
 pub struct ChangeStore<ID>
 where
     ID: Id,
