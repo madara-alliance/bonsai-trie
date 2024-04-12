@@ -18,6 +18,7 @@ use crate::{
 };
 
 /// Crate Trie <= KeyValueDB => BonsaiDatabase
+#[cfg_attr(feature = "bench", derive(Clone))]
 pub struct KeyValueDB<DB, ID>
 where
     DB: BonsaiDatabase,

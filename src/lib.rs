@@ -168,6 +168,20 @@ where
     tries: MerkleTrees<H, DB, ChangeID>,
 }
 
+#[cfg(feature = "bench")]
+impl<ChangeID, DB, H> Clone for BonsaiStorage<ChangeID, DB, H>
+where
+    DB: BonsaiDatabase + Clone,
+    ChangeID: id::Id,
+    H: StarkHash + Send + Sync,
+{
+    fn clone(&self) -> Self {
+        Self {
+            tries: self.tries.clone(),
+        }
+    }
+}
+
 /// Trie root hash type.
 pub type BonsaiTrieHash = Felt;
 
