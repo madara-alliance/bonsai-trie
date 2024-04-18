@@ -292,7 +292,7 @@ pub struct MerkleTree<H: StarkHash> {
     /// The list of nodes that should be removed from the underlying database during the next commit.
     death_row: Vec<TrieKey>,
     /// The list of leaves that have been modified during the current commit.
-    pub cache_leaf_modified: HashMap<Vec<u8>, InsertOrRemove<Felt>>,
+    cache_leaf_modified: HashMap<Vec<u8>, InsertOrRemove<Felt>>,
     /// The hasher used to hash the nodes.
     _hasher: PhantomData<H>,
 }
@@ -361,6 +361,10 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
 
     pub fn root_hash(&self) -> Felt {
         self.root_hash
+    }
+
+    pub fn cache_leaf_modified(&self) -> &HashMap<Vec<u8>, InsertOrRemove<Felt>> {
+        &self.cache_leaf_modified
     }
 
     /// Remove all the modifications that have been done since the last commit.
@@ -1488,7 +1492,7 @@ mod tests {
     use starknet_types_core::{felt::Felt, hash::Pedersen};
 
     use crate::{
-        databases::{create_rocks_db, HashMapDb, RocksDB, RocksDBConfig},
+        databases::{create_rocks_db, RocksDB, RocksDBConfig},
         id::BasicId,
         BonsaiStorage, BonsaiStorageConfig,
     };

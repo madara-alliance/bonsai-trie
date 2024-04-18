@@ -489,22 +489,6 @@ where
         transactional_bonsai_storage: BonsaiStorage<ChangeID, DB::Transaction, H>,
     ) -> Result<(), BonsaiStorageError<<DB as BonsaiPersistentDatabase<ChangeID>>::DatabaseError>>
     {
-        // Applying changes (all cache_leaf_modified) before calling
-        //self.tries.db_mut().merge() work for all test but one
-        //(merge_with_uncommitted_remove, it fails with RocksDB.Busy error,
-        //which seems to be related to use of OptimisticTransactions, but
-        //removing them does not solve this particular problem but causes
-        //others).
-
-        //Applying changes after call to merge() would imply a big refactor as
-        //merge take ownership of  its arguments, hence changes are not
-        //available anymore.
-
-        //Hence the solution which is a tradeoff between the two solutions:
-        //1. memorize changes
-        //2. merge tries
-        //3. apply changes
-
         // memoryze changes
         let MerkleTrees { db, trees, .. } = transactional_bonsai_storage.tries;
 
@@ -512,7 +496,7 @@ where
 
         // apply changes
         for (identifier, tree) in trees {
-            for (k, op) in tree.cache_leaf_modified {
+            for (k, op) in tree.cache_leaf_modified() {
                 match op {
                     crate::trie::merkle_tree::InsertOrRemove::Insert(v) => {
                         self.insert(&identifier, &bytes_to_bitvec(&k), &v)
