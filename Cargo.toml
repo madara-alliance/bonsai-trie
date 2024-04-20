@@ -45,7 +45,7 @@ pathfinder-common = { git = "https://github.com/massalabs/pathfinder.git", packa
 pathfinder-crypto = { git = "https://github.com/massalabs/pathfinder.git", package = "pathfinder-crypto", rev = "b7b6d76a76ab0e10f92e5f84ce099b5f727cb4db" }
 pathfinder-merkle-tree = { git = "https://github.com/massalabs/pathfinder.git", package = "pathfinder-merkle-tree", rev = "b7b6d76a76ab0e10f92e5f84ce099b5f727cb4db" }
 pathfinder-storage = { git = "https://github.com/massalabs/pathfinder.git", package = "pathfinder-storage", rev = "b7b6d76a76ab0e10f92e5f84ce099b5f727cb4db" }
-rand = "0.8.5"
+rand = { version = "0.8.5", features = ["small_rng"] }
 tempfile = "3.8.0"
 rstest = "0.18.2"
 test-log = "0.2.15"
