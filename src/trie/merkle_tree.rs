@@ -384,11 +384,14 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         &mut self,
         db: &mut KeyValueDB<DB, ID>,
     ) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
-        let node = self
-            .get_trie_branch_in_db_from_path(db, &Path(BitVec::<u8, Msb0>::new()))?
-            .ok_or(BonsaiStorageError::Trie(
-                "root node doesn't exist in the storage".to_string(),
-            ))?;
+        let node = Self::get_trie_branch_in_db_from_path(
+            &self.identifier,
+            db,
+            &Path(BitVec::<u8, Msb0>::new()),
+        )?
+        .ok_or(BonsaiStorageError::Trie(
+            "root node doesn't exist in the storage".to_string(),
+        ))?;
         let node_hash = node.hash().ok_or(BonsaiStorageError::Trie(
             "Root doesn't exist in the storage".to_string(),
         ))?;
@@ -786,9 +789,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
                         _ => {}
                     }
                 });
-                for (id, node) in nodes_to_add {
-                    self.storage_nodes.0.insert(id, node);
-                }
+                self.storage_nodes.0.extend(nodes_to_add);
                 Ok(())
             }
             None => {
@@ -1025,11 +1026,14 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         let mut nodes = Vec::with_capacity(251);
         let mut node = match self.root_handle {
             NodeHandle::Hash(_) => {
-                let node = self
-                    .get_trie_branch_in_db_from_path(db, &Path(BitVec::<u8, Msb0>::new()))?
-                    .ok_or(BonsaiStorageError::Trie(
-                        "Couldn't fetch root node in db".to_string(),
-                    ))?;
+                let node = Self::get_trie_branch_in_db_from_path(
+                    &self.identifier,
+                    db,
+                    &Path(BitVec::<u8, Msb0>::new()),
+                )?
+                .ok_or(BonsaiStorageError::Trie(
+                    "Couldn't fetch root node in db".to_string(),
+                ))?;
                 if node.is_empty() {
                     return Ok(Vec::new());
                 }
@@ -1050,8 +1054,11 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
                     let child_path = key[..edge.height as usize + edge.path.0.len()].to_bitvec();
                     let child_node = match edge.child {
                         NodeHandle::Hash(hash) => {
-                            let node =
-                                self.get_trie_branch_in_db_from_path(db, &Path(child_path))?;
+                            let node = Self::get_trie_branch_in_db_from_path(
+                                &self.identifier,
+                                db,
+                                &Path(child_path),
+                            )?;
                             if let Some(node) = node {
                                 node
                             } else {
@@ -1094,11 +1101,14 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
                     let next = binary.get_child(next_direction);
                     let next_path = key[..binary.height as usize + 1].to_bitvec();
                     let next_node = match next {
-                        NodeHandle::Hash(_) => self
-                            .get_trie_branch_in_db_from_path(db, &Path(next_path))?
-                            .ok_or(BonsaiStorageError::Trie(
-                                "Couldn't fetch next node in db".to_string(),
-                            ))?,
+                        NodeHandle::Hash(_) => Self::get_trie_branch_in_db_from_path(
+                            &self.identifier,
+                            db,
+                            &Path(next_path),
+                        )?
+                        .ok_or(BonsaiStorageError::Trie(
+                            "Couldn't fetch next node in db".to_string(),
+                        ))?,
                         NodeHandle::InMemory(next_id) => self
                             .storage_nodes
                             .0
@@ -1181,138 +1191,85 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         dst: &BitSlice<u8, Msb0>,
     ) -> Result<Vec<NodeId>, BonsaiStorageError<DB::DatabaseError>> {
         let mut nodes = Vec::with_capacity(251);
-        let node_id = match self.root_handle {
-            NodeHandle::Hash(_) => {
-                let node = self
-                    .get_trie_branch_in_db_from_path(db, &Path(BitVec::<u8, Msb0>::new()))?
-                    .ok_or(BonsaiStorageError::Trie(
-                        "Couldn't fetch root node in db".to_string(),
-                    ))?;
-                if node.is_empty() {
-                    return Ok(Vec::new());
-                }
-                self.latest_node_id.next_id();
-                self.root_handle = NodeHandle::InMemory(self.latest_node_id);
-                self.storage_nodes.0.insert(self.latest_node_id, node);
-                nodes.push(self.latest_node_id);
-                self.latest_node_id
-            }
-            NodeHandle::InMemory(root_id) => {
-                nodes.push(root_id);
-                root_id
-            }
-        };
-        self.preload_nodes_subtree(
-            db,
-            dst,
-            node_id,
-            Path(BitVec::<u8, Msb0>::new()),
-            &mut nodes,
-        )?;
-        Ok(nodes)
-    }
 
-    fn preload_nodes_subtree<DB: BonsaiDatabase, ID: Id>(
-        &mut self,
-        db: &mut KeyValueDB<DB, ID>,
-        dst: &BitSlice<u8, Msb0>,
-        root_id: NodeId,
-        mut path: Path,
-        nodes: &mut Vec<NodeId>,
-    ) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
-        let node = self
-            .storage_nodes
-            .0
-            .get(&root_id)
-            .ok_or(BonsaiStorageError::Trie(
-                "Couldn't fetch node in the temporary storage".to_string(),
-            ))?
-            .clone();
-        match node {
-            // We are in a case where the trie is empty and so there is nothing to preload.
-            Node::Unresolved(_hash) => Ok(()),
-            // We are checking which side of the binary we should load in memory (if we don't have it already)
-            // We load this "child-side" node in the memory and refer his memory handle in the binary node.
-            // We also add the "child-side" node in the list that accumulate all the nodes we want to preload.
-            // We override the binary node in the memory with this new version that has the "child-side" memory handle
-            // instead of the hash.
-            // We call recursively the function with the "child-side" node.
-            Node::Binary(mut binary_node) => {
-                let next_direction = binary_node.direction(dst);
-                path.0.push(bool::from(next_direction));
-                let next = binary_node.get_child(next_direction);
-                match next {
-                    NodeHandle::Hash(_) => {
-                        let node = self.get_trie_branch_in_db_from_path(db, &path)?;
-                        if let Some(node) = node {
-                            self.latest_node_id.next_id();
-                            self.storage_nodes.0.insert(self.latest_node_id, node);
-                            nodes.push(self.latest_node_id);
-                            match next_direction {
-                                Direction::Left => {
-                                    binary_node.left = NodeHandle::InMemory(self.latest_node_id)
-                                }
-                                Direction::Right => {
-                                    binary_node.right = NodeHandle::InMemory(self.latest_node_id)
-                                }
-                            };
-                            self.storage_nodes
-                                .0
-                                .insert(root_id, Node::Binary(binary_node));
-                            self.preload_nodes_subtree(db, dst, self.latest_node_id, path, nodes)
-                        } else {
-                            Ok(())
-                        }
+        let mut prev_handle = &mut self.root_handle;
+        let mut path = Path(BitVec::<u8, Msb0>::with_capacity(251));
+
+        loop {
+            // get node from cache or database
+            let (node_id, node) = match prev_handle {
+                NodeHandle::Hash(_) => {
+                    // load from db
+                    let node = Self::get_trie_branch_in_db_from_path(&self.identifier, db, &path)?
+                        .ok_or(BonsaiStorageError::Trie(
+                            "Couldn't fetch node from db".to_string(),
+                        ))?;
+
+                    if node.is_empty() {
+                        // empty tree
+                        break;
                     }
-                    NodeHandle::InMemory(next_id) => {
-                        nodes.push(next_id);
-                        self.preload_nodes_subtree(db, dst, next_id, path, nodes)
-                    }
+
+                    // put it in inmemory storage
+                    self.latest_node_id.next_id();
+                    *prev_handle = NodeHandle::InMemory(self.latest_node_id);
+                    let node = self.storage_nodes.0.entry(self.latest_node_id).insert(node);
+
+                    (self.latest_node_id, node.into_mut())
                 }
+                NodeHandle::InMemory(node_id) => {
+                    let node_id = *node_id;
+
+                    let node =
+                        self.storage_nodes
+                            .0
+                            .get_mut(&node_id)
+                            .ok_or(BonsaiStorageError::Trie(
+                                "Couldn't get node from temp storage".to_string(),
+                            ))?;
+
+                    (node_id.clone(), node)
+                }
+            };
+
+            nodes.push(node_id);
+
+            // visit the child
+            match node {
+                // We are in a case where the trie is empty and so there is nothing to preload.
+                Node::Unresolved(_felt) => break,
+
+                Node::Binary(binary_node) => {
+                    let next_direction = binary_node.direction(dst);
+                    path.0.push(bool::from(next_direction));
+                    prev_handle = binary_node.get_child_mut(next_direction);
+                }
+
+                Node::Edge(edge_node) if edge_node.path_matches(dst) => {
+                    path.0.extend_from_bitslice(&edge_node.path.0);
+                    if path.0 == dst {
+                        break; // found it :)
+                    }
+
+                    prev_handle = &mut edge_node.child;
+                }
+
+                // We are in a case where the edge node doesn't match the path we want to preload so we return nothing.
+                Node::Edge(_) => break,
             }
-            // If the edge node match the path we want to preload then we load the child node in memory (if we don't have it already)
-            // and we override the edge node in the memory with this new version that has the child memory handle instead of the hash.
-            // We also add the child node in the list that accumulate all the nodes we want to preload.
-            // We call recursively the function with the child node.
-            Node::Edge(mut edge_node) if edge_node.path_matches(dst) => {
-                path.0.extend_from_bitslice(&edge_node.path.0);
-                if path.0 == dst {
-                    return Ok(());
-                }
-                let next = edge_node.child;
-                match next {
-                    NodeHandle::Hash(_) => {
-                        let node = self.get_trie_branch_in_db_from_path(db, &path)?;
-                        if let Some(node) = node {
-                            self.latest_node_id.next_id();
-                            self.storage_nodes.0.insert(self.latest_node_id, node);
-                            nodes.push(self.latest_node_id);
-                            edge_node.child = NodeHandle::InMemory(self.latest_node_id);
-                            self.storage_nodes.0.insert(root_id, Node::Edge(edge_node));
-                            self.preload_nodes_subtree(db, dst, self.latest_node_id, path, nodes)
-                        } else {
-                            Ok(())
-                        }
-                    }
-                    NodeHandle::InMemory(next_id) => {
-                        nodes.push(next_id);
-                        self.preload_nodes_subtree(db, dst, next_id, path, nodes)
-                    }
-                }
-            }
-            // We are in a case where the edge node doesn't match the path we want to preload so we return nothing.
-            Node::Edge(_) => Ok(()),
         }
+
+        Ok(nodes)
     }
 
     /// Get the node of the trie that corresponds to the path.
     fn get_trie_branch_in_db_from_path<DB: BonsaiDatabase, ID: Id>(
-        &self,
+        identifier: &[u8],
         db: &KeyValueDB<DB, ID>,
         path: &Path,
     ) -> Result<Option<Node>, BonsaiStorageError<DB::DatabaseError>> {
         let path: Vec<u8> = path.into();
-        db.get(&TrieKey::new(&self.identifier, TrieKeyType::Trie, &path))?
+        db.get(&TrieKey::new(&identifier, TrieKeyType::Trie, &path))?
             .map(|node| {
                 Node::decode(&mut node.as_slice()).map_err(|err| {
                     BonsaiStorageError::Trie(format!("Couldn't decode node: {}", err))
@@ -1340,7 +1297,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
     ) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
         let child_node = match parent.child {
             NodeHandle::Hash(_) => {
-                let node = self.get_trie_branch_in_db_from_path(db, path)?;
+                let node = Self::get_trie_branch_in_db_from_path(&self.identifier, db, path)?;
                 if let Some(node) = node {
                     node
                 } else {
