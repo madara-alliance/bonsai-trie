@@ -241,18 +241,19 @@ impl<H: StarkHash + Send + Sync, DB: BonsaiDatabase, CommitID: Id> MerkleTrees<H
         let db_changes = self
             .trees
             .iter_mut()
-            .map(|(_, tree)| tree.get_updates::<DB>())
-            .collect::<Result<Vec<_>, BonsaiStorageError<DB::DatabaseError>>>()?;
+            .map(|(_, tree)| tree.get_updates::<DB>());
         #[cfg(feature = "std")]
         let db_changes = self
             .trees
             .par_iter_mut()
             .map(|(_, tree)| tree.get_updates::<DB>())
-            .collect::<Result<Vec<_>, BonsaiStorageError<DB::DatabaseError>>>()?;
+            .collect_vec_list()
+            .into_iter()
+            .flatten();
 
         let mut batch = self.db.create_batch();
         for changes in db_changes {
-            for (key, value) in changes {
+            for (key, value) in changes? {
                 match value {
                     InsertOrRemove::Insert(value) => {
                         self.db.insert(&key, &value, Some(&mut batch))?;

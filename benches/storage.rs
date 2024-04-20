@@ -169,6 +169,46 @@ fn five_updates(c: &mut Criterion) {
     });
 }
 
+fn multiple_contracts(c: &mut Criterion) {
+    c.bench_function("multiple contracts", move |b| {
+        let mut bonsai_storage: BonsaiStorage<BasicId, _, Pedersen> = BonsaiStorage::new(
+            HashMapDb::<BasicId>::default(),
+            BonsaiStorageConfig::default(),
+        )
+        .unwrap();
+        let mut rng = thread_rng();
+
+        let felt = Felt::from_hex("0x66342762FDD54D033c195fec3ce2568b62052e").unwrap();
+        for _ in 0..1000 {
+            let bitvec = BitVec::from_vec(vec![rng.gen(), rng.gen(), rng.gen(), rng.gen()]);
+            bonsai_storage
+                .insert(
+                    &[
+                        rng.gen(),
+                        rng.gen(),
+                        rng.gen(),
+                        rng.gen(),
+                        rng.gen(),
+                        rng.gen(),
+                    ],
+                    &bitvec,
+                    &felt,
+                )
+                .unwrap();
+        }
+
+        let mut id_builder = BasicIdBuilder::new();
+
+        b.iter_batched_ref(
+            || bonsai_storage.clone(),
+            |bonsai_storage| {
+                bonsai_storage.commit(id_builder.new_id()).unwrap();
+            },
+            criterion::BatchSize::LargeInput,
+        );
+    });
+}
+
 fn hash(c: &mut Criterion) {
     c.bench_function("pedersen hash", move |b| {
         let felt0 =
@@ -186,6 +226,6 @@ fn hash(c: &mut Criterion) {
 criterion_group! {
     name = benches;
     config = Criterion::default(); // .with_profiler(flamegraph::FlamegraphProfiler::new(100));
-    targets = storage, one_update, five_updates, hash, storage_with_insert
+    targets = storage, one_update, five_updates, hash, storage_with_insert, multiple_contracts
 }
 criterion_main!(benches);
