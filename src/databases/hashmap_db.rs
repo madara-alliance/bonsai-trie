@@ -1,15 +1,9 @@
 use crate::{
     bonsai_database::{BonsaiPersistentDatabase, DBError},
     id::Id,
-    BonsaiDatabase,
+    BTreeMap, BonsaiDatabase, HashMap, Vec,
 };
-#[cfg(not(feature = "std"))]
-use alloc::{collections::BTreeMap, vec::Vec};
 use core::{fmt, fmt::Display};
-#[cfg(not(feature = "std"))]
-use hashbrown::HashMap;
-#[cfg(feature = "std")]
-use std::collections::{BTreeMap, HashMap};
 
 #[derive(Debug)]
 pub struct HashMapDbError {}

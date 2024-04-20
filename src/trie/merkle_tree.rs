@@ -1,5 +1,3 @@
-#[cfg(not(feature = "std"))]
-use alloc::{format, string::ToString, vec, vec::Vec};
 use bitvec::{
     prelude::{BitSlice, BitVec, Msb0},
     view::BitView,
@@ -8,16 +6,15 @@ use core::iter::once;
 use core::marker::PhantomData;
 use core::mem;
 use derive_more::Constructor;
-#[cfg(not(feature = "std"))]
-use hashbrown::HashMap;
 use parity_scale_codec::{Decode, Encode};
 #[cfg(feature = "std")]
 use rayon::prelude::*;
 use starknet_types_core::{felt::Felt, hash::StarkHash};
-#[cfg(feature = "std")]
-use std::collections::HashMap;
 
-use crate::{error::BonsaiStorageError, id::Id, BonsaiDatabase, KeyValueDB};
+use crate::{
+    error::BonsaiStorageError, format, id::Id, vec, BonsaiDatabase, HashMap, KeyValueDB, ToString,
+    Vec,
+};
 
 use super::{
     merkle_node::{BinaryNode, Direction, EdgeNode, Node, NodeHandle, NodeId},

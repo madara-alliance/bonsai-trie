@@ -3,8 +3,7 @@ use parity_scale_codec::{Decode, Encode, Error, Input, Output};
 
 use super::merkle_node::Direction;
 
-#[cfg(not(feature = "std"))]
-use alloc::vec::Vec;
+use crate::Vec;
 
 #[cfg(all(feature = "std", test))]
 use rstest::rstest;
