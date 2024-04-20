@@ -1508,7 +1508,7 @@ pub(crate) fn bytes_to_bitvec(bytes: &[u8]) -> BitVec<u8, Msb0> {
 }
 
 #[cfg(test)]
-#[cfg(all(test, feature = "std"))]
+#[cfg(all(test, feature = "std", feature = "rocksdb"))]
 mod tests {
     use bitvec::{order::Msb0, vec::BitVec, view::BitView};
     use indexmap::IndexMap;

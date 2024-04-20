@@ -1,4 +1,4 @@
-#![cfg(feature = "std")]
+#![cfg(all(feature = "std", feature = "rocksdb"))]
 use bitvec::{bits, order::Msb0, vec::BitVec};
 use starknet_types_core::{felt::Felt, hash::Pedersen};
 
