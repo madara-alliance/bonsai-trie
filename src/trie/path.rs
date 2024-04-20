@@ -1,9 +1,10 @@
 use bitvec::{order::Msb0, vec::BitVec};
+use core::iter;
 use parity_scale_codec::{Decode, Encode, Error, Input, Output};
 
 use super::merkle_node::Direction;
 
-use crate::Vec;
+use crate::SByteVec;
 
 #[cfg(all(feature = "std", test))]
 use rstest::rstest;
@@ -103,26 +104,28 @@ impl Path {
     }
 }
 
-/// Convert Path to Vec<u8> can be used, for example, to create keys for the database
-impl From<Path> for Vec<u8> {
+/// Convert Path to SByteVec can be used, for example, to create keys for the database
+impl From<Path> for SByteVec {
     fn from(path: Path) -> Self {
-        let key = if path.0.is_empty() {
-            Vec::new()
+        if path.0.is_empty() {
+            SByteVec::new()
         } else {
-            [&[path.0.len() as u8], path.0.as_raw_slice()].concat()
-        };
-        key
+            iter::once(path.0.len() as u8)
+                .chain(path.0.as_raw_slice().iter().copied())
+                .collect()
+        }
     }
 }
 
-impl From<&Path> for Vec<u8> {
+impl From<&Path> for SByteVec {
     fn from(path: &Path) -> Self {
-        let key = if path.0.is_empty() {
-            Vec::new()
+        if path.0.is_empty() {
+            SByteVec::new()
         } else {
-            [&[path.0.len() as u8], path.0.as_raw_slice()].concat()
-        };
-        key
+            iter::once(path.0.len() as u8)
+                .chain(path.0.as_raw_slice().iter().copied())
+                .collect()
+        }
     }
 }
 

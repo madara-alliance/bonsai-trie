@@ -109,6 +109,26 @@ pub(crate) use std::{
 };
 
 use crate::trie::merkle_tree::MerkleTree;
+
+pub(crate) type SByteVec = smallvec::SmallVec<[u8; 32]>;
+
+pub(crate) trait EncodeExt: parity_scale_codec::Encode {
+    fn encode_sbytevec(&self) -> SByteVec {
+        struct Out(SByteVec);
+        impl parity_scale_codec::Output for Out {
+            #[inline]
+            fn write(&mut self, bytes: &[u8]) {
+                self.0.extend(bytes.iter().copied())
+            }
+        }
+
+        let mut v = Out(SByteVec::with_capacity(self.size_hint()));
+        self.encode_to(&mut v);
+        v.0
+    }
+}
+impl<T: parity_scale_codec::Encode> EncodeExt for T {}
+
 use bitvec::{order::Msb0, slice::BitSlice, vec::BitVec};
 use changes::ChangeBatch;
 use key_value_db::KeyValueDB;
@@ -224,7 +244,7 @@ where
         db: DB,
         config: BonsaiStorageConfig,
         created_at: ChangeID,
-        identifiers: Vec<Vec<u8>>,
+        identifiers: Vec<SByteVec>,
     ) -> Result<Self, BonsaiStorageError<DB::DatabaseError>> {
         let key_value_db = KeyValueDB::new(db, config.into(), Some(created_at));
         let mut tries = MerkleTrees::<H, DB, ChangeID>::new(key_value_db);
@@ -438,7 +458,7 @@ where
     pub fn get_keys(
         &self,
         identifier: &[u8],
-    ) -> Result<Vec<Vec<u8>>, BonsaiStorageError<DB::DatabaseError>> {
+    ) -> Result<Vec<SByteVec>, BonsaiStorageError<DB::DatabaseError>> {
         self.tries.get_keys(identifier)
     }
 
@@ -447,7 +467,7 @@ where
     pub fn get_key_value_pairs(
         &self,
         identifier: &[u8],
-    ) -> Result<Vec<(Vec<u8>, Vec<u8>)>, BonsaiStorageError<DB::DatabaseError>> {
+    ) -> Result<Vec<(SByteVec, SByteVec)>, BonsaiStorageError<DB::DatabaseError>> {
         self.tries.get_key_value_pairs(identifier)
     }
 

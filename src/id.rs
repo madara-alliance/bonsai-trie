@@ -1,9 +1,9 @@
-use crate::Vec;
+use crate::SByteVec;
 use core::{fmt::Debug, hash};
 
 /// Trait to be implemented on any type that can be used as an ID.
 pub trait Id: hash::Hash + PartialEq + Eq + PartialOrd + Ord + Debug + Copy + Default {
-    fn to_bytes(&self) -> Vec<u8>;
+    fn to_bytes(&self) -> SByteVec;
 }
 
 /// A basic ID type that can be used for testing.
@@ -17,8 +17,8 @@ impl BasicId {
 }
 
 impl Id for BasicId {
-    fn to_bytes(&self) -> Vec<u8> {
-        self.0.to_be_bytes().to_vec()
+    fn to_bytes(&self) -> SByteVec {
+        SByteVec::from(&self.0.to_be_bytes() as &[_])
     }
 }
 
