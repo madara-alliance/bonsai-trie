@@ -15,6 +15,7 @@ pub struct Change {
 }
 
 #[derive(Debug, Default)]
+#[cfg_attr(feature = "bench", derive(Clone))]
 pub struct ChangeBatch(pub(crate) HashMap<TrieKey, Change>);
 
 const KEY_SEPARATOR: u8 = 0x00;
@@ -38,11 +39,9 @@ impl ChangeBatch {
     }
 
     pub fn serialize<ID: Id>(&self, id: &ID) -> Vec<(Vec<u8>, &[u8])> {
-        let id = id.to_bytes();
         self.0
             .iter()
             .flat_map(|(change_key, change)| {
-                let key_slice = change_key.as_slice();
                 let mut changes = Vec::new();
 
                 if let Some(old_value) = &change.old_value {
@@ -51,26 +50,12 @@ impl ChangeBatch {
                             return changes;
                         }
                     }
-                    let key = [
-                        id.as_slice(),
-                        &[KEY_SEPARATOR],
-                        key_slice,
-                        &[change_key.into()],
-                        &[OLD_VALUE],
-                    ]
-                    .concat();
+                    let key = key_old_value(id, change_key);
                     changes.push((key, old_value.as_slice()));
                 }
 
                 if let Some(new_value) = &change.new_value {
-                    let key = [
-                        id.as_slice(),
-                        &[KEY_SEPARATOR],
-                        key_slice,
-                        &[change_key.into()],
-                        &[NEW_VALUE],
-                    ]
-                    .concat();
+                    let key = key_new_value(id, change_key);
                     changes.push((key, new_value.as_slice()));
                 }
                 changes
@@ -115,6 +100,7 @@ impl ChangeBatch {
     }
 }
 
+#[cfg_attr(feature = "bench", derive(Clone))]
 pub struct ChangeStore<ID>
 where
     ID: Id,
@@ -134,4 +120,26 @@ where
             current_changes: ChangeBatch(HashMap::new()),
         }
     }
+}
+
+pub fn key_old_value<ID: Id>(id: &ID, key: &TrieKey) -> Vec<u8> {
+    [
+        id.to_bytes().as_slice(),
+        &[KEY_SEPARATOR],
+        key.as_slice(),
+        &[key.into()],
+        &[OLD_VALUE],
+    ]
+    .concat()
+}
+
+pub fn key_new_value<ID: Id>(id: &ID, key: &TrieKey) -> Vec<u8> {
+    [
+        id.to_bytes().as_slice(),
+        &[KEY_SEPARATOR],
+        key.as_slice(),
+        &[key.into()],
+        &[NEW_VALUE],
+    ]
+    .concat()
 }

@@ -4,3 +4,4 @@ mod path;
 mod trie_db;
 
 pub(crate) use trie_db::TrieKey;
+pub(crate) use trie_db::TrieKeyType;

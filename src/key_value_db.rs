@@ -18,6 +18,7 @@ use crate::{
 };
 
 /// Crate Trie <= KeyValueDB => BonsaiDatabase
+#[cfg_attr(feature = "bench", derive(Clone))]
 pub struct KeyValueDB<DB, ID>
 where
     DB: BonsaiDatabase,
@@ -240,6 +241,12 @@ where
         self.snap_counter += 1;
     }
 
+    /// Retrieves a transactional state using the closest snapshot.
+    ///
+    /// > Note that if a snapshot does not exist for the exact commit id
+    /// > then changes will be iteratively reverted from the closest snapshot.
+    ///
+    /// * `id`: transaction state will represent the state of the db at this change id
     pub(crate) fn get_transaction(
         &self,
         id: ID,

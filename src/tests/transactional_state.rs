@@ -5,6 +5,7 @@ use crate::{
     BonsaiStorage, BonsaiStorageConfig,
 };
 use bitvec::vec::BitVec;
+use log::LevelFilter;
 use starknet_types_core::{felt::Felt, hash::Pedersen};
 
 #[test]
@@ -198,6 +199,172 @@ fn merge() {
             .unwrap(),
         Some(pair2.1)
     );
+}
+
+#[test]
+fn merge_with_uncommitted_insert() {
+    let identifier = vec![];
+    let tempdir = tempfile::tempdir().unwrap();
+    let db = create_rocks_db(tempdir.path()).unwrap();
+    let config = BonsaiStorageConfig::default();
+    let mut bonsai_storage =
+        BonsaiStorage::new(RocksDB::new(&db, RocksDBConfig::default()), config).unwrap();
+    let mut id_builder = BasicIdBuilder::new();
+
+    let pair1 = (
+        BitVec::from_vec(vec![1, 2, 2]),
+        Felt::from_hex("0x66342762FDD5D033c195fec3ce2568b62052e").unwrap(),
+    );
+    let pair2 = (
+        BitVec::from_vec(vec![1, 2, 3]),
+        Felt::from_hex("0x66342762FDD54D033c195fec3ce2568b62052e").unwrap(),
+    );
+
+    let id1 = id_builder.new_id();
+    bonsai_storage
+        .insert(&identifier, &pair1.0, &pair1.1)
+        .unwrap();
+    bonsai_storage.commit(id1).unwrap();
+
+    let mut bonsai_at_txn: BonsaiStorage<_, _, Pedersen> = bonsai_storage
+        .get_transactional_state(id1, BonsaiStorageConfig::default())
+        .unwrap()
+        .unwrap();
+    bonsai_at_txn
+        .insert(&identifier, &pair2.0, &pair2.1)
+        .unwrap();
+
+    bonsai_storage.merge(bonsai_at_txn).unwrap();
+
+    // commit after merge
+    let revert_id = id_builder.new_id();
+    bonsai_storage.commit(revert_id).unwrap();
+
+    // overwrite pair2
+    bonsai_storage
+        .insert(
+            &identifier,
+            &pair2.0,
+            &Felt::from_hex("0x66342762FDD54D033c195fec3ce2568b62052F").unwrap(),
+        )
+        .unwrap();
+
+    // revert to commit
+    bonsai_storage.revert_to(revert_id).unwrap();
+
+    assert_eq!(
+        bonsai_storage.get(&identifier, &pair2.0).unwrap(),
+        Some(pair2.1)
+    );
+}
+
+#[test]
+fn merge_with_uncommitted_remove() {
+    let _ = env_logger::builder().is_test(true).try_init();
+    log::set_max_level(LevelFilter::Trace);
+
+    let identifier = vec![];
+    let tempdir = tempfile::tempdir().unwrap();
+    let db = create_rocks_db(tempdir.path()).unwrap();
+    let config = BonsaiStorageConfig::default();
+    let mut bonsai_storage =
+        BonsaiStorage::new(RocksDB::new(&db, RocksDBConfig::default()), config).unwrap();
+    let mut id_builder = BasicIdBuilder::new();
+
+    let pair1 = (
+        BitVec::from_vec(vec![1, 2, 2]),
+        Felt::from_hex("0x66342762FDD5D033c195fec3ce2568b62052e").unwrap(),
+    );
+    let pair2 = (
+        BitVec::from_vec(vec![1, 2, 3]),
+        Felt::from_hex("0x66342762FDD54D033c195fec3ce2568b62052e").unwrap(),
+    );
+
+    let id1 = id_builder.new_id();
+    bonsai_storage
+        .insert(&identifier, &pair1.0, &pair1.1)
+        .unwrap();
+    bonsai_storage.commit(id1).unwrap();
+
+    let mut bonsai_at_txn: BonsaiStorage<_, _, Pedersen> = bonsai_storage
+        .get_transactional_state(id1, BonsaiStorageConfig::default())
+        .unwrap()
+        .unwrap();
+    bonsai_at_txn
+        .insert(&identifier, &pair2.0, &pair2.1)
+        .unwrap();
+    bonsai_at_txn
+        .transactional_commit(id_builder.new_id())
+        .unwrap();
+
+    // remove pair2 but don't commit in transational state
+    bonsai_at_txn.remove(&identifier, &pair2.0).unwrap();
+    assert_eq!(
+        bonsai_at_txn.contains(&identifier, &pair2.0).unwrap(),
+        false
+    );
+
+    let merge = bonsai_storage.merge(bonsai_at_txn);
+    match merge {
+        Ok(_) => println!("merge succeeded"),
+        Err(e) => {
+            println!("merge failed");
+            panic!("{}", e);
+        }
+    };
+
+    // commit after merge
+    bonsai_storage.commit(id_builder.new_id()).unwrap();
+
+    assert_eq!(
+        bonsai_storage.contains(&identifier, &pair2.0).unwrap(),
+        false
+    );
+}
+
+#[test]
+fn transactional_state_after_uncommitted() {
+    let _ = env_logger::builder().is_test(true).try_init();
+    log::set_max_level(LevelFilter::Trace);
+
+    let identifier = vec![];
+    let tempdir = tempfile::tempdir().unwrap();
+    let db = create_rocks_db(tempdir.path()).unwrap();
+    let config = BonsaiStorageConfig::default();
+    let mut bonsai_storage =
+        BonsaiStorage::new(RocksDB::new(&db, RocksDBConfig::default()), config).unwrap();
+    let mut id_builder = BasicIdBuilder::new();
+
+    let pair1 = (
+        BitVec::from_vec(vec![1, 2, 2]),
+        Felt::from_hex("0x66342762FDD5D033c195fec3ce2568b62052e").unwrap(),
+    );
+    let pair2 = (
+        BitVec::from_vec(vec![1, 2, 3]),
+        Felt::from_hex("0x66342762FDD54D033c195fec3ce2568b62052e").unwrap(),
+    );
+
+    let id1 = id_builder.new_id();
+    bonsai_storage
+        .insert(&identifier, &pair1.0, &pair1.1)
+        .unwrap();
+    bonsai_storage.commit(id1).unwrap();
+
+    // make a change to original tree but don't commit it
+    bonsai_storage
+        .insert(&identifier, &pair2.0, &pair2.1)
+        .unwrap();
+
+    // create a transactional state after the uncommitted change
+    let bonsai_at_txn: BonsaiStorage<_, _, Pedersen> = bonsai_storage
+        .get_transactional_state(id1, BonsaiStorageConfig::default())
+        .unwrap()
+        .unwrap();
+
+    // uncommitted changes, done after the transactional state was created,
+    // are not included in the transactional state
+    let contains = bonsai_at_txn.contains(&identifier, &pair2.0).unwrap();
+    assert_eq!(contains, false);
 }
 
 #[test]
