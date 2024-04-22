@@ -488,8 +488,10 @@ where
         &mut self,
         transactional_bonsai_storage: BonsaiStorage<ChangeID, DB::Transaction, H>,
     ) -> Result<(), BonsaiStorageError<<DB as BonsaiPersistentDatabase<ChangeID>>::DatabaseError>>
+    where
+        <DB as BonsaiDatabase>::DatabaseError: core::fmt::Debug,
     {
-        // memoryze changes
+        // memorize changes
         let MerkleTrees { db, trees, .. } = transactional_bonsai_storage.tries;
 
         self.tries.db_mut().merge(db)?;
@@ -499,25 +501,21 @@ where
             for (k, op) in tree.cache_leaf_modified() {
                 match op {
                     crate::trie::merkle_tree::InsertOrRemove::Insert(v) => {
-                        self.insert(&identifier, &bytes_to_bitvec(&k), &v)
+                        self.insert(&identifier, &bytes_to_bitvec(k), v)
                             .map_err(|e| {
                                 BonsaiStorageError::Merge(format!(
-                                    "While merging insert({:?} {}) faced error: {}",
-                                    k,
-                                    v,
-                                    e.to_string()
+                                    "While merging insert({:?} {}) faced error: {:?}",
+                                    k, v, e
                                 ))
                             })?;
                     }
                     crate::trie::merkle_tree::InsertOrRemove::Remove => {
-                        self.remove(&identifier, &bytes_to_bitvec(&k))
-                            .map_err(|e| {
-                                BonsaiStorageError::Merge(format!(
-                                    "While merging remove({:?}) faced error: {}",
-                                    k,
-                                    e.to_string()
-                                ))
-                            })?;
+                        self.remove(&identifier, &bytes_to_bitvec(k)).map_err(|e| {
+                            BonsaiStorageError::Merge(format!(
+                                "While merging remove({:?}) faced error: {:?}",
+                                k, e
+                            ))
+                        })?;
                     }
                 }
             }

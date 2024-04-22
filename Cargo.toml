@@ -27,7 +27,7 @@ serde = { version = "1.0.195", default-features = false, features = [
     "derive",
     "alloc",
 ] }
-starknet-types-core = { git = "https://github.com/starknet-io/types-rs", branch = "main", default-features = false, features = [
+starknet-types-core = { version = "0.1", default-features = false, features = [
     "hash",
     "parity-scale-codec",
 ] }
