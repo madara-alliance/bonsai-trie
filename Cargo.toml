@@ -27,7 +27,7 @@ serde = { version = "1.0.195", default-features = false, features = [
     "derive",
     "alloc",
 ] }
-starknet-types-core = { git = "https://github.com/starknet-io/types-rs", branch = "main", default-features = false, features = [
+starknet-types-core = { version = "0.1", default-features = false, features = [
     "hash",
     "parity-scale-codec",
 ] }
@@ -38,6 +38,8 @@ rocksdb = { optional = true, version = "0.21.0", features = [
 ] }
 
 [dev-dependencies]
+env_logger = "0.11.3"
+once_cell = "1.19.0"
 pprof = { version = "0.3", features = ["flamegraph"] }
 pathfinder-common = { git = "https://github.com/massalabs/pathfinder.git", package = "pathfinder-common", rev = "b7b6d76a76ab0e10f92e5f84ce099b5f727cb4db" }
 pathfinder-crypto = { git = "https://github.com/massalabs/pathfinder.git", package = "pathfinder-crypto", rev = "b7b6d76a76ab0e10f92e5f84ce099b5f727cb4db" }

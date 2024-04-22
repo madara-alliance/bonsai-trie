@@ -6,4 +6,4 @@ pub use hashmap_db::HashMapDb;
 mod rocks_db;
 
 #[cfg(feature = "rocksdb")]
-pub use rocks_db::{create_rocks_db, RocksDB, RocksDBBatch, RocksDBConfig};
+pub use rocks_db::{create_rocks_db, RocksDB, RocksDBBatch, RocksDBConfig, RocksDBTransaction};

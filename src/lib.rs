@@ -87,7 +87,7 @@
 #[cfg(not(feature = "std"))]
 extern crate alloc;
 
-use crate::trie::merkle_tree::MerkleTree;
+use crate::trie::merkle_tree::{bytes_to_bitvec, MerkleTree};
 #[cfg(not(feature = "std"))]
 use alloc::{format, vec::Vec};
 use bitvec::{order::Msb0, slice::BitSlice, vec::BitVec};
@@ -488,9 +488,38 @@ where
         &mut self,
         transactional_bonsai_storage: BonsaiStorage<ChangeID, DB::Transaction, H>,
     ) -> Result<(), BonsaiStorageError<<DB as BonsaiPersistentDatabase<ChangeID>>::DatabaseError>>
+    where
+        <DB as BonsaiDatabase>::DatabaseError: core::fmt::Debug,
     {
-        self.tries
-            .db_mut()
-            .merge(transactional_bonsai_storage.tries.db())
+        // memorize changes
+        let MerkleTrees { db, trees, .. } = transactional_bonsai_storage.tries;
+
+        self.tries.db_mut().merge(db)?;
+
+        // apply changes
+        for (identifier, tree) in trees {
+            for (k, op) in tree.cache_leaf_modified() {
+                match op {
+                    crate::trie::merkle_tree::InsertOrRemove::Insert(v) => {
+                        self.insert(&identifier, &bytes_to_bitvec(k), v)
+                            .map_err(|e| {
+                                BonsaiStorageError::Merge(format!(
+                                    "While merging insert({:?} {}) faced error: {:?}",
+                                    k, v, e
+                                ))
+                            })?;
+                    }
+                    crate::trie::merkle_tree::InsertOrRemove::Remove => {
+                        self.remove(&identifier, &bytes_to_bitvec(k)).map_err(|e| {
+                            BonsaiStorageError::Merge(format!(
+                                "While merging remove({:?}) faced error: {:?}",
+                                k, e
+                            ))
+                        })?;
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 }

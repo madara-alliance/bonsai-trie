@@ -160,10 +160,6 @@ impl<H: StarkHash + Send + Sync, DB: BonsaiDatabase, CommitID: Id> MerkleTrees<H
         &self.db
     }
 
-    pub(crate) fn db(self) -> KeyValueDB<DB, CommitID> {
-        self.db
-    }
-
     pub(crate) fn root_hash(
         &self,
         identifier: &[u8],
@@ -365,6 +361,10 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
 
     pub fn root_hash(&self) -> Felt {
         self.root_hash
+    }
+
+    pub fn cache_leaf_modified(&self) -> &HashMap<Vec<u8>, InsertOrRemove<Felt>> {
+        &self.cache_leaf_modified
     }
 
     /// Remove all the modifications that have been done since the last commit.
@@ -1492,7 +1492,7 @@ mod tests {
     use starknet_types_core::{felt::Felt, hash::Pedersen};
 
     use crate::{
-        databases::{create_rocks_db, HashMapDb, RocksDB, RocksDBConfig},
+        databases::{create_rocks_db, RocksDB, RocksDBConfig},
         id::BasicId,
         BonsaiStorage, BonsaiStorageConfig,
     };
