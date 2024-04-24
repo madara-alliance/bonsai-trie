@@ -130,6 +130,20 @@ impl<H: StarkHash + Send + Sync, DB: BonsaiDatabase, CommitID: Id> MerkleTrees<H
         }
     }
 
+    pub(crate) fn get_at(
+        &self,
+        identifier: &[u8],
+        key: &BitSlice<u8, Msb0>,
+        id: CommitID,
+    ) -> Result<Option<Felt>, BonsaiStorageError<DB::DatabaseError>> {
+        let tree = self.trees.get(identifier);
+        if let Some(tree) = tree {
+            tree.get_at(&self.db, key, id)
+        } else {
+            Ok(None)
+        }
+    }
+
     pub(crate) fn contains(
         &self,
         identifier: &[u8],
@@ -958,6 +972,17 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
             }
         }
         db.get(&TrieKey::new(&self.identifier, TrieKeyType::Flat, &key))
+            .map(|r| r.map(|opt| Felt::decode(&mut opt.as_slice()).unwrap()))
+    }
+
+    pub fn get_at<DB: BonsaiDatabase, ID: Id>(
+        &self,
+        db: &KeyValueDB<DB, ID>,
+        key: &BitSlice<u8, Msb0>,
+        id: ID,
+    ) -> Result<Option<Felt>, BonsaiStorageError<DB::DatabaseError>> {
+        let key = bitslice_to_bytes(key);
+        db.get_at(&TrieKey::new(&self.identifier, TrieKeyType::Flat, &key), id)
             .map(|r| r.map(|opt| Felt::decode(&mut opt.as_slice()).unwrap()))
     }
 

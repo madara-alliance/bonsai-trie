@@ -1,4 +1,4 @@
-use crate::{trie::merkle_tree::bytes_to_bitvec, Change as ExternChange};
+use crate::{changes::key_new_value, trie::merkle_tree::bytes_to_bitvec, Change as ExternChange};
 #[cfg(not(feature = "std"))]
 use alloc::{collections::BTreeSet, format, string::ToString, vec::Vec};
 use bitvec::{order::Msb0, vec::BitVec};
@@ -169,6 +169,38 @@ where
     ) -> Result<Option<Vec<u8>>, BonsaiStorageError<DB::DatabaseError>> {
         trace!("Getting from KeyValueDB: {:?}", key);
         Ok(self.db.get(&key.into())?)
+    }
+
+    pub(crate) fn get_at(
+        &self,
+        key: &TrieKey,
+        id: ID,
+    ) -> Result<Option<Vec<u8>>, BonsaiStorageError<DB::DatabaseError>> {
+        trace!("Getting from KeyValueDB: {:?} at ID: {:?}", key, id);
+
+        // makes sure given id exists
+        let Ok(id_position) = self.changes_store.id_queue.binary_search(&id) else {
+            return Err(BonsaiStorageError::Transaction(format!(
+                "invalid id {:?}",
+                id
+            )));
+        };
+
+        // looking for the first storage insertion with given key
+        let iter = self
+            .changes_store
+            .id_queue
+            .iter()
+            .take(id_position + 1)
+            .rev();
+        for id in iter {
+            let key = key_new_value(id, key);
+            if let Some(value) = self.db.get(&DatabaseKey::TrieLog(&key))? {
+                return Ok(Some(value));
+            }
+        }
+
+        Ok(None)
     }
 
     pub(crate) fn get_latest_id(&self) -> Option<ID> {
