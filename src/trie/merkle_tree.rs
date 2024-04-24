@@ -1,5 +1,5 @@
 #[cfg(not(feature = "std"))]
-use alloc::{format, string::ToString, vec::Vec};
+use alloc::{format, string::ToString, vec, vec::Vec};
 use bitvec::{
     prelude::{BitSlice, BitVec, Msb0},
     view::BitView,
@@ -68,15 +68,25 @@ impl ProofNode {
 
 pub(crate) struct MerkleTrees<H: StarkHash + Send + Sync, DB: BonsaiDatabase, CommitID: Id> {
     pub db: KeyValueDB<DB, CommitID>,
-    _hasher: PhantomData<H>,
     pub trees: HashMap<Vec<u8>, MerkleTree<H>>,
+}
+
+#[cfg(feature = "bench")]
+impl<H: StarkHash + Send + Sync, DB: BonsaiDatabase + Clone, CommitID: Id> Clone
+    for MerkleTrees<H, DB, CommitID>
+{
+    fn clone(&self) -> Self {
+        Self {
+            db: self.db.clone(),
+            trees: self.trees.clone(),
+        }
+    }
 }
 
 impl<H: StarkHash + Send + Sync, DB: BonsaiDatabase, CommitID: Id> MerkleTrees<H, DB, CommitID> {
     pub(crate) fn new(db: KeyValueDB<DB, CommitID>) -> Self {
         Self {
             db,
-            _hasher: PhantomData,
             trees: HashMap::new(),
         }
     }
@@ -150,10 +160,6 @@ impl<H: StarkHash + Send + Sync, DB: BonsaiDatabase, CommitID: Id> MerkleTrees<H
         &self.db
     }
 
-    pub(crate) fn db(self) -> KeyValueDB<DB, CommitID> {
-        self.db
-    }
-
     pub(crate) fn root_hash(
         &self,
         identifier: &[u8],
@@ -177,40 +183,61 @@ impl<H: StarkHash + Send + Sync, DB: BonsaiDatabase, CommitID: Id> MerkleTrees<H
                 // Remove the identifier from the key
                 key_value_pairs
                     .into_iter()
-                    .map(|(key, _value)| key[identifier.len()..].to_vec())
+                    // FIXME: this does not filter out keys values correctly for `HashMapDb` due
+                    // to branches and leafs not being differenciated
+                    .filter_map(|(key, _value)| {
+                        if key.len() > identifier.len() {
+                            Some(key[identifier.len() + 1..].to_vec())
+                        } else {
+                            None
+                        }
+                    })
+                    .collect()
+            })
+            .map_err(|e| e.into())
+    }
+
+    #[allow(clippy::type_complexity)]
+    pub(crate) fn get_key_value_pairs(
+        &self,
+        identifier: &[u8],
+    ) -> Result<Vec<(Vec<u8>, Vec<u8>)>, BonsaiStorageError<DB::DatabaseError>> {
+        self.db
+            .db
+            .get_by_prefix(&crate::DatabaseKey::Flat(identifier))
+            .map(|key_value_pairs| {
+                key_value_pairs
+                    .into_iter()
+                    // FIXME: this does not filter out keys values correctly for `HashMapDb` due
+                    // to branches and leafs not being differenciated
+                    .filter_map(|(key, value)| {
+                        if key.len() > identifier.len() {
+                            Some((key[identifier.len() + 1..].to_vec(), value))
+                        } else {
+                            None
+                        }
+                    })
                     .collect()
             })
             .map_err(|e| e.into())
     }
 
     pub(crate) fn commit(&mut self) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
-        #[allow(clippy::type_complexity)]
         #[cfg(not(feature = "std"))]
-        let db_changes: Vec<
-            Result<
-                HashMap<TrieKey, InsertOrRemove<Vec<u8>>>,
-                BonsaiStorageError<DB::DatabaseError>,
-            >,
-        > = self
+        let db_changes = self
             .trees
             .iter_mut()
             .map(|(_, tree)| tree.get_updates::<DB>())
-            .collect();
-        #[allow(clippy::type_complexity)]
+            .collect::<Result<Vec<_>, BonsaiStorageError<DB::DatabaseError>>>()?;
         #[cfg(feature = "std")]
-        let db_changes: Vec<
-            Result<
-                HashMap<TrieKey, InsertOrRemove<Vec<u8>>>,
-                BonsaiStorageError<DB::DatabaseError>,
-            >,
-        > = self
+        let db_changes = self
             .trees
             .par_iter_mut()
             .map(|(_, tree)| tree.get_updates::<DB>())
-            .collect();
+            .collect::<Result<Vec<_>, BonsaiStorageError<DB::DatabaseError>>>()?;
+
         let mut batch = self.db.create_batch();
         for changes in db_changes {
-            let changes = changes?;
             for (key, value) in changes {
                 match value {
                     InsertOrRemove::Insert(value) => {
@@ -270,10 +297,31 @@ pub struct MerkleTree<H: StarkHash> {
     _hasher: PhantomData<H>,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+// NB: #[derive(Clone)] does not work because it expands to an impl block which forces H: Clone, which Pedersen/Poseidon aren't.
+#[cfg(feature = "bench")]
+impl<H: StarkHash> Clone for MerkleTree<H> {
+    fn clone(&self) -> Self {
+        Self {
+            root_handle: self.root_handle.clone(),
+            root_hash: self.root_hash.clone(),
+            identifier: self.identifier.clone(),
+            storage_nodes: self.storage_nodes.clone(),
+            latest_node_id: self.latest_node_id.clone(),
+            death_row: self.death_row.clone(),
+            cache_leaf_modified: self.cache_leaf_modified.clone(),
+            _hasher: PhantomData,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum InsertOrRemove<T> {
     Insert(T),
     Remove,
+}
+enum NodeOrFelt<'a> {
+    Node(&'a Node),
+    Felt(Felt),
 }
 
 impl<H: StarkHash + Send + Sync> MerkleTree<H> {
@@ -315,6 +363,10 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         self.root_hash
     }
 
+    pub fn cache_leaf_modified(&self) -> &HashMap<Vec<u8>, InsertOrRemove<Felt>> {
+        &self.cache_leaf_modified
+    }
+
     /// Remove all the modifications that have been done since the last commit.
     pub fn reset_to_last_commit<DB: BonsaiDatabase, ID: Id>(
         &mut self,
@@ -340,22 +392,30 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
     #[allow(clippy::type_complexity)]
     pub(crate) fn get_updates<DB: BonsaiDatabase>(
         &mut self,
-    ) -> Result<HashMap<TrieKey, InsertOrRemove<Vec<u8>>>, BonsaiStorageError<DB::DatabaseError>>
+    ) -> Result<Vec<(TrieKey, InsertOrRemove<Vec<u8>>)>, BonsaiStorageError<DB::DatabaseError>>
     {
-        let mut updates = HashMap::new();
+        let mut updates = vec![];
         for node_key in mem::take(&mut self.death_row) {
-            updates.insert(node_key, InsertOrRemove::Remove);
+            updates.push((node_key, InsertOrRemove::Remove));
         }
-        let root_hash =
-            self.commit_subtree::<DB>(&mut updates, self.root_handle, Path(BitVec::new()))?;
+
+        let mut hashes = vec![];
+        self.compute_root_hash::<DB>(&mut hashes)?;
+        let root_hash = self.commit_subtree::<DB>(
+            &mut updates,
+            self.root_handle,
+            Path(BitVec::new()),
+            &mut hashes.drain(..),
+        )?;
+
         for (key, value) in mem::take(&mut self.cache_leaf_modified) {
-            updates.insert(
+            updates.push((
                 TrieKey::new(&self.identifier, TrieKeyType::Flat, &key),
                 match value {
                     InsertOrRemove::Insert(value) => InsertOrRemove::Insert(value.encode()),
                     InsertOrRemove::Remove => InsertOrRemove::Remove,
                 },
-            );
+            ));
         }
         self.latest_node_id.reset();
         self.root_hash = root_hash;
@@ -363,24 +423,147 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         Ok(updates)
     }
 
+    fn get_node_or_felt<DB: BonsaiDatabase>(
+        &self,
+        node_handle: &NodeHandle,
+    ) -> Result<NodeOrFelt, BonsaiStorageError<DB::DatabaseError>> {
+        let node_id = match node_handle {
+            NodeHandle::Hash(hash) => return Ok(NodeOrFelt::Felt(*hash)),
+            NodeHandle::InMemory(root_id) => root_id,
+        };
+        let node = self
+            .storage_nodes
+            .0
+            .get(node_id)
+            .ok_or(BonsaiStorageError::Trie(
+                "Couldn't fetch node in the temporary storage".to_string(),
+            ))?;
+        Ok(NodeOrFelt::Node(node))
+    }
+
+    fn compute_root_hash<DB: BonsaiDatabase>(
+        &self,
+        hashes: &mut Vec<Felt>,
+    ) -> Result<Felt, BonsaiStorageError<DB::DatabaseError>> {
+        match self.get_node_or_felt::<DB>(&self.root_handle)? {
+            NodeOrFelt::Felt(felt) => Ok(felt),
+            NodeOrFelt::Node(node) => self.compute_hashes::<DB>(node, Path(BitVec::new()), hashes),
+        }
+    }
+
+    /// Compute the hashes of all of the updated nodes in the merkle tree. This step
+    /// is separate from [`commit_subtree`] as it is done in parallel using rayon.
+    /// Computed hashes are pushed to the `hashes` vector, depth first.
+    fn compute_hashes<DB: BonsaiDatabase>(
+        &self,
+        node: &Node,
+        path: Path,
+        hashes: &mut Vec<Felt>,
+    ) -> Result<Felt, BonsaiStorageError<DB::DatabaseError>> {
+        use Node::*;
+
+        match node {
+            Unresolved(hash) => Ok(*hash),
+            Binary(binary) => {
+                // we check if we have one or two changed children
+
+                let left_path = path.new_with_direction(Direction::Left);
+                let node_left = self.get_node_or_felt::<DB>(&binary.left)?;
+                let right_path = path.new_with_direction(Direction::Right);
+                let node_right = self.get_node_or_felt::<DB>(&binary.right)?;
+
+                let (left_hash, right_hash) = match (node_left, node_right) {
+                    #[cfg(feature = "std")]
+                    (NodeOrFelt::Node(left), NodeOrFelt::Node(right)) => {
+                        // two children: use rayon
+                        let (left, right) = rayon::join(
+                            || self.compute_hashes::<DB>(left, left_path, hashes),
+                            || {
+                                let mut hashes = vec![];
+                                let felt =
+                                    self.compute_hashes::<DB>(right, right_path, &mut hashes)?;
+                                Ok::<_, BonsaiStorageError<DB::DatabaseError>>((felt, hashes))
+                            },
+                        );
+                        let (left_hash, (right_hash, hashes2)) = (left?, right?);
+                        hashes.extend(hashes2);
+
+                        (left_hash, right_hash)
+                    }
+                    (left, right) => {
+                        let left_hash = match left {
+                            NodeOrFelt::Felt(felt) => felt,
+                            NodeOrFelt::Node(node) => {
+                                self.compute_hashes::<DB>(node, left_path, hashes)?
+                            }
+                        };
+                        let right_hash = match right {
+                            NodeOrFelt::Felt(felt) => felt,
+                            NodeOrFelt::Node(node) => {
+                                self.compute_hashes::<DB>(node, right_path, hashes)?
+                            }
+                        };
+                        (left_hash, right_hash)
+                    }
+                };
+
+                let hash = H::hash(&left_hash, &right_hash);
+                hashes.push(hash);
+                Ok(hash)
+            }
+
+            Edge(edge) => {
+                let mut child_path = path.clone();
+                child_path.0.extend(&edge.path.0);
+                let child_hash = match self.get_node_or_felt::<DB>(&edge.child)? {
+                    NodeOrFelt::Felt(felt) => felt,
+                    NodeOrFelt::Node(node) => {
+                        self.compute_hashes::<DB>(node, child_path, hashes)?
+                    }
+                };
+
+                let mut bytes = [0u8; 32];
+                bytes.view_bits_mut::<Msb0>()[256 - edge.path.0.len()..]
+                    .copy_from_bitslice(&edge.path.0);
+
+                let felt_path = Felt::from_bytes_be(&bytes);
+                let mut length = [0; 32];
+                // Safe as len() is guaranteed to be <= 251
+                length[31] = edge.path.0.len() as u8;
+
+                let length = Felt::from_bytes_be(&length);
+                let hash = H::hash(&child_hash, &felt_path) + length;
+                hashes.push(hash);
+                Ok(hash)
+            }
+        }
+    }
+
     /// Persists any changes in this subtree to storage.
     ///
     /// This necessitates recursively calculating the hash of, and
     /// in turn persisting, any changed child nodes. This is necessary
     /// as the parent node's hash relies on its children hashes.
+    /// Hash computation is done in parallel with [`compute_hashes`] beforehand.
     ///
     /// In effect, the entire tree gets persisted.
     ///
     /// # Arguments
     ///
-    /// * `node` - The top node from the subtree to commit.
+    /// * `node_handle` - The top node from the subtree to commit.
+    /// * `hashes` - The precomputed hashes for the subtree as returned by [`compute_hashes`].
+    ///   The order is depth first, left to right.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the precomputed `hashes` do not match the length of the modified subtree.
     fn commit_subtree<DB: BonsaiDatabase>(
         &mut self,
-        updates: &mut HashMap<TrieKey, InsertOrRemove<Vec<u8>>>,
+        updates: &mut Vec<(TrieKey, InsertOrRemove<Vec<u8>>)>,
         node_handle: NodeHandle,
         path: Path,
+        hashes: &mut impl Iterator<Item = Felt>,
     ) -> Result<Felt, BonsaiStorageError<DB::DatabaseError>> {
-        use Node::*;
         let node_id = match node_handle {
             NodeHandle::Hash(hash) => return Ok(hash),
             NodeHandle::InMemory(root_id) => root_id,
@@ -393,56 +576,48 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
             .ok_or(BonsaiStorageError::Trie(
                 "Couldn't fetch node in the temporary storage".to_string(),
             ))? {
-            Unresolved(hash) => {
+            Node::Unresolved(hash) => {
                 if path.0.is_empty() {
-                    updates.insert(
+                    updates.push((
                         TrieKey::new(&self.identifier, TrieKeyType::Trie, &[]),
                         InsertOrRemove::Insert(Node::Unresolved(hash).encode()),
-                    );
+                    ));
                     Ok(hash)
                 } else {
                     Ok(hash)
                 }
             }
-            Binary(mut binary) => {
+            Node::Binary(mut binary) => {
                 let left_path = path.new_with_direction(Direction::Left);
-                let left_hash = self.commit_subtree::<DB>(updates, binary.left, left_path)?;
+                let left_hash =
+                    self.commit_subtree::<DB>(updates, binary.left, left_path, hashes)?;
                 let right_path = path.new_with_direction(Direction::Right);
-                let right_hash = self.commit_subtree::<DB>(updates, binary.right, right_path)?;
-                let hash = H::hash(&left_hash, &right_hash);
+                let right_hash =
+                    self.commit_subtree::<DB>(updates, binary.right, right_path, hashes)?;
+                let hash = hashes.next().expect("mismatched hash state");
                 binary.hash = Some(hash);
                 binary.left = NodeHandle::Hash(left_hash);
                 binary.right = NodeHandle::Hash(right_hash);
                 let key_bytes: Vec<u8> = path.into();
-                updates.insert(
+                updates.push((
                     TrieKey::new(&self.identifier, TrieKeyType::Trie, &key_bytes),
                     InsertOrRemove::Insert(Node::Binary(binary).encode()),
-                );
+                ));
                 Ok(hash)
             }
-
-            Edge(mut edge) => {
+            Node::Edge(mut edge) => {
                 let mut child_path = path.clone();
                 child_path.0.extend(&edge.path.0);
-                let child_hash = self.commit_subtree::<DB>(updates, edge.child, child_path)?;
-                let mut bytes = [0u8; 32];
-                bytes.view_bits_mut::<Msb0>()[256 - edge.path.0.len()..]
-                    .copy_from_bitslice(&edge.path.0);
-
-                let felt_path = Felt::from_bytes_be(&bytes);
-                let mut length = [0; 32];
-                // Safe as len() is guaranteed to be <= 251
-                length[31] = edge.path.0.len() as u8;
-
-                let length = Felt::from_bytes_be(&length);
-                let hash = H::hash(&child_hash, &felt_path) + length;
+                let child_hash =
+                    self.commit_subtree::<DB>(updates, edge.child, child_path, hashes)?;
+                let hash = hashes.next().expect("mismatched hash state");
                 edge.hash = Some(hash);
                 edge.child = NodeHandle::Hash(child_hash);
                 let key_bytes: Vec<u8> = path.into();
-                updates.insert(
+                updates.push((
                     TrieKey::new(&self.identifier, TrieKeyType::Trie, &key_bytes),
                     InsertOrRemove::Insert(Node::Edge(edge).encode()),
-                );
+                ));
                 Ok(hash)
             }
         }
@@ -1312,20 +1487,23 @@ pub(crate) fn bytes_to_bitvec(bytes: &[u8]) -> BitVec<u8, Msb0> {
 #[cfg(test)]
 #[cfg(all(test, feature = "std"))]
 mod tests {
-    use std::collections::HashMap;
-
-    use bitvec::{order::Msb0, slice::BitSlice};
+    use bitvec::{order::Msb0, vec::BitVec, view::BitView};
+    use indexmap::IndexMap;
     use starknet_types_core::{felt::Felt, hash::Pedersen};
 
-    use crate::{databases::HashMapDb, id::BasicId, BonsaiStorage, BonsaiStorageConfig};
+    use crate::{
+        databases::{create_rocks_db, RocksDB, RocksDBConfig},
+        id::BasicId,
+        BonsaiStorage, BonsaiStorageConfig,
+    };
 
     #[test_log::test]
-    /// The whole point of this test is to experiment with inserting keys into the database without
-    /// truncating the first 5 bits to which which parts of the lib are causing errors with this.
-    /// Testing is done over the contract storage of the first few blocks, with a single commit
-    /// between each block.
-    fn test_node_decode_error() {
-        let db = HashMapDb::<BasicId>::default();
+    // The whole point of this test is to make sure it is possible to reconstruct the original
+    // keys from the data present in the db.
+    fn test_key_retrieval() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let rocksdb = create_rocks_db(tempdir.path()).unwrap();
+        let db = RocksDB::new(&rocksdb, RocksDBConfig::default());
         let mut bonsai =
             BonsaiStorage::<BasicId, _, Pedersen>::new(db, BonsaiStorageConfig::default()).unwrap();
 
@@ -1527,56 +1705,6 @@ mod tests {
             ),
         ];
 
-        for (contract_address, storage) in block_0.iter() {
-            bonsai.init_tree(contract_address).unwrap();
-
-            for (key, value) in storage {
-                let key = BitSlice::<u8, Msb0>::from_slice(key);
-                let value = &Felt::from_bytes_be_slice(value);
-
-                bonsai.insert(contract_address, key, value).unwrap();
-            }
-        }
-        bonsai.commit(BasicId::new(0)).unwrap();
-        assert!(bonsai
-            .get_transactional_state(BasicId::new(0), BonsaiStorageConfig::default())
-            .is_ok());
-
-        // aggregates all changes made so far, keeping only the latest storage
-        // in case of storage updates
-        let mut storage_map = HashMap::<Vec<u8>, HashMap<Vec<u8>, Vec<u8>>>::new();
-        for (contract_address, storage) in block_0.iter() {
-            let map = storage_map
-                .entry(contract_address.to_vec())
-                .or_insert(HashMap::new());
-
-            for (key, value) in storage {
-                map.insert(key.to_vec(), value.to_vec());
-            }
-        }
-
-        log::info!("checking after block 0");
-        for (contract_address, storage) in storage_map {
-            log::info!(
-                "contract address: {:#064x}",
-                Felt::from_bytes_be_slice(&contract_address)
-            );
-            assert!(bonsai.init_tree(&contract_address).is_ok());
-
-            for (key, value) in storage {
-                let key1 = BitSlice::<u8, Msb0>::from_slice(&key);
-                let value1 = Felt::from_bytes_be_slice(&value);
-
-                match bonsai.get(&contract_address, &key1) {
-                    Ok(Some(value2)) => assert_eq!(value1, value2),
-                    _ => {
-                        log::info!("Missing key {:#064x}", Felt::from_bytes_be_slice(&key));
-                        panic!("Values do not match insertions!")
-                    }
-                }
-            }
-        }
-
         let block_1 = vec![
             (
                 str_to_felt_bytes(
@@ -1674,54 +1802,6 @@ mod tests {
             ),
         ];
 
-        for (contract_address, storage) in block_1.iter() {
-            bonsai.init_tree(contract_address).unwrap();
-
-            for (key, value) in storage {
-                let key = BitSlice::<u8, Msb0>::from_slice(key);
-                let value = &Felt::from_bytes_be_slice(value);
-
-                bonsai.insert(contract_address, key, value).unwrap();
-            }
-        }
-        bonsai.commit(BasicId::new(1)).unwrap();
-        assert!(bonsai
-            .get_transactional_state(BasicId::new(1), BonsaiStorageConfig::default())
-            .is_ok());
-
-        let mut storage_map = HashMap::<Vec<u8>, HashMap<Vec<u8>, Vec<u8>>>::new();
-        for (contract_address, storage) in block_0.iter().chain(block_1.iter()) {
-            let map = storage_map
-                .entry(contract_address.to_vec())
-                .or_insert(HashMap::new());
-
-            for (key, value) in storage {
-                map.insert(key.to_vec(), value.to_vec());
-            }
-        }
-
-        log::info!("checking after block 1");
-        for (contract_address, storage) in storage_map {
-            log::info!(
-                "contract address: {:#064x}",
-                Felt::from_bytes_be_slice(&contract_address)
-            );
-            assert!(bonsai.init_tree(&contract_address).is_ok());
-
-            for (key, value) in storage {
-                let key1 = BitSlice::<u8, Msb0>::from_slice(&key);
-                let value1 = Felt::from_bytes_be_slice(&value);
-
-                match bonsai.get(&contract_address, &key1) {
-                    Ok(Some(value2)) => assert_eq!(value1, value2),
-                    _ => {
-                        log::info!("Missing key {:#064x}", Felt::from_bytes_be_slice(&key));
-                        panic!("Values do not match insertions!")
-                    }
-                }
-            }
-        }
-
         let block_2 = vec![
             (
                 str_to_felt_bytes(
@@ -1777,60 +1857,92 @@ mod tests {
             ),
         ];
 
-        for (contract_address, storage) in block_2.iter() {
-            bonsai.init_tree(contract_address).unwrap();
+        let blocks = block_0.iter().chain(block_1.iter()).chain(block_2.iter());
 
-            for (key, value) in storage {
-                let key = BitSlice::<u8, Msb0>::from_slice(key);
-                let value = &Felt::from_bytes_be_slice(value);
+        // Inserts all storage updates into the bonsai
+        for (contract_address, storage) in blocks.clone() {
+            log::info!(
+                "contract address (write): {:#064x}",
+                Felt::from_bytes_be_slice(contract_address)
+            );
+            assert!(bonsai.init_tree(contract_address).is_ok());
 
-                bonsai.insert(contract_address, key, value).unwrap();
+            for (k, v) in storage {
+                // truncate only keeps the first 251 bits in a key
+                // so there should be no error during insertion
+                let ktrunc = &truncate(k);
+                let kfelt0 = Felt::from_bytes_be_slice(k);
+                let kfelt1 = Felt::from_bytes_be_slice(ktrunc.as_raw_slice());
+
+                // quick sanity check to make sure truncating a key does not remove any data
+                assert_eq!(kfelt0, kfelt1);
+
+                let v = &Felt::from_bytes_be_slice(v);
+                assert!(bonsai.insert(contract_address, ktrunc, v).is_ok());
             }
         }
-        bonsai.commit(BasicId::new(2)).unwrap();
+        assert!(bonsai.commit(BasicId::new(0)).is_ok());
 
-        let mut storage_map = HashMap::<Vec<u8>, HashMap<Vec<u8>, Vec<u8>>>::new();
-        for (contract_address, storage) in
-            block_0.iter().chain(block_1.iter()).chain(block_2.iter())
-        {
+        // aggreates all storage changes to their latest state
+        // (replacements are takent into account)
+        let mut storage_map = IndexMap::<Vec<u8>, IndexMap<Felt, Felt>>::new();
+        for (contract_address, storage) in blocks.clone() {
             let map = storage_map
                 .entry(contract_address.to_vec())
-                .or_insert(HashMap::new());
+                .or_insert(IndexMap::new());
 
-            for (key, value) in storage {
-                map.insert(key.to_vec(), value.to_vec());
+            for (k, v) in storage {
+                let k = Felt::from_bytes_be_slice(k);
+                let v = Felt::from_bytes_be_slice(v);
+                map.insert(k, v);
             }
         }
 
-        log::info!("checking after block 2");
-        for (contract_address, storage) in storage_map {
+        // checks for each contract if the original key can be reconstructed
+        // from the data stored in the db
+        for (contract_address, storage) in storage_map.iter() {
             log::info!(
-                "contract address: {:#064x}",
-                Felt::from_bytes_be_slice(&contract_address)
+                "contract address (read): {:#064x}",
+                Felt::from_bytes_be_slice(contract_address)
             );
-            assert!(bonsai.init_tree(&contract_address).is_ok());
 
-            for (key, value) in storage {
-                let key1 = BitSlice::<u8, Msb0>::from_slice(&key);
-                let value1 = Felt::from_bytes_be_slice(&value);
+            let keys = bonsai.get_keys(contract_address).unwrap();
+            log::debug!("{keys:?}");
+            for k in keys {
+                // if all has gone well, the db should contain the first 251 bits of the key,
+                // which should represent the entirety of the data
+                let k = Felt::from_bytes_be_slice(&k);
+                log::info!("looking for key: {k:#064x}");
 
-                match bonsai.get(&contract_address, &key1) {
-                    Ok(Some(value2)) => assert_eq!(value1, value2),
-                    _ => {
-                        log::info!("Missing key {:#064x}", Felt::from_bytes_be_slice(&key));
-                        panic!("Values do not match insertions!")
-                    }
-                }
+                assert!(storage.contains_key(&k));
             }
         }
 
-        assert!(bonsai
-            .get_transactional_state(BasicId::new(2), BonsaiStorageConfig::default())
-            .is_ok())
+        // makes sure retrieving key-value pairs works for each contract
+        for (contract_address, storage) in storage_map.iter() {
+            log::info!(
+                "contract address (read): {:#064x}",
+                Felt::from_bytes_be_slice(contract_address)
+            );
+
+            let kv = bonsai.get_key_value_pairs(contract_address).unwrap();
+            log::debug!("{kv:?}");
+            for (k, v) in kv {
+                let k = Felt::from_bytes_be_slice(&k);
+                let v = Felt::from_bytes_be_slice(&v);
+                log::info!("checking for key-value pair:({k:#064x}, {v:#064x})");
+
+                assert_eq!(*storage.get(&k).unwrap(), v);
+            }
+        }
     }
 
     fn str_to_felt_bytes(hex: &str) -> [u8; 32] {
         Felt::from_hex(hex).unwrap().to_bytes_be()
+    }
+
+    fn truncate(key: &[u8]) -> BitVec<u8, Msb0> {
+        key.view_bits()[5..].to_owned()
     }
     // use crate::{
     //     databases::{create_rocks_db, RocksDB, RocksDBConfig},

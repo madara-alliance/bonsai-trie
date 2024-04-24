@@ -87,7 +87,7 @@
 #[cfg(not(feature = "std"))]
 extern crate alloc;
 
-use crate::trie::merkle_tree::MerkleTree;
+use crate::trie::merkle_tree::{bytes_to_bitvec, MerkleTree};
 #[cfg(not(feature = "std"))]
 use alloc::{format, vec::Vec};
 use bitvec::{order::Msb0, slice::BitSlice, vec::BitVec};
@@ -166,6 +166,20 @@ where
     H: StarkHash + Send + Sync,
 {
     tries: MerkleTrees<H, DB, ChangeID>,
+}
+
+#[cfg(feature = "bench")]
+impl<ChangeID, DB, H> Clone for BonsaiStorage<ChangeID, DB, H>
+where
+    DB: BonsaiDatabase + Clone,
+    ChangeID: id::Id,
+    H: StarkHash + Send + Sync,
+{
+    fn clone(&self) -> Self {
+        Self {
+            tries: self.tries.clone(),
+        }
+    }
 }
 
 /// Trie root hash type.
@@ -397,6 +411,20 @@ where
         self.tries.get_keys(identifier)
     }
 
+    /// Get all the key-value pairs in a specific trie.
+    #[allow(clippy::type_complexity)]
+    pub fn get_key_value_pairs(
+        &self,
+        identifier: &[u8],
+    ) -> Result<Vec<(Vec<u8>, Vec<u8>)>, BonsaiStorageError<DB::DatabaseError>> {
+        self.tries.get_key_value_pairs(identifier)
+    }
+
+    /// Get the id from the latest commit, or `None` if no commit has taken place yet.
+    pub fn get_latest_id(&self) -> Option<ChangeID> {
+        self.tries.db_ref().get_latest_id()
+    }
+
     /// Verifies a merkle-proof for a given `key` and `value`.
     pub fn verify_proof(
         root: Felt,
@@ -460,9 +488,38 @@ where
         &mut self,
         transactional_bonsai_storage: BonsaiStorage<ChangeID, DB::Transaction, H>,
     ) -> Result<(), BonsaiStorageError<<DB as BonsaiPersistentDatabase<ChangeID>>::DatabaseError>>
+    where
+        <DB as BonsaiDatabase>::DatabaseError: core::fmt::Debug,
     {
-        self.tries
-            .db_mut()
-            .merge(transactional_bonsai_storage.tries.db())
+        // memorize changes
+        let MerkleTrees { db, trees, .. } = transactional_bonsai_storage.tries;
+
+        self.tries.db_mut().merge(db)?;
+
+        // apply changes
+        for (identifier, tree) in trees {
+            for (k, op) in tree.cache_leaf_modified() {
+                match op {
+                    crate::trie::merkle_tree::InsertOrRemove::Insert(v) => {
+                        self.insert(&identifier, &bytes_to_bitvec(k), v)
+                            .map_err(|e| {
+                                BonsaiStorageError::Merge(format!(
+                                    "While merging insert({:?} {}) faced error: {:?}",
+                                    k, v, e
+                                ))
+                            })?;
+                    }
+                    crate::trie::merkle_tree::InsertOrRemove::Remove => {
+                        self.remove(&identifier, &bytes_to_bitvec(k)).map_err(|e| {
+                            BonsaiStorageError::Merge(format!(
+                                "While merging remove({:?}) faced error: {:?}",
+                                k, e
+                            ))
+                        })?;
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 }

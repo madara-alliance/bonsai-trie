@@ -18,6 +18,7 @@ use crate::{
 };
 
 /// Crate Trie <= KeyValueDB => BonsaiDatabase
+#[cfg_attr(feature = "bench", derive(Clone))]
 pub struct KeyValueDB<DB, ID>
 where
     DB: BonsaiDatabase,
@@ -168,6 +169,10 @@ where
     ) -> Result<Option<Vec<u8>>, BonsaiStorageError<DB::DatabaseError>> {
         trace!("Getting from KeyValueDB: {:?}", key);
         Ok(self.db.get(&key.into())?)
+    }
+
+    pub(crate) fn get_latest_id(&self) -> Option<ID> {
+        self.changes_store.id_queue.back().cloned()
     }
 
     pub(crate) fn contains(
