@@ -171,6 +171,10 @@ where
         Ok(self.db.get(&key.into())?)
     }
 
+    pub(crate) fn get_latest_id(&self) -> Option<ID> {
+        self.changes_store.id_queue.back().cloned()
+    }
+
     pub(crate) fn contains(
         &self,
         key: &TrieKey,
