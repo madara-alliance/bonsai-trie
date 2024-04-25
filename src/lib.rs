@@ -110,7 +110,7 @@ pub(crate) use std::{
 
 use crate::trie::merkle_tree::MerkleTree;
 
-pub(crate) type SByteVec = smallvec::SmallVec<[u8; 32]>;
+pub type SByteVec = smallvec::SmallVec<[u8; 32]>;
 
 pub(crate) trait EncodeExt: parity_scale_codec::Encode {
     fn encode_sbytevec(&self) -> SByteVec {
