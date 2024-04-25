@@ -259,6 +259,19 @@ where
         self.tries.get(identifier, key)
     }
 
+    /// Gets a value in a trie at a given commit ID.
+    ///
+    /// Note that this is much faster that calling `revert_to1
+    /// as it only reverts storage for a single key.
+    pub fn get_at(
+        &self,
+        identifier: &[u8],
+        key: &BitSlice<u8, Msb0>,
+        id: ChangeID,
+    ) -> Result<Option<Felt>, BonsaiStorageError<DB::DatabaseError>> {
+        self.tries.get_at(identifier, key, id)
+    }
+
     /// Checks if the key exists in the trie.
     pub fn contains(
         &self,
