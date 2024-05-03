@@ -1,4 +1,7 @@
-use crate::{changes::key_new_value, format, trie::merkle_tree::bytes_to_bitvec, BTreeSet, Change as ExternChange, ToString, Vec};
+use crate::{
+    changes::key_new_value, format, trie::merkle_tree::bytes_to_bitvec, BTreeSet,
+    Change as ExternChange, ToString, Vec,
+};
 use bitvec::{order::Msb0, vec::BitVec};
 use hashbrown::HashMap;
 use log::trace;
