@@ -1,6 +1,4 @@
-use crate::id::Id;
-#[cfg(not(feature = "std"))]
-use alloc::vec::Vec;
+use crate::{id::Id, Vec};
 #[cfg(feature = "std")]
 use std::error::Error;
 

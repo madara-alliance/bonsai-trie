@@ -1,12 +1,5 @@
-use crate::{id::Id, trie::TrieKey};
+use crate::{hash_map::Entry, id::Id, trie::TrieKey, HashMap, Vec, VecDeque};
 use serde::{Deserialize, Serialize};
-#[cfg(feature = "std")]
-use std::collections::{hash_map::Entry, HashMap, VecDeque};
-#[cfg(not(feature = "std"))]
-use {
-    alloc::{collections::VecDeque, vec::Vec},
-    hashbrown::{hash_map::Entry, HashMap},
-};
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Change {

@@ -6,7 +6,7 @@ use bonsai_trie::{
     id::{BasicId, BasicIdBuilder},
     BonsaiStorage, BonsaiStorageConfig,
 };
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
 use rand::{prelude::*, thread_rng};
 use starknet_types_core::{
     felt::Felt,
@@ -14,6 +14,40 @@ use starknet_types_core::{
 };
 
 mod flamegraph;
+
+fn storage_with_insert(c: &mut Criterion) {
+    c.bench_function("storage commit with insert", move |b| {
+        let mut rng = thread_rng();
+        b.iter_batched_ref(
+            || {
+                let bonsai_storage: BonsaiStorage<BasicId, _, Pedersen> = BonsaiStorage::new(
+                    HashMapDb::<BasicId>::default(),
+                    BonsaiStorageConfig::default(),
+                )
+                .unwrap();
+                bonsai_storage
+            },
+            |bonsai_storage| {
+                let felt = Felt::from_hex("0x66342762FDD54D033c195fec3ce2568b62052e").unwrap();
+                for _ in 0..40000 {
+                    let bitvec = BitVec::from_vec(vec![
+                        rng.gen(),
+                        rng.gen(),
+                        rng.gen(),
+                        rng.gen(),
+                        rng.gen(),
+                        rng.gen(),
+                    ]);
+                    bonsai_storage.insert(&[], &bitvec, &felt).unwrap();
+                }
+
+                // let mut id_builder = BasicIdBuilder::new();
+                // bonsai_storage.commit(id_builder.new_id()).unwrap();
+            },
+            BatchSize::LargeInput,
+        );
+    });
+}
 
 fn storage(c: &mut Criterion) {
     c.bench_function("storage commit", move |b| {
@@ -38,9 +72,9 @@ fn storage(c: &mut Criterion) {
         }
 
         let mut id_builder = BasicIdBuilder::new();
-        b.iter_batched(
+        b.iter_batched_ref(
             || bonsai_storage.clone(),
-            |mut bonsai_storage| {
+            |bonsai_storage| {
                 bonsai_storage.commit(id_builder.new_id()).unwrap();
             },
             criterion::BatchSize::LargeInput,
@@ -73,9 +107,9 @@ fn one_update(c: &mut Criterion) {
         let mut id_builder = BasicIdBuilder::new();
         bonsai_storage.commit(id_builder.new_id()).unwrap();
 
-        b.iter_batched(
+        b.iter_batched_ref(
             || bonsai_storage.clone(),
-            |mut bonsai_storage| {
+            |bonsai_storage| {
                 let bitvec = BitVec::from_vec(vec![0, 1, 2, 3, 4, 5]);
                 bonsai_storage.insert(&[], &bitvec, &felt).unwrap();
                 bonsai_storage.commit(id_builder.new_id()).unwrap();
@@ -110,9 +144,9 @@ fn five_updates(c: &mut Criterion) {
         let mut id_builder = BasicIdBuilder::new();
         bonsai_storage.commit(id_builder.new_id()).unwrap();
 
-        b.iter_batched(
+        b.iter_batched_ref(
             || bonsai_storage.clone(),
-            |mut bonsai_storage| {
+            |bonsai_storage| {
                 bonsai_storage
                     .insert(&[], &BitVec::from_vec(vec![0, 1, 2, 3, 4, 5]), &felt)
                     .unwrap();
@@ -128,6 +162,46 @@ fn five_updates(c: &mut Criterion) {
                 bonsai_storage
                     .insert(&[], &BitVec::from_vec(vec![0, 1, 2, 3, 4, 6]), &felt)
                     .unwrap();
+                bonsai_storage.commit(id_builder.new_id()).unwrap();
+            },
+            criterion::BatchSize::LargeInput,
+        );
+    });
+}
+
+fn multiple_contracts(c: &mut Criterion) {
+    c.bench_function("multiple contracts", move |b| {
+        let mut bonsai_storage: BonsaiStorage<BasicId, _, Pedersen> = BonsaiStorage::new(
+            HashMapDb::<BasicId>::default(),
+            BonsaiStorageConfig::default(),
+        )
+        .unwrap();
+        let mut rng = thread_rng();
+
+        let felt = Felt::from_hex("0x66342762FDD54D033c195fec3ce2568b62052e").unwrap();
+        for _ in 0..1000 {
+            let bitvec = BitVec::from_vec(vec![rng.gen(), rng.gen(), rng.gen(), rng.gen()]);
+            bonsai_storage
+                .insert(
+                    &[
+                        rng.gen(),
+                        rng.gen(),
+                        rng.gen(),
+                        rng.gen(),
+                        rng.gen(),
+                        rng.gen(),
+                    ],
+                    &bitvec,
+                    &felt,
+                )
+                .unwrap();
+        }
+
+        let mut id_builder = BasicIdBuilder::new();
+
+        b.iter_batched_ref(
+            || bonsai_storage.clone(),
+            |bonsai_storage| {
                 bonsai_storage.commit(id_builder.new_id()).unwrap();
             },
             criterion::BatchSize::LargeInput,
@@ -152,6 +226,6 @@ fn hash(c: &mut Criterion) {
 criterion_group! {
     name = benches;
     config = Criterion::default(); // .with_profiler(flamegraph::FlamegraphProfiler::new(100));
-    targets = storage, one_update, five_updates, hash
+    targets = storage, one_update, five_updates, hash, storage_with_insert, multiple_contracts
 }
 criterion_main!(benches);

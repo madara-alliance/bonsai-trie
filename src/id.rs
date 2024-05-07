@@ -1,5 +1,4 @@
-#[cfg(not(feature = "std"))]
-use alloc::vec::Vec;
+use crate::Vec;
 use core::{fmt::Debug, hash};
 
 /// Trait to be implemented on any type that can be used as an ID.

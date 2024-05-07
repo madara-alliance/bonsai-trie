@@ -84,15 +84,33 @@
 //! bonsai_storage.commit(id_builder.new_id()).unwrap();
 //! ```
 #![cfg_attr(not(feature = "std"), no_std)]
+
+// hashbrown uses ahash by default instead of siphash
+pub(crate) type HashMap<K, V> = hashbrown::HashMap<K, V>;
+pub(crate) use hashbrown::hash_map;
+
 #[cfg(not(feature = "std"))]
 extern crate alloc;
-
-use crate::trie::merkle_tree::{bytes_to_bitvec, MerkleTree};
 #[cfg(not(feature = "std"))]
-use alloc::{format, vec::Vec};
+pub(crate) use alloc::{
+    collections::{BTreeMap, BTreeSet, VecDeque},
+    format,
+    string::{String, ToString},
+    vec,
+    vec::Vec,
+};
+#[cfg(feature = "std")]
+pub(crate) use std::{
+    collections::{BTreeMap, BTreeSet, VecDeque},
+    format,
+    string::{String, ToString},
+    vec,
+    vec::Vec,
+};
+
+use crate::trie::merkle_tree::MerkleTree;
 use bitvec::{order::Msb0, slice::BitSlice, vec::BitVec};
 use changes::ChangeBatch;
-use hashbrown::HashMap;
 use key_value_db::KeyValueDB;
 use starknet_types_core::{
     felt::Felt,
@@ -112,7 +130,7 @@ pub mod id;
 
 pub use bonsai_database::{BonsaiDatabase, BonsaiPersistentDatabase, DBError, DatabaseKey};
 pub use error::BonsaiStorageError;
-use trie::merkle_tree::MerkleTrees;
+use trie::merkle_tree::{bytes_to_bitvec, MerkleTrees};
 pub use trie::merkle_tree::{Membership, ProofNode};
 
 #[cfg(test)]

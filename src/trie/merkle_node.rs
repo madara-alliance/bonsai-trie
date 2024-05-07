@@ -154,6 +154,25 @@ impl BinaryNode {
             Direction::Right => self.right,
         }
     }
+
+    /// Returns the [Left] or [Right] child.
+    ///
+    /// [Left]: Direction::Left
+    /// [Right]: Direction::Right
+    ///
+    /// # Arguments
+    ///
+    /// `direction` - The direction where to get the child from.
+    ///
+    /// # Returns
+    ///
+    /// The child in the specified direction.
+    pub fn get_child_mut(&mut self, direction: Direction) -> &mut NodeHandle {
+        match direction {
+            Direction::Left => &mut self.left,
+            Direction::Right => &mut self.right,
+        }
+    }
 }
 
 impl Node {

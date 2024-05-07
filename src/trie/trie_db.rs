@@ -1,7 +1,5 @@
 use crate::bonsai_database::DatabaseKey;
-
-#[cfg(not(feature = "std"))]
-use alloc::vec::Vec;
+use crate::Vec;
 
 /// Key in the database of the different elements that are used in the storage of the trie data.
 /// Use `new` function to create a new key.

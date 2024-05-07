@@ -1,10 +1,8 @@
 #[cfg(feature = "std")]
 use std::{error::Error, fmt::Display};
 
-use crate::bonsai_database::DBError;
+use crate::{bonsai_database::DBError, String};
 
-#[cfg(not(feature = "std"))]
-use alloc::string::String;
 /// All errors that can be returned by BonsaiStorage.
 #[derive(Debug)]
 pub enum BonsaiStorageError<DatabaseError>
