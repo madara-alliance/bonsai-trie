@@ -784,6 +784,8 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
                                     Direction::Left => binary.left = NodeHandle::Hash(value),
                                     Direction::Right => binary.right = NodeHandle::Hash(value),
                                 };
+                                self.cache_leaf_modified
+                                    .insert(key_bytes, InsertOrRemove::Insert(value));
                             }
                         }
                         _ => {}
@@ -1214,7 +1216,6 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
                     self.latest_node_id.next_id();
                     *prev_handle = NodeHandle::InMemory(self.latest_node_id);
                     let node = self.storage_nodes.0.entry(self.latest_node_id).insert(node);
-
                     (self.latest_node_id, node.into_mut())
                 }
                 NodeHandle::InMemory(node_id) => {
@@ -1227,8 +1228,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
                             .ok_or(BonsaiStorageError::Trie(
                                 "Couldn't get node from temp storage".to_string(),
                             ))?;
-
-                    (node_id.clone(), node)
+                    (node_id, node)
                 }
             };
 
@@ -1242,6 +1242,9 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
                 Node::Binary(binary_node) => {
                     let next_direction = binary_node.direction(dst);
                     path.0.push(bool::from(next_direction));
+                    if path.0 == dst {
+                        break; // found it :)
+                    }
                     prev_handle = binary_node.get_child_mut(next_direction);
                 }
 
@@ -1269,7 +1272,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         path: &Path,
     ) -> Result<Option<Node>, BonsaiStorageError<DB::DatabaseError>> {
         let path: Vec<u8> = path.into();
-        db.get(&TrieKey::new(&identifier, TrieKeyType::Trie, &path))?
+        db.get(&TrieKey::new(identifier, TrieKeyType::Trie, &path))?
             .map(|node| {
                 Node::decode(&mut node.as_slice()).map_err(|err| {
                     BonsaiStorageError::Trie(format!("Couldn't decode node: {}", err))
