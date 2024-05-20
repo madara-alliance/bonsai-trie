@@ -5,14 +5,14 @@ use bitvec::{
 use core::marker::PhantomData;
 use core::{iter, mem};
 use derive_more::Constructor;
-use parity_scale_codec::{Decode, Encode};
+use parity_scale_codec::Decode;
 #[cfg(feature = "std")]
 use rayon::prelude::*;
 use starknet_types_core::{felt::Felt, hash::StarkHash};
 
 use crate::{
-    error::BonsaiStorageError, format, id::Id, vec, BonsaiDatabase, ByteVec, EncodeExt, HashMap,
-    KeyValueDB, ToString, Vec,
+    error::BonsaiStorageError, format, hash_map, id::Id, vec, BonsaiDatabase, ByteVec, EncodeExt,
+    HashMap, KeyValueDB, ToString, Vec,
 };
 
 use super::{
@@ -62,6 +62,12 @@ impl ProofNode {
     }
 }
 
+#[derive(Debug)]
+enum RootHandle {
+    Empty,
+    Loaded(NodeId),
+}
+
 pub(crate) struct MerkleTrees<H: StarkHash + Send + Sync, DB: BonsaiDatabase, CommitID: Id> {
     pub db: KeyValueDB<DB, CommitID>,
     pub trees: HashMap<ByteVec, MerkleTree<H>>,
@@ -91,9 +97,76 @@ impl<H: StarkHash + Send + Sync, DB: BonsaiDatabase, CommitID: Id> MerkleTrees<H
         &mut self,
         identifier: &[u8],
     ) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
-        let tree = MerkleTree::new(&mut self.db, identifier.into())?;
+        let tree = MerkleTree::new(identifier.into());
         self.trees.insert(identifier.into(), tree);
         Ok(())
+    }
+
+    pub(crate) fn multi_set(
+        &mut self,
+        updates: impl ParallelIterator<
+            Item = (
+                Vec<u8>,
+                impl ParallelIterator<Item = (BitVec<u8, Msb0>, Felt)>,
+            ),
+        >,
+    ) -> Result<(), BonsaiStorageError<DB::DatabaseError>>
+    where
+        DB: Send + Sync,
+        CommitID: Send + Sync,
+        H: Send + Sync,
+    {
+        // double try_fold try_reduce combo yay
+        // this is based on MerkleTree merging, which isn't ideal --
+
+        let merge_trees = |a: &mut HashMap<Vec<u8>, MerkleTree<H>>,
+                           b: Box<HashMap<Vec<u8>, MerkleTree<H>>>|
+         -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
+            for (k, v) in b.into_iter() {
+                match a.entry(k) {
+                    hash_map::Entry::Occupied(mut entry) => {
+                        entry.get_mut().merge::<DB>(v)?;
+                    }
+                    hash_map::Entry::Vacant(entry) => {
+                        entry.insert(v);
+                    }
+                }
+            }
+            Ok(())
+        };
+
+        let _res: Option<Box<hash_map::HashMap<Vec<u8>, MerkleTree<H>>>> = updates
+            .try_fold(
+                || Box::new(HashMap::<Vec<u8>, MerkleTree<H>>::new()),
+                |mut tries, (identifier, tree_updates)| {
+                    let identifier = &identifier[..];
+                    let tree = tree_updates
+                        .try_fold(
+                            || Box::new(MerkleTree::new(identifier.into())),
+                            |mut tree, (key, value)| {
+                                tree.set(&self.db, &key, value)?;
+                                Ok::<_, BonsaiStorageError<DB::DatabaseError>>(tree)
+                            },
+                        )
+                        .try_reduce_with(|mut a, b| {
+                            a.merge::<DB>(*b);
+                            Ok(a)
+                        })
+                        .transpose()?;
+
+                    if let Some(tree) = tree {
+                        tries.insert(identifier.into(), *tree);
+                    }
+                    Ok::<_, BonsaiStorageError<DB::DatabaseError>>(tries)
+                },
+            )
+            .try_reduce_with(|mut a, b| {
+                merge_trees(&mut a, b);
+                Ok(a)
+            })
+            .transpose()?;
+
+        todo!()
     }
 
     pub(crate) fn set(
@@ -102,11 +175,11 @@ impl<H: StarkHash + Send + Sync, DB: BonsaiDatabase, CommitID: Id> MerkleTrees<H
         key: &BitSlice<u8, Msb0>,
         value: Felt,
     ) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
-        let tree = self.trees.get_mut(identifier);
+        let tree = self.trees.get_mut(identifier); // todo entry
         if let Some(tree) = tree {
             tree.set(&mut self.db, key, value)
         } else {
-            let mut tree = MerkleTree::new(&mut self.db, identifier.into())?;
+            let mut tree = MerkleTree::new(identifier.into());
             tree.set(&mut self.db, key, value)?;
             self.trees.insert(identifier.into(), tree);
             Ok(())
@@ -161,7 +234,7 @@ impl<H: StarkHash + Send + Sync, DB: BonsaiDatabase, CommitID: Id> MerkleTrees<H
         &mut self,
     ) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
         for tree in self.trees.values_mut() {
-            tree.reset_to_last_commit(&mut self.db)?;
+            tree.reset_to_last_commit::<DB>();
         }
         Ok(())
     }
@@ -176,7 +249,7 @@ impl<H: StarkHash + Send + Sync, DB: BonsaiDatabase, CommitID: Id> MerkleTrees<H
     ) -> Result<Felt, BonsaiStorageError<DB::DatabaseError>> {
         let tree = self.trees.get(identifier);
         if let Some(tree) = tree {
-            Ok(tree.root_hash())
+            Ok(tree.root_hash(&self.db)?)
         } else {
             Err(BonsaiStorageError::Trie("Tree not found".to_string()))
         }
@@ -291,9 +364,12 @@ impl<H: StarkHash + Send + Sync, DB: BonsaiDatabase, CommitID: Id> MerkleTrees<H
 pub struct MerkleTree<H: StarkHash> {
     /// The handle to the current root node could be hash if no modifications has been done
     /// since the last commit or in memory if there are some modifications.
-    root_handle: NodeHandle,
+    // root_handle: NodeHandle,
     /// The last known root hash. Updated only each commit. (possibly outdated between two commits)
-    root_hash: Felt,
+    // root_hash: Felt,
+
+    /// The root node. None means the node has not been loaded yet.
+    root_node: Option<RootHandle>,
     /// Identifier of the tree in the database.
     identifier: ByteVec,
     /// This storage is used to avoid modifying the underlying database each time during a commit.
@@ -336,42 +412,325 @@ enum NodeOrFelt<'a> {
 }
 
 impl<H: StarkHash + Send + Sync> MerkleTree<H> {
-    /// Less visible initialization for `MerkleTree<T>` as the main entry points should be
-    /// [`MerkleTree::<RcNodeStorage>::load`] for persistent trees and [`MerkleTree::empty`] for
-    /// transient ones.
-
-    pub fn new<DB: BonsaiDatabase, ID: Id>(
-        db: &mut KeyValueDB<DB, ID>,
-        identifier: ByteVec,
-    ) -> Result<Self, BonsaiStorageError<DB::DatabaseError>> {
+    pub fn new(identifier: ByteVec) -> Self {
         let nodes_mapping: HashMap<NodeId, Node> = HashMap::new();
-        let root_node = db.get(&TrieKey::new(&identifier, TrieKeyType::Trie, &[]))?;
-        let node = if let Some(root_node) = root_node {
-            Node::decode(&mut root_node.as_slice())?
-        } else {
-            db.insert(
-                &TrieKey::new(&identifier, TrieKeyType::Trie, &[]),
-                &Node::Unresolved(Felt::ZERO).encode(),
-                None,
-            )?;
-            Node::Unresolved(Felt::ZERO)
-        };
-        // SAFETY: The root node has been created just above
-        let root = node.hash().unwrap();
-        Ok(Self {
-            root_handle: NodeHandle::Hash(root),
-            root_hash: root,
+        Self {
+            // root_handle: NodeHandle::Hash(root),
+            // root_hash: root,
+            root_node: None,
             identifier,
             storage_nodes: NodesMapping(nodes_mapping),
             latest_node_id: NodeId(0),
             death_row: Vec::new(),
             cache_leaf_modified: HashMap::new(),
             _hasher: PhantomData,
-        })
+        }
     }
 
-    pub fn root_hash(&self) -> Felt {
-        self.root_hash
+    // fn merge<DB: BonsaiDatabase>(
+    //     &mut self,
+    //     mut other: MerkleTree<H>,
+    // ) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
+    //     fn copy_handle<DB: BonsaiDatabase>(
+    //         a_map: &mut NodesMapping,
+    //         a_next_id: &mut NodeId,
+    //         b_map: &mut NodesMapping,
+    //         handle: NodeHandle
+    //     ) -> Result<NodeHandle, BonsaiStorageError<DB::DatabaseError>> {
+    //         let id = a_next_id.next_id();
+
+    //         match handle {
+    //             NodeHandle::Hash(felt) => Ok(NodeHandle::Hash(felt)),
+    //             NodeHandle::InMemory(b_subtree) => copy_subtree::<DB>(a_map, a_next_id, b_map, id, b_subtree),
+    //         }
+    //     }
+
+    //     fn copy_subtree<DB: BonsaiDatabase>(
+    //         a_map: &mut NodesMapping,
+    //         a_next_id: &mut NodeId,
+    //         b_map: &mut NodesMapping,
+    //         a_id: NodeId,
+    //         b_subtree: NodeId,
+    //     ) -> Result<NodeHandle, BonsaiStorageError<DB::DatabaseError>> {
+    //         let b = b_map.0.remove(&b_subtree).ok_or_else(|| BonsaiStorageError::Trie("node id has no associated node in storage".into()))?;
+
+    //         let new_node = match b {
+    //             Node::Binary(b) => {
+    //                 let left = copy_handle::<DB>(a_map, a_next_id, b_map, b.left)?;
+    //                 let right = copy_handle::<DB>(a_map, a_next_id, b_map, b.right)?;
+    //                 Node::Binary(BinaryNode { hash: None, height: 0, left, right })
+    //             },
+    //             Node::Edge(b) => {
+    //                 let child = copy_handle::<DB>(a_map, a_next_id, b_map, b.child)?;
+    //                 Node::Edge(EdgeNode { hash: None, height: 0, path: b.path, child: child })
+    //             },
+    //         };
+
+    //         a_map.0.insert(a_id, new_node);
+
+    //         Ok(NodeHandle::InMemory(a_id))
+    //     }
+
+    //     struct PendingSubtreeCopy { a_id: NodeId, b_subtree: NodeId }
+
+    //     // Returns Some if we need to recurse
+    //     fn merge_handles<DB: BonsaiDatabase>(
+    //         a: &mut NodeHandle,
+    //         a_next_id: &mut NodeId,
+    //         b: NodeHandle,
+    //         pending_copy: &mut Vec<PendingSubtreeCopy>,
+    //     ) -> Result<Option<(NodeId, NodeId)>, BonsaiStorageError<DB::DatabaseError>> {
+    //         match (a, b) {
+    //             (_, NodeHandle::Hash(_)) => Ok(None),
+    //             (a @ NodeHandle::Hash(_), NodeHandle::InMemory(b_subtree)) => {
+    //                 let a_id = a_next_id.next_id();
+    //                 *a = NodeHandle::InMemory(a_id);
+
+    //                 pending_copy.push(PendingSubtreeCopy { a_id, b_subtree });
+
+    //                 Ok(None)
+    //             }
+    //             (NodeHandle::InMemory(a), NodeHandle::InMemory(b)) => Ok(Some((*a, b))),
+    //         }
+    //     }
+
+    //     fn merge_nodeid<DB: BonsaiDatabase>(
+    //         nodeid_a: NodeId,
+    //         a_map: &mut NodesMapping,
+    //         a_next_id: &mut NodeId,
+    //         nodeid_b: NodeId,
+    //         b_map: &mut NodesMapping,
+    //         pending_copy: &mut Vec<PendingSubtreeCopy>,
+    //         pending_insertion: &mut Vec<(NodeId, Node)>,
+    //     ) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
+    //         let a = a_map.0.get_mut(&nodeid_a).ok_or_else(|| {
+    //             BonsaiStorageError::Trie("node id has no associated node in storage".into())
+    //         })?;
+    //         let b = match b_map.0.entry(nodeid_b) {
+    //             hash_map::Entry::Occupied(entry) => entry,
+    //             hash_map::Entry::Vacant(_) => return Err(BonsaiStorageError::Trie("node id has no associated node in storage".into())),
+    //         };
+
+    //         let (node_id_next_1, node_id_next_2, remove_b) = match (a, b.get_mut()) {
+    //             // Binary and binary: go down both arms
+    //             (Node::Binary(a), Node::Binary(b)) => (
+    //                 merge_handles::<DB>(&mut a.left, a_next_id, b.left, pending_copy)?,
+    //                 merge_handles::<DB>(&mut a.right, a_next_id, b.right, pending_copy)?,
+    //                 true
+    //             ),
+
+    //             // Binary and edge
+    //             (Node::Binary(a), Node::Edge(b)) => {
+    //                 // remove leading bit
+    //                 let removed_bit = *b.path.0.get(0).ok_or_else(|| {
+    //                     BonsaiStorageError::Trie("storage has an edge with an empty path".into())
+    //                 })?;
+
+    //                 b.path.0.drain(0..1);
+
+    //                 // merge the binary node child with the edge
+    //                 let a = a.get_child_mut(Direction::from(removed_bit));
+    //                 let (b, remove_b) = if b.path.0.is_empty() {
+    //                     // use child instead
+    //                     (b.child, true)
+    //                 } else {
+    //                     (NodeHandle::InMemory(nodeid_b), false)
+    //                 };
+
+    //                 (merge_handles::<DB>(a, a_next_id, b, pending_copy)?, None, remove_b)
+    //             }
+
+    //             // Edge and binary
+    //             (a @ Node::Edge(EdgeNode { path, child, .. }), Node::Binary(b)) => {
+    //                 // Replace edge by a binary
+
+    //                 let mut path = mem::take(path);
+    //                 let removed_bit = *path.0.get(0).ok_or_else(|| {
+    //                     BonsaiStorageError::Trie("storage has an edge with an empty path".into())
+    //                 })?;
+    //                 path.0.drain(0..1);
+    //                 let child = child.clone();
+
+    //                 let a_child = if path.0.is_empty() {
+    //                     // use child instead
+    //                     child
+    //                 } else {
+    //                     pending_insertion.push((a_next_id.next_id(), Node::Edge(EdgeNode { hash: None, height: 0, path, child })));
+
+    //                     NodeHandle::InMemory(nodeid_a)
+    //                 };
+
+    //                 let (left, right) = match Direction::from(removed_bit) {
+    //                     Direction::Left => {
+    //                         // left: this means next turn we'll be merging the edge with the left path, and the right path is a subtree copy
+    //                         let a_id = a_next_id.next_id();
+    //                         pending_copy.push(PendingSubtreeCopy { a_id, b_subtree: b.right });
+    //                         (a_id, a_child)
+    //                     },
+    //                     Direction::Right => {
+    //                         // opposite
+    //                         let a_id = a_next_id.next_id();
+    //                         pending_copy.push(PendingSubtreeCopy { a_id, b_subtree: b.left });
+    //                         (a_child, a_id)
+    //                     },
+    //                 };
+    //                 merge_handles::<DB>(&mut a.left, a_next_id, b.left, pending_copy)?,
+    //                 merge_handles::<DB>(&mut a.right, a_next_id, b.right, pending_copy)?,
+
+    //                 // merge the new edge on the
+
+    //                 *a = Node::Binary(BinaryNode {
+    //                     hash: None,
+    //                     height: 0,
+    //                     left: b.left, // todo copy left
+    //                     right: b.right, // todo copy rught
+    //                 });
+
+    //                 (merge_handles::<DB>(a_child, a_next_id, b_child, pending_copy)?, None, true)
+    //             },
+
+    //             // Edge edge
+    //             (Node::Edge(a), Node::Edge(b)) => {
+    //                 // find the matching prefix
+    //                 let common = a.common_path(&b.path.0);
+
+    //                 let a_suffix = a.path.0.split_off(common.len());
+    //                 let b_suffix = b.path.0.split_off(common.len());
+
+    //                 todo!();
+    //             },
+    //         };
+
+    //         if remove_b {
+    //             b.remove();
+    //         }
+
+    //         a_map.0.extend(pending_insertion.drain(..));
+    //         for PendingSubtreeCopy { a_id, b_subtree } in pending_copy.drain(..) {
+    //             copy_subtree(a_map, a_next_id, b_map, a_id, b_subtree)?;
+    //         }
+
+    //         if let Some((a, b)) = node_id_next_1 {
+    //             merge_nodeid::<DB>(a, a_map, a_next_id, b, b_map, pending_copy, pending_insertion)?;
+    //         }
+    //         if let Some((a, b)) = node_id_next_2 {
+    //             merge_nodeid::<DB>(a, a_map, a_next_id, b, b_map, pending_copy, pending_insertion)?;
+    //         }
+
+    //         Ok(())
+    //     }
+
+    //     match (&mut self.root_node, other.root_node) {
+    //         (a @ None, b) => {
+    //             *a = b;
+    //         }
+    //         (Some(_), None) => {}
+    //         (Some(a), Some(b)) => match (a, b) {
+    //             (a @ RootHandle::Empty, b) => *a = b, // todo we need to reallocate all node handles here
+    //             (RootHandle::Loaded(_), RootHandle::Empty) => {}
+    //             (RootHandle::Loaded(a), RootHandle::Loaded(b)) => {
+    //                 merge_nodeid::<DB>(*a, &mut self.storage_nodes, &mut self.latest_node_id, b, &mut other.storage_nodes, &mut vec![])?;
+    //             }
+    //         },
+    //     }
+
+    //     assert_eq!(other.storage_nodes.0.len(), 0);
+
+    //     Ok(())
+    // }
+
+    // TODO: this does not accept &mut self because borrow splitting
+    // this needs to be moved into the nodes_storage api entirely and latest_node_id there too
+    fn load_db_node<'a, DB: BonsaiDatabase, ID: Id>(
+        storage_nodes: &'a mut NodesMapping,
+        latest_node_id: &mut NodeId,
+        db: &KeyValueDB<DB, ID>,
+        key: &TrieKey,
+    ) -> Result<Option<(NodeId, &'a mut Node)>, BonsaiStorageError<DB::DatabaseError>> {
+        let node = db.get(key)?;
+        let Some(node) = node else { return Ok(None) };
+
+        let node = Node::decode(&mut node.as_slice())?;
+        latest_node_id.next_id();
+        let node_id = *latest_node_id;
+        // Insert and return reference at the same time. Entry occupied case should not be possible.
+        match storage_nodes.0.entry(node_id) {
+            hash_map::Entry::Occupied(_) => Err(BonsaiStorageError::Trie(
+                "duplicate node id in storage".to_string(),
+            )),
+            hash_map::Entry::Vacant(entry) => Ok(Some((node_id, entry.insert(node)))),
+        }
+    }
+
+    /// Loads the root node or returns None if the tree is empty.
+    fn get_root_node<'a, DB: BonsaiDatabase, ID: Id>(
+        root_node: &mut Option<RootHandle>,
+        storage_nodes: &'a mut NodesMapping,
+        latest_node_id: &mut NodeId,
+        identifier: &[u8],
+        db: &KeyValueDB<DB, ID>,
+    ) -> Result<Option<(NodeId, &'a mut Node)>, BonsaiStorageError<DB::DatabaseError>> {
+        match root_node {
+            Some(RootHandle::Loaded(id)) => {
+                let node = storage_nodes
+                    .0
+                    .get_mut(&*id)
+                    .ok_or(BonsaiStorageError::Trie(
+                        "root node doesn't exist in the storage".to_string(),
+                    ))?;
+                Ok(Some((*id, node)))
+            }
+            Some(RootHandle::Empty) => Ok(None),
+            None => {
+                // load the node
+                let node = Self::load_db_node(
+                    storage_nodes,
+                    latest_node_id,
+                    db,
+                    &TrieKey::new(identifier, TrieKeyType::Trie, &[]),
+                )?;
+
+                match node {
+                    Some((id, n)) => {
+                        *root_node = Some(RootHandle::Loaded(id));
+                        Ok(Some((id, n)))
+                    }
+                    None => {
+                        *root_node = Some(RootHandle::Empty);
+                        Ok(None)
+                    }
+                }
+            }
+        }
+    }
+
+    /// # Panics
+    ///
+    /// Calling this function when the tree has uncommited changes is invalid as the hashes need to be recomputed.
+    pub fn root_hash<DB: BonsaiDatabase, ID: Id>(
+        &self,
+        db: &KeyValueDB<DB, ID>,
+    ) -> Result<Felt, BonsaiStorageError<DB::DatabaseError>> {
+        match self.root_node {
+            Some(RootHandle::Empty) => Ok(Felt::ZERO),
+            Some(RootHandle::Loaded(node_id)) => {
+                let node = self.storage_nodes.0.get(&node_id).ok_or_else(|| {
+                    BonsaiStorageError::Trie("could not fetch root node from storage".into())
+                })?;
+                node.hash().ok_or_else(|| {
+                    BonsaiStorageError::Trie("the tree has uncommited changes".into())
+                })
+            }
+            None => {
+                let Some(node) =
+                    Self::get_trie_branch_in_db_from_path(&self.identifier, db, &Path::default())?
+                else {
+                    return Ok(Felt::ZERO);
+                };
+                // UNWRAP: the node has just been fetched
+                Ok(node.hash().unwrap())
+            }
+        }
     }
 
     pub fn cache_leaf_modified(&self) -> &HashMap<ByteVec, InsertOrRemove<Felt>> {
@@ -379,27 +738,24 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
     }
 
     /// Remove all the modifications that have been done since the last commit.
-    pub fn reset_to_last_commit<DB: BonsaiDatabase, ID: Id>(
+    pub fn reset_to_last_commit<DB: BonsaiDatabase>(
         &mut self,
-        db: &mut KeyValueDB<DB, ID>,
-    ) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
-        let node = Self::get_trie_branch_in_db_from_path(
-            &self.identifier,
-            db,
-            &Path(BitVec::<u8, Msb0>::new()),
-        )?
-        .ok_or(BonsaiStorageError::Trie(
-            "root node doesn't exist in the storage".to_string(),
-        ))?;
-        let node_hash = node.hash().ok_or(BonsaiStorageError::Trie(
-            "Root doesn't exist in the storage".to_string(),
-        ))?;
+        // db: &mut KeyValueDB<DB, ID>,
+    ) {
+        // let node = self
+        //     .get_trie_branch_in_db_from_path(db, &Path(BitVec::<u8, Msb0>::new()))?
+        //     .ok_or(BonsaiStorageError::Trie(
+        //         "root node doesn't exist in the storage".to_string(),
+        //     ))?;
+        // let node_hash = node.hash().ok_or(BonsaiStorageError::Trie(
+        //     "Root doesn't exist in the storage".to_string(),
+        // ))?;
         self.latest_node_id.reset();
         self.storage_nodes.0.clear();
         self.cache_leaf_modified.clear();
-        self.root_handle = NodeHandle::Hash(node_hash);
-        self.root_hash = node_hash;
-        Ok(())
+        self.root_node = None;
+        // self.root_handle = NodeHandle::Hash(node_hash);
+        // self.root_hash = node_hash;
     }
 
     /// Calculate all the new hashes and the root hash.
@@ -413,14 +769,22 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
             updates.push((node_key, InsertOrRemove::Remove));
         }
 
+        // compute hashes
         let mut hashes = vec![];
         self.compute_root_hash::<DB>(&mut hashes)?;
-        let root_hash = self.commit_subtree::<DB>(
-            &mut updates,
-            self.root_handle,
-            Path(BitVec::new()),
-            &mut hashes.drain(..),
-        )?;
+
+        // commit the tree
+        match &self.root_node {
+            Some(RootHandle::Loaded(node_id)) => {
+                self.commit_subtree::<DB>(
+                    &mut updates,
+                    *node_id,
+                    Path(BitVec::new()),
+                    &mut hashes.drain(..),
+                )?;
+            }
+            _ => {}
+        }
 
         for (key, value) in mem::take(&mut self.cache_leaf_modified) {
             updates.push((
@@ -434,8 +798,6 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
             ));
         }
         self.latest_node_id.reset();
-        self.root_hash = root_hash;
-        self.root_handle = NodeHandle::Hash(root_hash);
         Ok(updates)
     }
 
@@ -461,10 +823,21 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         &self,
         hashes: &mut Vec<Felt>,
     ) -> Result<Felt, BonsaiStorageError<DB::DatabaseError>> {
-        match self.get_node_or_felt::<DB>(&self.root_handle)? {
-            NodeOrFelt::Felt(felt) => Ok(felt),
-            NodeOrFelt::Node(node) => self.compute_hashes::<DB>(node, Path(BitVec::new()), hashes),
-        }
+        let handle = match &self.root_node {
+            Some(RootHandle::Loaded(node_id)) => *node_id,
+            Some(RootHandle::Empty) => return Ok(Felt::ZERO),
+            None => {
+                return Err(BonsaiStorageError::Trie(
+                    "root node is not loaded".to_string(),
+                ))
+            }
+        };
+        let Some(node) = self.storage_nodes.0.get(&handle) else {
+            return Err(BonsaiStorageError::Trie(
+                "could not fetch root node from storage".to_string(),
+            ));
+        };
+        self.compute_hashes::<DB>(node, Path(BitVec::new()), hashes)
     }
 
     /// Compute the hashes of all of the updated nodes in the merkle tree. This step
@@ -479,7 +852,6 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         use Node::*;
 
         match node {
-            Unresolved(hash) => Ok(*hash),
             Binary(binary) => {
                 // we check if we have one or two changed children
 
@@ -576,15 +948,10 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
     fn commit_subtree<DB: BonsaiDatabase>(
         &mut self,
         updates: &mut Vec<(TrieKey, InsertOrRemove<ByteVec>)>,
-        node_handle: NodeHandle,
+        node_id: NodeId,
         path: Path,
         hashes: &mut impl Iterator<Item = Felt>,
     ) -> Result<Felt, BonsaiStorageError<DB::DatabaseError>> {
-        let node_id = match node_handle {
-            NodeHandle::Hash(hash) => return Ok(hash),
-            NodeHandle::InMemory(root_id) => root_id,
-        };
-
         match self
             .storage_nodes
             .0
@@ -592,25 +959,24 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
             .ok_or(BonsaiStorageError::Trie(
                 "Couldn't fetch node in the temporary storage".to_string(),
             ))? {
-            Node::Unresolved(hash) => {
-                if path.0.is_empty() {
-                    updates.push((
-                        TrieKey::new(&self.identifier, TrieKeyType::Trie, &[]),
-                        InsertOrRemove::Insert(Node::Unresolved(hash).encode_sbytevec()),
-                    ));
-                    Ok(hash)
-                } else {
-                    Ok(hash)
-                }
-            }
             Node::Binary(mut binary) => {
                 let left_path = path.new_with_direction(Direction::Left);
-                let left_hash =
-                    self.commit_subtree::<DB>(updates, binary.left, left_path, hashes)?;
+                let left_hash = match binary.left {
+                    NodeHandle::Hash(left_hash) => left_hash,
+                    NodeHandle::InMemory(node_id) => {
+                        self.commit_subtree::<DB>(updates, node_id, left_path, hashes)?
+                    }
+                };
                 let right_path = path.new_with_direction(Direction::Right);
-                let right_hash =
-                    self.commit_subtree::<DB>(updates, binary.right, right_path, hashes)?;
+                let right_hash = match binary.right {
+                    NodeHandle::Hash(right_hash) => right_hash,
+                    NodeHandle::InMemory(node_id) => {
+                        self.commit_subtree::<DB>(updates, node_id, right_path, hashes)?
+                    }
+                };
+
                 let hash = hashes.next().expect("mismatched hash state");
+
                 binary.hash = Some(hash);
                 binary.left = NodeHandle::Hash(left_hash);
                 binary.right = NodeHandle::Hash(right_hash);
@@ -624,8 +990,12 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
             Node::Edge(mut edge) => {
                 let mut child_path = path.clone();
                 child_path.0.extend(&edge.path.0);
-                let child_hash =
-                    self.commit_subtree::<DB>(updates, edge.child, child_path, hashes)?;
+                let child_hash = match edge.child {
+                    NodeHandle::Hash(right_hash) => right_hash,
+                    NodeHandle::InMemory(node_id) => {
+                        self.commit_subtree::<DB>(updates, node_id, child_path, hashes)?
+                    }
+                };
                 let hash = hashes.next().expect("mismatched hash state");
                 edge.hash = Some(hash);
                 edge.child = NodeHandle::Hash(child_hash);
@@ -647,7 +1017,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
     /// * `value` - The value to set.
     pub fn set<DB: BonsaiDatabase, ID: Id>(
         &mut self,
-        db: &mut KeyValueDB<DB, ID>,
+        db: &KeyValueDB<DB, ID>,
         key: &BitSlice<u8, Msb0>,
         value: Felt,
     ) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
@@ -809,7 +1179,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
                     .0
                     .insert(self.latest_node_id.next_id(), edge);
 
-                self.root_handle = NodeHandle::InMemory(self.latest_node_id);
+                self.root_node = Some(RootHandle::Loaded(self.latest_node_id));
 
                 let key_bytes = bitslice_to_bytes(key);
                 self.cache_leaf_modified
@@ -829,7 +1199,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
     /// * `key` - The key to delete.
     fn delete_leaf<DB: BonsaiDatabase, ID: Id>(
         &mut self,
-        db: &mut KeyValueDB<DB, ID>,
+        db: &KeyValueDB<DB, ID>,
         key: &BitSlice<u8, Msb0>,
     ) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
         // Algorithm explanation:
@@ -869,7 +1239,6 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
             // SAFETY: Has been populate by preload_nodes just above
             let node = self.storage_nodes.0.get(node).unwrap();
             match node {
-                Node::Unresolved(_) => {}
                 Node::Binary(_) => {}
                 Node::Edge(edge) => {
                     for _ in 0..edge.path.0.len() {
@@ -940,12 +1309,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
             None => {
                 // We reached the root without a hitting binary node. The new tree
                 // must therefore be empty.
-                self.latest_node_id.next_id();
-                self.storage_nodes
-                    .0
-                    .insert(self.latest_node_id, Node::Unresolved(Felt::ZERO));
-                self.root_handle = NodeHandle::InMemory(self.latest_node_id);
-                self.root_hash = Felt::ZERO;
+                self.root_node = Some(RootHandle::Empty);
                 return Ok(());
             }
         };
@@ -1027,29 +1391,26 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         key: &BitSlice<u8, Msb0>,
     ) -> Result<Vec<ProofNode>, BonsaiStorageError<DB::DatabaseError>> {
         let mut nodes = Vec::with_capacity(251);
-        let mut node = match self.root_handle {
-            NodeHandle::Hash(_) => {
-                let node = Self::get_trie_branch_in_db_from_path(
-                    &self.identifier,
-                    db,
-                    &Path(BitVec::<u8, Msb0>::new()),
-                )?
-                .ok_or(BonsaiStorageError::Trie(
-                    "Couldn't fetch root node in db".to_string(),
-                ))?;
-                if node.is_empty() {
-                    return Ok(Vec::new());
-                }
-                node
+        let mut node = match self.root_node {
+            Some(RootHandle::Empty) => {
+                return Ok(Vec::new());
             }
-            NodeHandle::InMemory(root_id) => self
+            Some(RootHandle::Loaded(node_id)) => self
                 .storage_nodes
                 .0
-                .get(&root_id)
+                .get(&node_id)
                 .ok_or(BonsaiStorageError::Trie(
-                    "Couldn't fetch root node in the temporary storage".to_string(),
+                    "Couldn't get root node from storage".to_string(),
                 ))?
                 .clone(),
+            None => Self::get_trie_branch_in_db_from_path(
+                &self.identifier,
+                db,
+                &Path(BitVec::<u8, Msb0>::new()),
+            )?
+            .ok_or(BonsaiStorageError::Trie(
+                "Couldn't fetch root node in db".to_string(),
+            ))?,
         };
         loop {
             match node {
@@ -1158,14 +1519,13 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
                         }
                     }
                     node = next_node;
-                }
-                Node::Unresolved(hash) => {
-                    nodes.push(ProofNode::Edge {
-                        child: hash,
-                        path: Path(BitVec::<u8, Msb0>::new()),
-                    });
-                    return Ok(nodes);
-                }
+                } // Node::Unresolved(hash) => {
+                  //     nodes.push(ProofNode::Edge {
+                  //         child: hash,
+                  //         path: Path(BitVec::<u8, Msb0>::new()),
+                  //     });
+                  //     return Ok(nodes);
+                  // }
             }
         }
     }
@@ -1190,18 +1550,35 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
     /// The list of nodes along the path.
     fn preload_nodes<DB: BonsaiDatabase, ID: Id>(
         &mut self,
-        db: &mut KeyValueDB<DB, ID>,
+        db: &KeyValueDB<DB, ID>,
         dst: &BitSlice<u8, Msb0>,
     ) -> Result<Vec<NodeId>, BonsaiStorageError<DB::DatabaseError>> {
         let mut nodes = Vec::with_capacity(251);
-
-        let mut prev_handle = &mut self.root_handle;
         let mut path = Path(BitVec::<u8, Msb0>::with_capacity(251));
+
+        let mut prev_handle = None::<&mut NodeHandle>; // None signals tree root
 
         loop {
             // get node from cache or database
-            let (node_id, node) =
-                match prev_handle {
+            let (node_id, node) = match prev_handle {
+                // tree root
+                None => {
+                    match Self::get_root_node(
+                        &mut self.root_node,
+                        &mut self.storage_nodes,
+                        &mut self.latest_node_id,
+                        &self.identifier,
+                        db,
+                    )? {
+                        Some(node) => node,
+                        None => {
+                            // empty tree
+                            return Ok(nodes);
+                        }
+                    }
+                }
+                // not tree root
+                Some(prev_handle) => match prev_handle {
                     NodeHandle::Hash(_) => {
                         // load from db
                         let Some(node) =
@@ -1210,11 +1587,6 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
                             // end of path traversal
                             break;
                         };
-
-                        if node.is_empty() {
-                            // empty tree
-                            break;
-                        }
 
                         // put it in inmemory storage
                         self.latest_node_id.next_id();
@@ -1234,19 +1606,17 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
 
                         (node_id, node)
                     }
-                };
+                },
+            };
 
             nodes.push(node_id);
 
             // visit the child
             match node {
-                // We are in a case where the trie is empty and so there is nothing to preload.
-                Node::Unresolved(_felt) => break,
-
                 Node::Binary(binary_node) => {
                     let next_direction = binary_node.direction(dst);
                     path.0.push(bool::from(next_direction));
-                    prev_handle = binary_node.get_child_mut(next_direction);
+                    prev_handle = Some(binary_node.get_child_mut(next_direction));
                 }
 
                 Node::Edge(edge_node) if edge_node.path_matches(dst) => {
@@ -1255,7 +1625,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
                         break; // found it :)
                     }
 
-                    prev_handle = &mut edge_node.child;
+                    prev_handle = Some(&mut edge_node.child);
                 }
 
                 // We are in a case where the edge node doesn't match the path we want to preload so we return nothing.
@@ -1407,14 +1777,15 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
     #[cfg(test)]
     #[allow(dead_code)]
     fn display(&self) {
-        match self.root_handle {
-            NodeHandle::Hash(hash) => {
-                trace!("root is hash: {:?}", hash);
+        match self.root_node {
+            Some(RootHandle::Empty) => {
+                trace!("tree is empty")
             }
-            NodeHandle::InMemory(root_id) => {
-                trace!("root is node: {:?}", root_id);
-                self.print(&root_id);
+            Some(RootHandle::Loaded(node)) => {
+                trace!("root is node {:?}", node);
+                self.print(&node);
             }
+            None => trace!("root is not loaded"),
         }
     }
 
@@ -1427,9 +1798,6 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         trace!("bonsai_node {:?} = {:?}", head, current_tmp);
 
         match current_tmp {
-            Unresolved(hash) => {
-                trace!("Unresolved: {:?}", hash);
-            }
             Binary(binary) => {
                 match &binary.get_child(Direction::Left) {
                     NodeHandle::Hash(hash) => {
@@ -1476,6 +1844,7 @@ pub(crate) fn bytes_to_bitvec(bytes: &[u8]) -> BitVec<u8, Msb0> {
 mod tests {
     use bitvec::{order::Msb0, vec::BitVec, view::BitView};
     use indexmap::IndexMap;
+    use proptest::{arbitrary::arbitrary, strategy::Strategy};
     use starknet_types_core::{felt::Felt, hash::Pedersen};
 
     use crate::{
@@ -1931,6 +2300,149 @@ mod tests {
     fn truncate(key: &[u8]) -> BitVec<u8, Msb0> {
         key.view_bits()[5..].to_owned()
     }
+
+    mod proptests {
+        use crate::databases::HashMapDb;
+        use crate::key_value_db::KeyValueDB;
+        use crate::trie::merkle_node::{Node, NodeHandle, NodeId};
+        use crate::trie::merkle_tree::{MerkleTree, RootHandle};
+
+        use super::*;
+        use proptest::collection::vec;
+        use proptest::prelude::*;
+        use smallvec::smallvec;
+        use starknet_types_core::hash::StarkHash;
+
+        #[derive(Debug)]
+        struct MerkleTreeMergeProblem {
+            inserts_a: Vec<(BitVec<u8, Msb0>, Felt)>,
+            inserts_b: Vec<(BitVec<u8, Msb0>, Felt)>,
+        }
+
+        impl Arbitrary for MerkleTreeMergeProblem {
+            type Parameters = ();
+            type Strategy = BoxedStrategy<Self>;
+
+            fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
+                let bitvec251 = <[bool; 251]>::arbitrary()
+                    .prop_map(|arr| arr.into_iter().collect::<BitVec<u8, Msb0>>());
+
+                let felt = bitvec251
+                    .clone()
+                    .prop_map(|vec| Felt::from_bytes_be(vec.as_raw_slice().try_into().unwrap()));
+
+                let inserts = vec((bitvec251, felt), 0..100);
+
+                (inserts.clone(), inserts)
+                    .prop_map(|(inserts_a, inserts_b)| MerkleTreeMergeProblem {
+                        inserts_a,
+                        inserts_b,
+                    })
+                    .boxed()
+            }
+        }
+
+        impl MerkleTreeMergeProblem {
+            fn assert_tries_equal<H: StarkHash>(a: &MerkleTree<H>, b: &MerkleTree<H>) {
+                fn assert_tries_equal_handle<H: StarkHash>(
+                    a_handle: &NodeHandle,
+                    a: &MerkleTree<H>,
+                    b_handle: &NodeHandle,
+                    b: &MerkleTree<H>,
+                ) {
+                    match (a_handle, b_handle) {
+                        (NodeHandle::Hash(a), NodeHandle::Hash(b)) => {
+                            if a != b {
+                                panic!("felt {:?}, {:?} do not match", a, b)
+                            }
+                        }
+                        (NodeHandle::InMemory(a_id), NodeHandle::InMemory(b_id)) => {
+                            assert_tries_equal_nodeid(*a_id, a, *b_id, b)
+                        }
+                        (a, b) => panic!("node handle {:?}, {:?} do not match", a, b),
+                    }
+                }
+
+                fn assert_tries_equal_nodeid<H: StarkHash>(
+                    a_id: NodeId,
+                    a: &MerkleTree<H>,
+                    b_id: NodeId,
+                    b: &MerkleTree<H>,
+                ) {
+                    let a_node = a.storage_nodes.0.get(&a_id).unwrap();
+                    let b_node = b.storage_nodes.0.get(&b_id).unwrap();
+
+                    match (a_node, b_node) {
+                        (Node::Binary(a_node), Node::Binary(b_node)) => {
+                            if a_node.height != b_node.height {
+                                panic!("height {:?}, {:?} do not match", a_node, b_node)
+                            }
+                            assert_tries_equal_handle(&a_node.left, a, &b_node.left, b);
+                            assert_tries_equal_handle(&a_node.right, a, &b_node.right, b);
+                        }
+                        (Node::Edge(a_node), Node::Edge(b_node)) => {
+                            if a_node.height != b_node.height {
+                                panic!("height {:?}, {:?} do not match", a_node, b_node)
+                            }
+                            if a_node.path != b_node.path {
+                                panic!("height {:?}, {:?} do not match", a_node, b_node)
+                            }
+                            assert_tries_equal_handle(&a_node.child, a, &b_node.child, b);
+
+                        },
+                        (a, b) => panic!("node {:?}, {:?} do not match", a, b),
+                    }
+                }
+
+                match (&a.root_node, &b.root_node) {
+                    (None, None) => {}
+                    (Some(a_handle), Some(b_handle)) => match (a_handle, b_handle) {
+                        (RootHandle::Empty, RootHandle::Empty) => {}
+                        (RootHandle::Loaded(a_id), RootHandle::Loaded(b_id)) => {
+                            assert_tries_equal_nodeid(*a_id, a, *b_id, b);
+                        },
+                        (a, b) => panic!("root handle {:?}, {:?} do not match", a, b),
+                    },
+                    (a, b) => panic!("root node {:?}, {:?} do not match", a, b),
+                }
+            }
+
+            fn check(&self) {
+                let hashmap_db = KeyValueDB::<_, BasicId>::new(
+                    HashMapDb::<BasicId>::default(),
+                    Default::default(),
+                    None,
+                );
+
+                let mut tree_a = MerkleTree::<Pedersen>::new(smallvec![0, 1, 2]);
+                for (k, v) in &self.inserts_a {
+                    tree_a.set(&hashmap_db, &k, *v).unwrap();
+                }
+
+                let mut tree_b = MerkleTree::<Pedersen>::new(smallvec![0, 1, 2]);
+                for (k, v) in &self.inserts_b {
+                    tree_b.set(&hashmap_db, &k, *v).unwrap();
+                }
+
+                tree_a.merge(tree_b);
+
+                let mut tree_total = MerkleTree::<Pedersen>::new(smallvec![0, 1, 2]);
+                for (k, v) in self.inserts_a.iter().chain(&self.inserts_b) {
+                    tree_total.set(&hashmap_db, &k, *v).unwrap();
+                }
+
+                Self::assert_tries_equal(&tree_a, &tree_total);
+            }
+        }
+
+        proptest::proptest! {
+            #[test]
+            fn merge_trees(pb in any::<MerkleTreeMergeProblem>()) {
+                pb.check();
+            }
+        }
+    }
+
     // use crate::{
     //     databases::{create_rocks_db, RocksDB, RocksDBConfig},
     //     id::BasicId,

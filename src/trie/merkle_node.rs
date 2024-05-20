@@ -30,10 +30,6 @@ impl NodeId {
 /// A node in a Binary Merkle-Patricia Tree graph.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Encode, Decode)]
 pub enum Node {
-    /// A node that has not been fetched from storage yet.
-    ///
-    /// As such, all we know is its hash.
-    Unresolved(Felt),
     /// A branch node with exactly two children.
     Binary(BinaryNode),
     /// Describes a path connecting two other nodes.
@@ -176,17 +172,6 @@ impl BinaryNode {
 }
 
 impl Node {
-    /// Returns true if the node represents an empty node -- this is defined as a node
-    /// with the [Felt::ZERO].
-    ///
-    /// This can occur for the root node in an empty graph.
-    pub fn is_empty(&self) -> bool {
-        match self {
-            Node::Unresolved(hash) => hash == &Felt::ZERO,
-            _ => false,
-        }
-    }
-
     /// Is the node a binary node.
     pub fn is_binary(&self) -> bool {
         matches!(self, Node::Binary(..))
@@ -202,7 +187,6 @@ impl Node {
 
     pub fn hash(&self) -> Option<Felt> {
         match self {
-            Node::Unresolved(hash) => Some(*hash),
             Node::Binary(binary) => binary.hash,
             Node::Edge(edge) => edge.hash,
         }

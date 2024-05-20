@@ -9,7 +9,7 @@ use crate::ByteVec;
 #[cfg(all(feature = "std", test))]
 use rstest::rstest;
 
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct Path(pub BitVec<u8, Msb0>);
 
 impl Encode for Path {

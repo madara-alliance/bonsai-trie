@@ -51,6 +51,7 @@ rstest = "0.18.2"
 test-log = "0.2.15"
 indexmap = "2.2.6"
 criterion = "0.5.1"
+proptest = "1.4.0"
 
 [[bench]]
 name = "storage"
