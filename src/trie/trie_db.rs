@@ -1,11 +1,11 @@
-use crate::{bonsai_database::DatabaseKey, SByteVec};
+use crate::{bonsai_database::DatabaseKey, ByteVec};
 
 /// Key in the database of the different elements that are used in the storage of the trie data.
 /// Use `new` function to create a new key.
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub(crate) enum TrieKey {
-    Trie(SByteVec),
-    Flat(SByteVec),
+    Trie(ByteVec),
+    Flat(ByteVec),
 }
 
 pub(crate) enum TrieKeyType {
@@ -33,7 +33,7 @@ impl From<&TrieKey> for u8 {
 
 impl TrieKey {
     pub fn new(identifier: &[u8], key_type: TrieKeyType, key: &[u8]) -> Self {
-        let mut final_key = SByteVec::from(identifier);
+        let mut final_key = ByteVec::from(identifier);
         final_key.extend_from_slice(key);
         match key_type {
             TrieKeyType::Trie => TrieKey::Trie(final_key),
@@ -41,7 +41,7 @@ impl TrieKey {
         }
     }
 
-    pub fn from_variant_and_bytes(variant: u8, bytes: SByteVec) -> Self {
+    pub fn from_variant_and_bytes(variant: u8, bytes: ByteVec) -> Self {
         match variant {
             x if x == TrieKeyType::Trie as u8 => TrieKey::Trie(bytes),
             x if x == TrieKeyType::Flat as u8 => TrieKey::Flat(bytes),

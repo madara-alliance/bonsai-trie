@@ -99,6 +99,7 @@ pub(crate) use alloc::{
     vec,
     vec::Vec,
 };
+use core::ops::Deref;
 #[cfg(feature = "std")]
 pub(crate) use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
@@ -110,11 +111,11 @@ pub(crate) use std::{
 
 use crate::trie::merkle_tree::MerkleTree;
 
-pub type SByteVec = smallvec::SmallVec<[u8; 32]>;
+pub type ByteVec = smallvec::SmallVec<[u8; 32]>;
 
 pub(crate) trait EncodeExt: parity_scale_codec::Encode {
-    fn encode_sbytevec(&self) -> SByteVec {
-        struct Out(SByteVec);
+    fn encode_sbytevec(&self) -> ByteVec {
+        struct Out(ByteVec);
         impl parity_scale_codec::Output for Out {
             #[inline]
             fn write(&mut self, bytes: &[u8]) {
@@ -122,7 +123,7 @@ pub(crate) trait EncodeExt: parity_scale_codec::Encode {
             }
         }
 
-        let mut v = Out(SByteVec::with_capacity(self.size_hint()));
+        let mut v = Out(ByteVec::with_capacity(self.size_hint()));
         self.encode_to(&mut v);
         v.0
     }
@@ -244,7 +245,7 @@ where
         db: DB,
         config: BonsaiStorageConfig,
         created_at: ChangeID,
-        identifiers: Vec<SByteVec>,
+        identifiers: impl IntoIterator<Item = impl Deref<Target = [u8]>>,
     ) -> Result<Self, BonsaiStorageError<DB::DatabaseError>> {
         let key_value_db = KeyValueDB::new(db, config.into(), Some(created_at));
         let mut tries = MerkleTrees::<H, DB, ChangeID>::new(key_value_db);
@@ -458,7 +459,7 @@ where
     pub fn get_keys(
         &self,
         identifier: &[u8],
-    ) -> Result<Vec<SByteVec>, BonsaiStorageError<DB::DatabaseError>> {
+    ) -> Result<Vec<Vec<u8>>, BonsaiStorageError<DB::DatabaseError>> {
         self.tries.get_keys(identifier)
     }
 
@@ -467,7 +468,7 @@ where
     pub fn get_key_value_pairs(
         &self,
         identifier: &[u8],
-    ) -> Result<Vec<(SByteVec, SByteVec)>, BonsaiStorageError<DB::DatabaseError>> {
+    ) -> Result<Vec<(Vec<u8>, Vec<u8>)>, BonsaiStorageError<DB::DatabaseError>> {
         self.tries.get_key_value_pairs(identifier)
     }
 

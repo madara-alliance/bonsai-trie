@@ -1,6 +1,6 @@
 use crate::{
     changes::key_new_value, format, trie::merkle_tree::bytes_to_bitvec, BTreeSet,
-    Change as ExternChange, SByteVec, ToString,
+    Change as ExternChange, ByteVec, ToString,
 };
 use bitvec::{order::Msb0, vec::BitVec};
 use hashbrown::HashMap;
@@ -165,7 +165,7 @@ where
     pub(crate) fn get(
         &self,
         key: &TrieKey,
-    ) -> Result<Option<SByteVec>, BonsaiStorageError<DB::DatabaseError>> {
+    ) -> Result<Option<ByteVec>, BonsaiStorageError<DB::DatabaseError>> {
         trace!("Getting from KeyValueDB: {:?}", key);
         Ok(self.db.get(&key.into())?)
     }
@@ -174,7 +174,7 @@ where
         &self,
         key: &TrieKey,
         id: ID,
-    ) -> Result<Option<SByteVec>, BonsaiStorageError<DB::DatabaseError>> {
+    ) -> Result<Option<ByteVec>, BonsaiStorageError<DB::DatabaseError>> {
         trace!("Getting from KeyValueDB: {:?} at ID: {:?}", key, id);
 
         // makes sure given id exists

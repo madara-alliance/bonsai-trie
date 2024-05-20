@@ -12,7 +12,7 @@ use starknet_types_core::{felt::Felt, hash::StarkHash};
 
 use crate::{
     error::BonsaiStorageError, format, id::Id, vec, BonsaiDatabase, EncodeExt, HashMap, KeyValueDB,
-    SByteVec, ToString, Vec,
+    ByteVec, ToString, Vec,
 };
 
 use super::{
@@ -64,7 +64,7 @@ impl ProofNode {
 
 pub(crate) struct MerkleTrees<H: StarkHash + Send + Sync, DB: BonsaiDatabase, CommitID: Id> {
     pub db: KeyValueDB<DB, CommitID>,
-    pub trees: HashMap<SByteVec, MerkleTree<H>>,
+    pub trees: HashMap<ByteVec, MerkleTree<H>>,
 }
 
 #[cfg(feature = "bench")]
@@ -185,7 +185,7 @@ impl<H: StarkHash + Send + Sync, DB: BonsaiDatabase, CommitID: Id> MerkleTrees<H
     pub(crate) fn get_keys(
         &self,
         identifier: &[u8],
-    ) -> Result<Vec<SByteVec>, BonsaiStorageError<DB::DatabaseError>> {
+    ) -> Result<Vec<Vec<u8>>, BonsaiStorageError<DB::DatabaseError>> {
         self.db
             .db
             .get_by_prefix(&crate::DatabaseKey::Flat(identifier))
@@ -211,7 +211,7 @@ impl<H: StarkHash + Send + Sync, DB: BonsaiDatabase, CommitID: Id> MerkleTrees<H
     pub(crate) fn get_key_value_pairs(
         &self,
         identifier: &[u8],
-    ) -> Result<Vec<(SByteVec, SByteVec)>, BonsaiStorageError<DB::DatabaseError>> {
+    ) -> Result<Vec<(Vec<u8>, Vec<u8>)>, BonsaiStorageError<DB::DatabaseError>> {
         self.db
             .db
             .get_by_prefix(&crate::DatabaseKey::Flat(identifier))
@@ -222,7 +222,7 @@ impl<H: StarkHash + Send + Sync, DB: BonsaiDatabase, CommitID: Id> MerkleTrees<H
                     // to branches and leafs not being differenciated
                     .filter_map(|(key, value)| {
                         if key.len() > identifier.len() {
-                            Some((key[identifier.len() + 1..].into(), value))
+                            Some((key[identifier.len() + 1..].into(), value.into_vec()))
                         } else {
                             None
                         }
@@ -277,8 +277,8 @@ impl<H: StarkHash + Send + Sync, DB: BonsaiDatabase, CommitID: Id> MerkleTrees<H
         }
     }
 
-    pub(crate) fn get_identifiers(&self) -> Vec<SByteVec> {
-        self.trees.keys().cloned().collect()
+    pub(crate) fn get_identifiers(&self) -> Vec<Vec<u8>> {
+        self.trees.keys().cloned().map(ByteVec::into_vec).collect()
     }
 }
 
@@ -295,7 +295,7 @@ pub struct MerkleTree<H: StarkHash> {
     /// The last known root hash. Updated only each commit. (possibly outdated between two commits)
     root_hash: Felt,
     /// Identifier of the tree in the database.
-    identifier: SByteVec,
+    identifier: ByteVec,
     /// This storage is used to avoid modifying the underlying database each time during a commit.
     storage_nodes: NodesMapping,
     /// The id of the last node that has been added to the temporary storage.
@@ -303,7 +303,7 @@ pub struct MerkleTree<H: StarkHash> {
     /// The list of nodes that should be removed from the underlying database during the next commit.
     death_row: Vec<TrieKey>,
     /// The list of leaves that have been modified during the current commit.
-    cache_leaf_modified: HashMap<SByteVec, InsertOrRemove<Felt>>,
+    cache_leaf_modified: HashMap<ByteVec, InsertOrRemove<Felt>>,
     /// The hasher used to hash the nodes.
     _hasher: PhantomData<H>,
 }
@@ -342,7 +342,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
 
     pub fn new<DB: BonsaiDatabase, ID: Id>(
         db: &mut KeyValueDB<DB, ID>,
-        identifier: SByteVec,
+        identifier: ByteVec,
     ) -> Result<Self, BonsaiStorageError<DB::DatabaseError>> {
         let nodes_mapping: HashMap<NodeId, Node> = HashMap::new();
         let root_node = db.get(&TrieKey::new(&identifier, TrieKeyType::Trie, &[]))?;
@@ -374,7 +374,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         self.root_hash
     }
 
-    pub fn cache_leaf_modified(&self) -> &HashMap<SByteVec, InsertOrRemove<Felt>> {
+    pub fn cache_leaf_modified(&self) -> &HashMap<ByteVec, InsertOrRemove<Felt>> {
         &self.cache_leaf_modified
     }
 
@@ -406,7 +406,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
     #[allow(clippy::type_complexity)]
     pub(crate) fn get_updates<DB: BonsaiDatabase>(
         &mut self,
-    ) -> Result<Vec<(TrieKey, InsertOrRemove<SByteVec>)>, BonsaiStorageError<DB::DatabaseError>>
+    ) -> Result<Vec<(TrieKey, InsertOrRemove<ByteVec>)>, BonsaiStorageError<DB::DatabaseError>>
     {
         let mut updates = vec![];
         for node_key in mem::take(&mut self.death_row) {
@@ -575,7 +575,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
     /// Panics if the precomputed `hashes` do not match the length of the modified subtree.
     fn commit_subtree<DB: BonsaiDatabase>(
         &mut self,
-        updates: &mut Vec<(TrieKey, InsertOrRemove<SByteVec>)>,
+        updates: &mut Vec<(TrieKey, InsertOrRemove<ByteVec>)>,
         node_handle: NodeHandle,
         path: Path,
         hashes: &mut impl Iterator<Item = Felt>,
@@ -614,7 +614,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
                 binary.hash = Some(hash);
                 binary.left = NodeHandle::Hash(left_hash);
                 binary.right = NodeHandle::Hash(right_hash);
-                let key_bytes: SByteVec = path.into();
+                let key_bytes: ByteVec = path.into();
                 updates.push((
                     TrieKey::new(&self.identifier, TrieKeyType::Trie, &key_bytes),
                     InsertOrRemove::Insert(Node::Binary(binary).encode_sbytevec()),
@@ -629,7 +629,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
                 let hash = hashes.next().expect("mismatched hash state");
                 edge.hash = Some(hash);
                 edge.child = NodeHandle::Hash(child_hash);
-                let key_bytes: SByteVec = path.into();
+                let key_bytes: ByteVec = path.into();
                 updates.push((
                     TrieKey::new(&self.identifier, TrieKeyType::Trie, &key_bytes),
                     InsertOrRemove::Insert(Node::Edge(edge).encode_sbytevec()),
@@ -880,7 +880,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
                         new_path.0.push(*i);
                     }
                     last_binary_path = new_path;
-                    let path: SByteVec = (&last_binary_path).into();
+                    let path: ByteVec = (&last_binary_path).into();
                     self.death_row
                         .push(TrieKey::new(&self.identifier, TrieKeyType::Trie, &path));
                 }
@@ -1271,7 +1271,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         db: &KeyValueDB<DB, ID>,
         path: &Path,
     ) -> Result<Option<Node>, BonsaiStorageError<DB::DatabaseError>> {
-        let path: SByteVec = path.into();
+        let path: ByteVec = path.into();
         db.get(&TrieKey::new(&identifier, TrieKeyType::Trie, &path))?
             .map(|node| {
                 Node::decode(&mut node.as_slice()).map_err(|err| {
@@ -1459,7 +1459,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
     }
 }
 
-pub(crate) fn bitslice_to_bytes(bitslice: &BitSlice<u8, Msb0>) -> SByteVec {
+pub(crate) fn bitslice_to_bytes(bitslice: &BitSlice<u8, Msb0>) -> ByteVec {
     // TODO(perf): this should not copy to a bitvec :(
     iter::once(bitslice.len() as u8)
         .chain(bitslice.to_bitvec().as_raw_slice().iter().copied())
@@ -1480,7 +1480,7 @@ mod tests {
     use crate::{
         databases::{create_rocks_db, RocksDB, RocksDBConfig},
         id::BasicId,
-        BonsaiStorage, BonsaiStorageConfig, SByteVec,
+        BonsaiStorage, BonsaiStorageConfig, ByteVec,
     };
 
     #[test_log::test]
@@ -1871,7 +1871,7 @@ mod tests {
 
         // aggreates all storage changes to their latest state
         // (replacements are takent into account)
-        let mut storage_map = IndexMap::<SByteVec, IndexMap<Felt, Felt>>::new();
+        let mut storage_map = IndexMap::<ByteVec, IndexMap<Felt, Felt>>::new();
         for (contract_address, storage) in blocks.clone() {
             let map = storage_map
                 .entry((*contract_address).into())

@@ -14,7 +14,7 @@ use rocksdb::{
 use crate::{
     bonsai_database::{BonsaiDatabase, BonsaiPersistentDatabase, DBError, DatabaseKey},
     id::Id,
-    SByteVec,
+    ByteVec,
 };
 use log::trace;
 
@@ -185,7 +185,7 @@ where
         key: &DatabaseKey,
         value: &[u8],
         batch: Option<&mut Self::Batch>,
-    ) -> Result<Option<SByteVec>, Self::DatabaseError> {
+    ) -> Result<Option<ByteVec>, Self::DatabaseError> {
         trace!("Inserting into RocksDB: {:?} {:?}", key, value);
         let handle_cf = self.db.cf_handle(key.get_cf()).expect(CF_ERROR);
         let old_value = self.db.get_cf(&handle_cf, key.as_slice())?;
@@ -197,7 +197,7 @@ where
         Ok(old_value.map(Into::into))
     }
 
-    fn get(&self, key: &DatabaseKey) -> Result<Option<SByteVec>, Self::DatabaseError> {
+    fn get(&self, key: &DatabaseKey) -> Result<Option<ByteVec>, Self::DatabaseError> {
         trace!("Getting from RocksDB: {:?}", key);
         let handle = self.db.cf_handle(key.get_cf()).expect(CF_ERROR);
         Ok(self.db.get_cf(&handle, key.as_slice())?.map(Into::into))
@@ -206,7 +206,7 @@ where
     fn get_by_prefix(
         &self,
         prefix: &DatabaseKey,
-    ) -> Result<Vec<(SByteVec, SByteVec)>, Self::DatabaseError> {
+    ) -> Result<Vec<(ByteVec, ByteVec)>, Self::DatabaseError> {
         trace!("Getting from RocksDB: {:?}", prefix);
         let handle = self.db.cf_handle(prefix.get_cf()).expect(CF_ERROR);
         let iter = self.db.iterator_cf(
@@ -241,7 +241,7 @@ where
         &mut self,
         key: &DatabaseKey,
         batch: Option<&mut Self::Batch>,
-    ) -> Result<Option<SByteVec>, Self::DatabaseError> {
+    ) -> Result<Option<ByteVec>, Self::DatabaseError> {
         trace!("Removing from RocksDB: {:?}", key);
         let handle = self.db.cf_handle(key.get_cf()).expect(CF_ERROR);
         let old_value = self.db.get_cf(&handle, key.as_slice())?;
@@ -327,7 +327,7 @@ impl<'db> BonsaiDatabase for RocksDBTransaction<'db> {
         key: &DatabaseKey,
         value: &[u8],
         batch: Option<&mut Self::Batch>,
-    ) -> Result<Option<SByteVec>, Self::DatabaseError> {
+    ) -> Result<Option<ByteVec>, Self::DatabaseError> {
         trace!("Inserting into RocksDB: {:?} {:?}", key, value);
         let handle_cf = self.column_families.get(key.get_cf()).expect(CF_ERROR);
         let old_value = self
@@ -341,7 +341,7 @@ impl<'db> BonsaiDatabase for RocksDBTransaction<'db> {
         Ok(old_value.map(Into::into))
     }
 
-    fn get(&self, key: &DatabaseKey) -> Result<Option<SByteVec>, Self::DatabaseError> {
+    fn get(&self, key: &DatabaseKey) -> Result<Option<ByteVec>, Self::DatabaseError> {
         trace!("Getting from RocksDB: {:?}", key);
         let handle = self.column_families.get(key.get_cf()).expect(CF_ERROR);
         Ok(self
@@ -353,7 +353,7 @@ impl<'db> BonsaiDatabase for RocksDBTransaction<'db> {
     fn get_by_prefix(
         &self,
         prefix: &DatabaseKey,
-    ) -> Result<Vec<(SByteVec, SByteVec)>, Self::DatabaseError> {
+    ) -> Result<Vec<(ByteVec, ByteVec)>, Self::DatabaseError> {
         trace!("Getting from RocksDB: {:?}", prefix);
         let handle = self.column_families.get(prefix.get_cf()).expect(CF_ERROR);
         let iter = self.txn.iterator_cf(
@@ -388,7 +388,7 @@ impl<'db> BonsaiDatabase for RocksDBTransaction<'db> {
         &mut self,
         key: &DatabaseKey,
         batch: Option<&mut Self::Batch>,
-    ) -> Result<Option<SByteVec>, Self::DatabaseError> {
+    ) -> Result<Option<ByteVec>, Self::DatabaseError> {
         trace!("Removing from RocksDB: {:?}", key);
         let handle = self.column_families.get(key.get_cf()).expect(CF_ERROR);
         let old_value = self

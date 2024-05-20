@@ -1,11 +1,11 @@
-use crate::{hash_map::Entry, id::Id, trie::TrieKey, HashMap, SByteVec, Vec, VecDeque};
+use crate::{hash_map::Entry, id::Id, trie::TrieKey, HashMap, ByteVec, Vec, VecDeque};
 use core::iter;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Change {
-    pub old_value: Option<SByteVec>,
-    pub new_value: Option<SByteVec>,
+    pub old_value: Option<ByteVec>,
+    pub new_value: Option<ByteVec>,
 }
 
 #[derive(Debug, Default)]
@@ -32,7 +32,7 @@ impl ChangeBatch {
         }
     }
 
-    pub fn serialize<ID: Id>(&self, id: &ID) -> Vec<(SByteVec, &[u8])> {
+    pub fn serialize<ID: Id>(&self, id: &ID) -> Vec<(ByteVec, &[u8])> {
         self.0
             .iter()
             .flat_map(|(change_key, change)| {
@@ -57,7 +57,7 @@ impl ChangeBatch {
             .collect()
     }
 
-    pub fn deserialize<ID: Id>(id: &ID, changes: Vec<(SByteVec, SByteVec)>) -> Self {
+    pub fn deserialize<ID: Id>(id: &ID, changes: Vec<(ByteVec, ByteVec)>) -> Self {
         let id = id.to_bytes();
         let mut change_batch = ChangeBatch(HashMap::new());
         let mut current_change = Change::default();
@@ -93,7 +93,7 @@ impl ChangeBatch {
     }
 }
 
-pub fn key_old_value<ID: Id>(id: &ID, key: &TrieKey) -> SByteVec {
+pub fn key_old_value<ID: Id>(id: &ID, key: &TrieKey) -> ByteVec {
     id.to_bytes()
         .into_iter()
         .chain(iter::once(KEY_SEPARATOR))
@@ -103,7 +103,7 @@ pub fn key_old_value<ID: Id>(id: &ID, key: &TrieKey) -> SByteVec {
         .collect()
 }
 
-pub fn key_new_value<ID: Id>(id: &ID, key: &TrieKey) -> SByteVec {
+pub fn key_new_value<ID: Id>(id: &ID, key: &TrieKey) -> ByteVec {
     id.to_bytes()
         .into_iter()
         .chain(iter::once(KEY_SEPARATOR))

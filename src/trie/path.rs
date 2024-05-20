@@ -4,7 +4,7 @@ use parity_scale_codec::{Decode, Encode, Error, Input, Output};
 
 use super::merkle_node::Direction;
 
-use crate::SByteVec;
+use crate::ByteVec;
 
 #[cfg(all(feature = "std", test))]
 use rstest::rstest;
@@ -105,10 +105,10 @@ impl Path {
 }
 
 /// Convert Path to SByteVec can be used, for example, to create keys for the database
-impl From<Path> for SByteVec {
+impl From<Path> for ByteVec {
     fn from(path: Path) -> Self {
         if path.0.is_empty() {
-            SByteVec::new()
+            ByteVec::new()
         } else {
             iter::once(path.0.len() as u8)
                 .chain(path.0.as_raw_slice().iter().copied())
@@ -117,10 +117,10 @@ impl From<Path> for SByteVec {
     }
 }
 
-impl From<&Path> for SByteVec {
+impl From<&Path> for ByteVec {
     fn from(path: &Path) -> Self {
         if path.0.is_empty() {
-            SByteVec::new()
+            ByteVec::new()
         } else {
             iter::once(path.0.len() as u8)
                 .chain(path.0.as_raw_slice().iter().copied())
