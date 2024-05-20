@@ -1,4 +1,4 @@
-use crate::{hash_map::Entry, id::Id, trie::TrieKey, HashMap, ByteVec, Vec, VecDeque};
+use crate::{hash_map::Entry, id::Id, trie::TrieKey, ByteVec, HashMap, Vec, VecDeque};
 use core::iter;
 use serde::{Deserialize, Serialize};
 

@@ -1,6 +1,6 @@
 use crate::{
-    changes::key_new_value, format, trie::merkle_tree::bytes_to_bitvec, BTreeSet,
-    Change as ExternChange, ByteVec, ToString,
+    changes::key_new_value, format, trie::merkle_tree::bytes_to_bitvec, BTreeSet, ByteVec,
+    Change as ExternChange, ToString,
 };
 use bitvec::{order::Msb0, vec::BitVec};
 use hashbrown::HashMap;

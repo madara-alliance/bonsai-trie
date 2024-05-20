@@ -11,8 +11,8 @@ use rayon::prelude::*;
 use starknet_types_core::{felt::Felt, hash::StarkHash};
 
 use crate::{
-    error::BonsaiStorageError, format, id::Id, vec, BonsaiDatabase, EncodeExt, HashMap, KeyValueDB,
-    ByteVec, ToString, Vec,
+    error::BonsaiStorageError, format, id::Id, vec, BonsaiDatabase, ByteVec, EncodeExt, HashMap,
+    KeyValueDB, ToString, Vec,
 };
 
 use super::{
@@ -1200,40 +1200,41 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
 
         loop {
             // get node from cache or database
-            let (node_id, node) = match prev_handle {
-                NodeHandle::Hash(_) => {
-                    // load from db
-                    let node = Self::get_trie_branch_in_db_from_path(&self.identifier, db, &path)?
-                        .ok_or(BonsaiStorageError::Trie(
-                            "Couldn't fetch node from db".to_string(),
-                        ))?;
+            let (node_id, node) =
+                match prev_handle {
+                    NodeHandle::Hash(_) => {
+                        // load from db
+                        let Some(node) =
+                            Self::get_trie_branch_in_db_from_path(&self.identifier, db, &path)?
+                        else {
+                            // end of path traversal
+                            break;
+                        };
 
-                    if node.is_empty() {
-                        // empty tree
-                        break;
+                        if node.is_empty() {
+                            // empty tree
+                            break;
+                        }
+
+                        // put it in inmemory storage
+                        self.latest_node_id.next_id();
+                        *prev_handle = NodeHandle::InMemory(self.latest_node_id);
+                        let node = self.storage_nodes.0.entry(self.latest_node_id).insert(node);
+
+                        (self.latest_node_id, node.into_mut())
                     }
+                    NodeHandle::InMemory(node_id) => {
+                        let node_id = *node_id;
 
-                    // put it in inmemory storage
-                    self.latest_node_id.next_id();
-                    *prev_handle = NodeHandle::InMemory(self.latest_node_id);
-                    let node = self.storage_nodes.0.entry(self.latest_node_id).insert(node);
-
-                    (self.latest_node_id, node.into_mut())
-                }
-                NodeHandle::InMemory(node_id) => {
-                    let node_id = *node_id;
-
-                    let node =
-                        self.storage_nodes
-                            .0
-                            .get_mut(&node_id)
-                            .ok_or(BonsaiStorageError::Trie(
+                        let node = self.storage_nodes.0.get_mut(&node_id).ok_or(
+                            BonsaiStorageError::Trie(
                                 "Couldn't get node from temp storage".to_string(),
-                            ))?;
+                            ),
+                        )?;
 
-                    (node_id, node)
-                }
-            };
+                        (node_id, node)
+                    }
+                };
 
             nodes.push(node_id);
 
