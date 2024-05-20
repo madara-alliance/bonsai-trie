@@ -1231,7 +1231,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
                                 "Couldn't get node from temp storage".to_string(),
                             ))?;
 
-                    (node_id.clone(), node)
+                    (node_id, node)
                 }
             };
 
@@ -1272,7 +1272,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         path: &Path,
     ) -> Result<Option<Node>, BonsaiStorageError<DB::DatabaseError>> {
         let path: ByteVec = path.into();
-        db.get(&TrieKey::new(&identifier, TrieKeyType::Trie, &path))?
+        db.get(&TrieKey::new(identifier, TrieKeyType::Trie, &path))?
             .map(|node| {
                 Node::decode(&mut node.as_slice()).map_err(|err| {
                     BonsaiStorageError::Trie(format!("Couldn't decode node: {}", err))
