@@ -174,7 +174,12 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
                 // 1) We pop the first bit of the edge
                 // 2) Replace the a) node with a binary
                 // 3) Depending on the bit, one of the children is a subtree copy from b), the other one is merge a) and other child from b)
-                (Node::Edge(EdgeNode { mut path, child, .. }), Node::Binary(b)) => {
+                (
+                    Node::Edge(EdgeNode {
+                        mut path, child, ..
+                    }),
+                    Node::Binary(b),
+                ) => {
                     let mut path = mem::take(&mut path.0);
                     let removed_bit = *path.get(0).ok_or_else(|| {
                         BonsaiStorageError::Trie("storage has an edge with an empty path".into())
@@ -349,10 +354,10 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
 
                         b_node.path.0 = b_suffix.to_bitvec();
                         match a_new_edge {
-                            NodeHandle::Hash(_) => {},
+                            NodeHandle::Hash(_) => {}
                             NodeHandle::InMemory(a_new_edge) => {
                                 visit_next.push((a_new_edge, nodeid_b));
-                            },
+                            }
                         }
 
                         Node::Edge(a_node)
@@ -422,15 +427,99 @@ mod tests {
     use crate::id::BasicId;
     use crate::key_value_db::KeyValueDB;
     use crate::trie::merkle_node::{Node, NodeHandle, NodeId};
-    use crate::trie::merkle_tree::{MerkleTree, RootHandle};
+    use crate::trie::merkle_tree::{InsertOrRemove, MerkleTree, RootHandle};
+    use crate::HashMap;
 
     use bitvec::order::Msb0;
     use bitvec::vec::BitVec;
     use proptest::collection::vec;
     use proptest::prelude::*;
+    use proptest_derive::Arbitrary;
     use smallvec::smallvec;
     use starknet_types_core::felt::Felt;
     use starknet_types_core::hash::{Pedersen, StarkHash};
+
+    #[derive(Debug)]
+    struct InsertStep(BitVec<u8, Msb0>, Felt);
+
+    impl Arbitrary for InsertStep {
+        type Parameters = ();
+        type Strategy = BoxedStrategy<Self>;
+
+        fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
+            let bitvec251 = <[bool; 251]>::arbitrary()
+                .prop_map(|arr| arr.into_iter().collect::<BitVec<u8, Msb0>>());
+
+            let key = <[bool; 3]>::arbitrary()
+                .prop_map(|arr| arr.into_iter().collect::<BitVec<u8, Msb0>>());
+
+            let felt = bitvec251
+                .clone()
+                .prop_map(|vec| Felt::from_bytes_be(vec.as_raw_slice().try_into().unwrap()));
+
+            (key, felt)
+                .prop_map(|(key, felt)| InsertStep(key, felt))
+                .boxed()
+        }
+    }
+
+    #[derive(Debug, Arbitrary)]
+    enum Step {
+        Insert(InsertStep),
+        // Commit,
+    }
+
+    #[derive(Debug, Arbitrary)]
+    struct MerkleTreeInsertProblem(Vec<Step>);
+
+    impl MerkleTreeInsertProblem {
+        fn check(&self) {
+            let mut hashmap_db = KeyValueDB::<_, BasicId>::new(
+                HashMapDb::<BasicId>::default(),
+                Default::default(),
+                None,
+            );
+
+            let mut ckv = HashMap::new();
+
+            // apply steps
+            let mut tree = MerkleTree::<Pedersen>::new(smallvec![]);
+            for step in &self.0 {
+                match step {
+                    Step::Insert(InsertStep(k, v)) => {
+                        log::trace!("setting {k:#x} => {v:#}");
+                        ckv.insert(k.clone(), *v);
+                        tree.set(&hashmap_db, &k, *v).unwrap();
+                    }
+                    // Step::Commit => {
+                    //     let db_changes = tree.get_updates::<HashMapDb<BasicId>>().unwrap();
+
+                    //     let mut batch = hashmap_db.create_batch();
+                    //     for (key, value) in db_changes {
+                    //         match value {
+                    //             InsertOrRemove::Insert(value) => {
+                    //                 hashmap_db.insert(&key, &value, Some(&mut batch)).unwrap();
+                    //             }
+                    //             InsertOrRemove::Remove => {
+                    //                 hashmap_db.remove(&key, Some(&mut batch)).unwrap();
+                    //             }
+                    //         }
+                    //     }
+                    //     hashmap_db.write_batch(batch).unwrap();
+                    // }
+                }
+            }
+
+            // check
+            log::trace!("TREE");
+            tree.display();
+            for (k, v) in ckv {
+                let v2 = tree.get(&hashmap_db, &k).unwrap().unwrap_or_default();
+                log::trace!("checking {k:#x} => {v:#}, (got {v2:#})");
+                assert_eq!(v, v2)
+            }
+        }
+    }
 
     #[derive(Debug)]
     struct MerkleTreeMergeProblem {
@@ -557,18 +646,24 @@ mod tests {
             log::trace!("TARGET TREE");
             tree_total.display();
 
-            tree_a.merge::<HashMapDb::<BasicId>>(tree_b).unwrap();
+            tree_a.merge::<HashMapDb<BasicId>>(tree_b).unwrap();
 
             Self::assert_tries_equal(&tree_a, &tree_total);
         }
     }
 
-    // proptest::proptest! {
-    //     #[test]
-    //     fn merge_trees(pb in any::<MerkleTreeMergeProblem>()) {
-    //         let _ = env_logger::builder().is_test(true).try_init();
-    //         log::set_max_level(log::LevelFilter::Trace);
-    //         pb.check();
-    //     }
-    // }
+    proptest::proptest! {
+        #[test]
+        fn merge_trees(pb in any::<MerkleTreeMergeProblem>()) {
+            let _ = env_logger::builder().is_test(true).try_init();
+            log::set_max_level(log::LevelFilter::Trace);
+            pb.check();
+        }
+        #[test]
+        fn inserts(pb in any::<MerkleTreeInsertProblem>()) {
+            let _ = env_logger::builder().is_test(true).try_init();
+            log::set_max_level(log::LevelFilter::Trace);
+            pb.check();
+        }
+    }
 }

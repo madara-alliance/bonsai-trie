@@ -558,13 +558,13 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
             updates.push((node_key, InsertOrRemove::Remove));
         }
 
-        // compute hashes
-        let mut hashes = vec![];
-        self.compute_root_hash::<DB>(&mut hashes)?;
-
-        // commit the tree
         match &self.root_node {
             Some(RootHandle::Loaded(node_id)) => {
+                // compute hashes
+                let mut hashes = vec![];
+                self.compute_root_hash::<DB>(&mut hashes)?;
+
+                // commit the tree
                 self.commit_subtree::<DB>(
                     &mut updates,
                     *node_id,
@@ -1358,7 +1358,9 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
                         &self.identifier,
                         db,
                     )? {
-                        Some(node) => node,
+                        Some((node_id, node)) => {
+                            (node_id, node)
+                        },
                         None => {
                             // empty tree
                             return Ok(nodes);
