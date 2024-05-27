@@ -1,5 +1,5 @@
 use bitvec::{order::Msb0, vec::BitVec};
-use core::iter;
+use core::{fmt, iter};
 use parity_scale_codec::{Decode, Encode, Error, Input, Output};
 
 use super::merkle_node::Direction;
@@ -9,8 +9,14 @@ use crate::ByteVec;
 #[cfg(all(feature = "std", test))]
 use rstest::rstest;
 
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct Path(pub BitVec<u8, Msb0>);
+
+impl fmt::Debug for Path {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Path({:b})", &self.0)
+    }
+}
 
 impl Encode for Path {
     fn encode_to<T: Output + ?Sized>(&self, dest: &mut T) {

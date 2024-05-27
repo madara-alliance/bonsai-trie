@@ -4,10 +4,12 @@
 //! For more information about how these Starknet trees are structured, see
 //! [`MerkleTree`](super::merkle_tree::MerkleTree).
 
+use core::fmt;
+
 use bitvec::order::Msb0;
 use bitvec::slice::BitSlice;
 use parity_scale_codec::{Decode, Encode};
-use starknet_types_core::felt::Felt;
+use starknet_types_core::felt::{self, Felt};
 
 use super::path::Path;
 
@@ -36,10 +38,18 @@ pub enum Node {
     Edge(EdgeNode),
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Encode, Decode)]
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Encode, Decode)]
 pub enum NodeHandle {
     Hash(Felt),
     InMemory(NodeId),
+}
+impl fmt::Debug for NodeHandle {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            NodeHandle::Hash(felt) => write!(f, "Hash({:#x})", felt),
+            NodeHandle::InMemory(node_id) => write!(f, "InMemory({:?})", node_id),
+        }
+    }
 }
 
 /// Describes the [Node::Binary] variant.
@@ -172,11 +182,6 @@ impl BinaryNode {
 }
 
 impl Node {
-    /// Is the node a binary node.
-    pub fn is_binary(&self) -> bool {
-        matches!(self, Node::Binary(..))
-    }
-
     /// Convert to node to binary node type (returns None if it's not a binary node).
     pub fn as_binary(&self) -> Option<&BinaryNode> {
         match self {

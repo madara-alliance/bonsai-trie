@@ -439,8 +439,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         let Some(node) = node else { return Ok(None) };
 
         let node = Node::decode(&mut node.as_slice())?;
-        latest_node_id.next_id();
-        let node_id = *latest_node_id;
+        let node_id = latest_node_id.next_id();
         // Insert and return reference at the same time. Entry occupied case should not be possible.
         match storage_nodes.0.entry(node_id) {
             hash_map::Entry::Occupied(_) => Err(BonsaiStorageError::Trie(
@@ -553,6 +552,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         &mut self,
     ) -> Result<Vec<(TrieKey, InsertOrRemove<ByteVec>)>, BonsaiStorageError<DB::DatabaseError>>
     {
+
         let mut updates = vec![];
         for node_key in mem::take(&mut self.death_row) {
             updates.push((node_key, InsertOrRemove::Remove));
@@ -575,6 +575,8 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
             _ => {}
         }
 
+        self.root_node = None; // unloaded
+
         for (key, value) in mem::take(&mut self.cache_leaf_modified) {
             updates.push((
                 TrieKey::new(&self.identifier, TrieKeyType::Flat, &key),
@@ -587,7 +589,43 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
             ));
         }
         self.latest_node_id.reset();
+
+        #[cfg(test)]
+        assert_eq!(self.storage_nodes.0, [].into()); // we should have visited the whole tree
+
         Ok(updates)
+    }
+
+    // Commit a single merkle tree
+    #[cfg(test)]
+    pub(crate) fn commit<DB: BonsaiDatabase, ID: Id>(
+        &mut self,
+        db: &mut KeyValueDB<DB, ID>,
+    ) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
+        let db_changes = self.get_updates::<DB>()?;
+
+        let mut batch = db.create_batch();
+        for (key, value) in db_changes {
+            match value {
+                InsertOrRemove::Insert(value) => {
+                    log::trace!("committing insert {:?} => {:?}", key, value);
+                    db.insert(&key, &value, Some(&mut batch))?;
+                }
+                InsertOrRemove::Remove => {
+                    log::trace!("committing remove {:?}", key);
+                    db.remove(&key, Some(&mut batch))?;
+                }
+            }
+        }
+        db.write_batch(batch).unwrap();
+        log::trace!("commit finished");
+
+        Ok(())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn assert_empty(&self) {
+        assert_eq!(self.storage_nodes.0, [].into());
     }
 
     fn get_node_or_felt<DB: BonsaiDatabase>(
@@ -814,11 +852,18 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
             return self.delete_leaf(db, key);
         }
         let key_bytes = bitslice_to_bytes(key);
-        if let Some(InsertOrRemove::Insert(value_db)) = self.cache_leaf_modified.get(&key_bytes) {
-            if &value == value_db {
+        log::trace!("key_bytes: {:?}", key_bytes);
+
+        // TODO(perf): do not double lookup when changing the value later (borrow needs to be split for preload_nodes though)
+        let mut cache_leaf_entry = self.cache_leaf_modified.entry_ref(&key_bytes[..]);
+
+        if let hash_map::EntryRef::Occupied(entry) = &mut cache_leaf_entry {
+            if matches!(entry.get(), InsertOrRemove::Insert(_)) {
+                entry.insert(InsertOrRemove::Insert(value));
                 return Ok(());
             }
         }
+
         if let Some(value_db) = db.get(&TrieKey::new(
             &self.identifier,
             TrieKeyType::Flat,
@@ -845,6 +890,8 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         //    and the new leaf i.e. the split may be at the first bit (in which case there is no leading
         //    edge), or the split may be in the middle (requires both leading and post edges), or the
         //    split may be the final bit (no post edge).
+
+        log::trace!("preload nodes: {:?}", path);
         use Node::*;
         match path.last() {
             Some(node_id) => {
@@ -858,6 +905,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
                             if branch_height == key.len() {
                                 edge.child = NodeHandle::Hash(value);
                                 // The leaf already exists, we simply change its value.
+                                log::trace!("change val: {:?} => {:#x}", key_bytes, value);
                                 self.cache_leaf_modified
                                     .insert(key_bytes, InsertOrRemove::Insert(value));
                                 return;
@@ -872,6 +920,11 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
 
                             // The new leaf branch of the binary node.
                             // (this may be edge -> leaf, or just leaf depending).
+                            log::trace!(
+                                "cache_leaf_modified insert: {:?} => {:#x}",
+                                key_bytes,
+                                value
+                            );
                             self.cache_leaf_modified
                                 .insert(key_bytes, InsertOrRemove::Insert(value));
 
@@ -931,20 +984,21 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
                                     child: NodeHandle::InMemory(branch_id),
                                 })
                             };
-                            let path = key[..edge.height as usize].to_bitvec();
-                            let key_bytes = iter::once(path.len() as u8)
-                                .chain(path.as_raw_slice().iter().copied())
-                                .collect();
+                            let key_bytes = bitslice_to_bytes(&key[..edge.height as usize]);
                             self.death_row.push(TrieKey::Trie(key_bytes));
                             *node = new_node;
                         }
                         Binary(binary) => {
-                            if (binary.height + 1) as usize == key.len() {
+                            let child_height = binary.height + 1;
+
+                            if child_height as usize == key.len() {
                                 let direction = Direction::from(key[binary.height as usize]);
                                 match direction {
                                     Direction::Left => binary.left = NodeHandle::Hash(value),
                                     Direction::Right => binary.right = NodeHandle::Hash(value),
                                 };
+                                self.cache_leaf_modified
+                                    .insert(key_bytes, InsertOrRemove::Insert(value));
                             }
                         }
                     }
@@ -1004,19 +1058,25 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         //
         // Then we are done.
         let key_bytes = bitslice_to_bytes(key);
-        if db
+        let leaf_entry = self.cache_leaf_modified.entry(key_bytes.clone());
+
+        let mut tree_has_value = if let hash_map::Entry::Occupied(entry) = &leaf_entry {
+            !matches!(entry.get(), InsertOrRemove::Remove)
+        } else {
+            false
+        };
+        tree_has_value |= db
             .get(&TrieKey::new(
                 &self.identifier,
                 TrieKeyType::Flat,
                 &key_bytes,
             ))?
-            .is_none()
-            && !self.cache_leaf_modified.contains_key(&key_bytes)
-        {
+            .is_some();
+
+        if !tree_has_value {
             return Ok(());
         }
-        self.cache_leaf_modified
-            .insert(key_bytes.clone(), InsertOrRemove::Remove);
+        leaf_entry.insert(InsertOrRemove::Remove);
 
         let path = self.preload_nodes(db, key)?;
 
@@ -1024,10 +1084,14 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
 
         // Go backwards until we hit a branch node.
         let mut node_iter = path.into_iter().rev().skip_while(|node| {
-            // SAFETY: Has been populate by preload_nodes just above
-            let node = self.storage_nodes.0.get(node).unwrap();
-            match node {
-                Node::Binary(_) => {}
+            let node = match self.storage_nodes.0.entry(*node) {
+                hash_map::Entry::Occupied(entry) => entry,
+                // SAFETY: Has been populate by preload_nodes just above
+                hash_map::Entry::Vacant(_) => unreachable!(),
+            };
+
+            match node.get() {
+                Node::Binary(_) => false,
                 Node::Edge(edge) => {
                     for _ in 0..edge.path.0.len() {
                         last_binary_path.0.pop();
@@ -1038,14 +1102,26 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
                     }
                     last_binary_path = new_path;
                     let path: ByteVec = (&last_binary_path).into();
+                    log::trace!(
+                        "iter leaf={:?} edge={edge:?}",
+                        TrieKey::new(&self.identifier, TrieKeyType::Trie, &path)
+                    );
+
                     self.death_row
                         .push(TrieKey::new(&self.identifier, TrieKeyType::Trie, &path));
+                    node.remove();
+
+                    true
                 }
             }
-            !node.is_binary()
         });
         let branch_node = node_iter.next();
         let parent_branch_node = node_iter.next();
+
+        log::trace!(
+            "remove leaf branch_node={branch_node:?} parent_branch_node={parent_branch_node:?}"
+        );
+
         match branch_node {
             Some(node_id) => {
                 let new_edge =
@@ -1053,6 +1129,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
                         let node = self.storage_nodes.0.get_mut(&node_id).ok_or(
                             BonsaiStorageError::Trie("Node not found in memory".to_string()),
                         )?;
+
                         // SAFETY: This node must be a binary node due to the iteration condition.
                         let binary = node.as_binary().unwrap();
                         let (direction, height) =
@@ -1087,6 +1164,10 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
                     if let Node::Edge(parent_edge) = parent_node {
                         parent_edge.path.0.extend_from_bitslice(&new_edge.path.0);
                         parent_edge.child = new_edge.child;
+
+                        self.death_row
+                            .push(TrieKey::new(&self.identifier, TrieKeyType::Trie, &path));
+                        self.storage_nodes.0.remove(&node_id); // very sad hashbrown doesn't have a get_many_entries api, we have to double-lookup
                     } else {
                         self.storage_nodes.0.insert(node_id, Node::Edge(new_edge));
                     }
@@ -1118,13 +1199,20 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         db: &KeyValueDB<DB, ID>,
         key: &BitSlice<u8, Msb0>,
     ) -> Result<Option<Felt>, BonsaiStorageError<DB::DatabaseError>> {
+        log::trace!("get with key {:b}", key);
         let key = bitslice_to_bytes(key);
+        log::trace!("get from cache with {:?}", key);
         if let Some(value) = self.cache_leaf_modified.get(&key) {
+            log::trace!("get has cache_leaf_modified {:?} {:?}", key, value);
             match value {
                 InsertOrRemove::Remove => return Ok(None),
                 InsertOrRemove::Insert(value) => return Ok(Some(*value)),
             }
         }
+        log::trace!(
+            "get from db with key {:?}",
+            &TrieKey::new(&self.identifier, TrieKeyType::Flat, &key)
+        );
         db.get(&TrieKey::new(&self.identifier, TrieKeyType::Flat, &key))
             .map(|r| r.map(|opt| Felt::decode(&mut opt.as_slice()).unwrap()))
     }
@@ -1358,9 +1446,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
                         &self.identifier,
                         db,
                     )? {
-                        Some((node_id, node)) => {
-                            (node_id, node)
-                        },
+                        Some((node_id, node)) => (node_id, node),
                         None => {
                             // empty tree
                             return Ok(nodes);
@@ -1432,9 +1518,11 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         db: &KeyValueDB<DB, ID>,
         path: &Path,
     ) -> Result<Option<Node>, BonsaiStorageError<DB::DatabaseError>> {
+        log::trace!("getting: {:b}", path.0);
         let path: ByteVec = path.into();
         db.get(&TrieKey::new(identifier, TrieKeyType::Trie, &path))?
             .map(|node| {
+                log::trace!("got: {:?}", node);
                 Node::decode(&mut node.as_slice()).map_err(|err| {
                     BonsaiStorageError::Trie(format!("Couldn't decode node: {}", err))
                 })
@@ -1454,33 +1542,45 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
     ///
     /// * `parent` - The parent node to merge the child with.
     fn merge_edges<DB: BonsaiDatabase, ID: Id>(
-        &self,
+        &mut self,
         parent: &mut EdgeNode,
         db: &KeyValueDB<DB, ID>,
         path: &Path,
     ) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
-        let child_node = match parent.child {
+        match parent.child {
             NodeHandle::Hash(_) => {
                 let node = Self::get_trie_branch_in_db_from_path(&self.identifier, db, path)?;
-                if let Some(node) = node {
-                    node
-                } else {
-                    return Ok(());
+                log::trace!("case: Hash {:?}", node);
+                if let Some(Node::Edge(child_edge)) = node {
+                    parent.path.0.extend_from_bitslice(&child_edge.path.0);
+                    parent.child = child_edge.child;
+                    // remove node from db
+                    let path: ByteVec = path.into();
+                    self.death_row
+                        .push(TrieKey::new(&self.identifier, TrieKeyType::Trie, &path));
                 }
             }
-            NodeHandle::InMemory(child_id) => self
-                .storage_nodes
-                .0
-                .get(&child_id)
-                .ok_or(BonsaiStorageError::Trie(
-                    "Couldn't fetch node in memory".to_string(),
-                ))?
-                .clone(),
+            NodeHandle::InMemory(child_id) => {
+                let node = match self.storage_nodes.0.entry(child_id) {
+                    hash_map::Entry::Occupied(entry) => entry,
+                    hash_map::Entry::Vacant(_) => {
+                        return Err(BonsaiStorageError::Trie("getting node from memory".into()))
+                    }
+                };
+                log::trace!("case: InMemory {:?}", node.get());
+
+                if let Node::Edge(child_edge) = node.get() {
+                    parent.path.0.extend_from_bitslice(&child_edge.path.0);
+                    parent.child = child_edge.child;
+
+                    node.remove();
+
+                    let path: ByteVec = path.into();
+                    self.death_row
+                        .push(TrieKey::new(&self.identifier, TrieKeyType::Trie, &path));
+                }
+            }
         };
-        if let Node::Edge(child_edge) = child_node {
-            parent.path.0.extend_from_bitslice(&child_edge.path.0);
-            parent.child = child_edge.child;
-        }
         Ok(())
     }
 
@@ -1591,7 +1691,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
             Binary(binary) => {
                 match &binary.get_child(Direction::Left) {
                     NodeHandle::Hash(hash) => {
-                        trace!("left is hash {:?}", hash);
+                        trace!("left is hash {:#x}", hash);
                     }
                     NodeHandle::InMemory(left_id) => {
                         self.print(left_id);
@@ -1599,7 +1699,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
                 }
                 match &binary.get_child(Direction::Right) {
                     NodeHandle::Hash(hash) => {
-                        trace!("right is hash {:?}", hash);
+                        trace!("right is hash {:#x}", hash);
                     }
                     NodeHandle::InMemory(right_id) => {
                         self.print(right_id);
@@ -1608,7 +1708,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
             }
             Edge(edge) => match &edge.child {
                 NodeHandle::Hash(hash) => {
-                    trace!("child is hash {:?}", hash);
+                    trace!("child is hash {:#x}", hash);
                 }
                 NodeHandle::InMemory(child_id) => {
                     self.print(child_id);
@@ -1620,6 +1720,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
 
 pub(crate) fn bitslice_to_bytes(bitslice: &BitSlice<u8, Msb0>) -> ByteVec {
     // TODO(perf): this should not copy to a bitvec :(
+    if bitslice.is_empty() { return Default::default() } // special case: tree root
     iter::once(bitslice.len() as u8)
         .chain(bitslice.to_bitvec().as_raw_slice().iter().copied())
         .collect()
@@ -1634,7 +1735,6 @@ pub(crate) fn bytes_to_bitvec(bytes: &[u8]) -> BitVec<u8, Msb0> {
 mod tests {
     use bitvec::{order::Msb0, vec::BitVec, view::BitView};
     use indexmap::IndexMap;
-    use proptest::{arbitrary::arbitrary, strategy::Strategy};
     use starknet_types_core::{felt::Felt, hash::Pedersen};
 
     use crate::{
