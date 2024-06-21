@@ -1,9 +1,9 @@
-use crate::{ByteVec, DatabaseKey};
 use crate::{
     bonsai_database::{BonsaiPersistentDatabase, DBError},
     id::Id,
     BTreeMap, BonsaiDatabase, HashMap, Vec,
 };
+use crate::{ByteVec, DatabaseKey};
 use core::{fmt, fmt::Display};
 
 #[derive(Debug)]
@@ -57,10 +57,7 @@ impl<ID: Id> BonsaiDatabase for HashMapDb<ID> {
 
     fn create_batch(&self) -> Self::Batch {}
 
-    fn remove_by_prefix(
-        &mut self,
-        prefix: &DatabaseKey,
-    ) -> Result<(), Self::DatabaseError> {
+    fn remove_by_prefix(&mut self, prefix: &DatabaseKey) -> Result<(), Self::DatabaseError> {
         let mut keys_to_remove = Vec::new();
         let db = self.get_map_mut(prefix);
         for key in db.keys() {
@@ -74,10 +71,7 @@ impl<ID: Id> BonsaiDatabase for HashMapDb<ID> {
         Ok(())
     }
 
-    fn get(
-        &self,
-        key: &DatabaseKey,
-    ) -> Result<Option<ByteVec>, Self::DatabaseError> {
+    fn get(&self, key: &DatabaseKey) -> Result<Option<ByteVec>, Self::DatabaseError> {
         let db = &self.get_map(key);
         Ok(db.get(key.as_slice()).cloned())
     }
@@ -115,10 +109,7 @@ impl<ID: Id> BonsaiDatabase for HashMapDb<ID> {
         Ok(db.remove(key.as_slice()))
     }
 
-    fn contains(
-        &self,
-        key: &DatabaseKey,
-    ) -> Result<bool, Self::DatabaseError> {
+    fn contains(&self, key: &DatabaseKey) -> Result<bool, Self::DatabaseError> {
         let db = self.get_map(key);
         Ok(db.contains_key(key.as_slice()))
     }

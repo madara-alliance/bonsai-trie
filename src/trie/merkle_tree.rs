@@ -93,97 +93,18 @@ impl<H: StarkHash + Send + Sync, DB: BonsaiDatabase, CommitID: Id> MerkleTrees<H
         }
     }
 
-    pub(crate) fn init_tree(
-        &mut self,
-        identifier: &[u8],
-    ) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
-        let tree = MerkleTree::new(identifier.into());
-        self.trees.insert(identifier.into(), tree);
-        Ok(())
-    }
-
-    pub(crate) fn multi_set(
-        &mut self,
-        updates: impl ParallelIterator<
-            Item = (
-                Vec<u8>,
-                impl ParallelIterator<Item = (BitVec<u8, Msb0>, Felt)>,
-            ),
-        >,
-    ) -> Result<(), BonsaiStorageError<DB::DatabaseError>>
-    where
-        DB: Send + Sync,
-        CommitID: Send + Sync,
-        H: Send + Sync,
-    {
-        // double try_fold try_reduce combo yay
-        // this is based on MerkleTree merging
-
-        let merge_trees = |a: &mut HashMap<Vec<u8>, MerkleTree<H>>,
-                           b: Box<HashMap<Vec<u8>, MerkleTree<H>>>|
-         -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
-            for (k, v) in b.into_iter() {
-                match a.entry(k) {
-                    hash_map::Entry::Occupied(mut entry) => {
-                        entry.get_mut().merge::<DB>(v)?;
-                    }
-                    hash_map::Entry::Vacant(entry) => {
-                        entry.insert(v);
-                    }
-                }
-            }
-            Ok(())
-        };
-
-        let _res: Option<Box<hash_map::HashMap<Vec<u8>, MerkleTree<H>>>> = updates
-            .try_fold(
-                || Box::new(HashMap::<Vec<u8>, MerkleTree<H>>::new()),
-                |mut tries, (identifier, tree_updates)| {
-                    let identifier = &identifier[..];
-                    let tree = tree_updates
-                        .try_fold(
-                            || Box::new(MerkleTree::new(identifier.into())),
-                            |mut tree, (key, value)| {
-                                tree.set(&self.db, &key, value)?;
-                                Ok::<_, BonsaiStorageError<DB::DatabaseError>>(tree)
-                            },
-                        )
-                        .try_reduce_with(|mut a, b| {
-                            a.merge::<DB>(*b)?;
-                            Ok(a)
-                        })
-                        .transpose()?;
-
-                    if let Some(tree) = tree {
-                        tries.insert(identifier.into(), *tree);
-                    }
-                    Ok::<_, BonsaiStorageError<DB::DatabaseError>>(tries)
-                },
-            )
-            .try_reduce_with(|mut a, b| {
-                merge_trees(&mut a, b)?;
-                Ok(a)
-            })
-            .transpose()?;
-
-        todo!()
-    }
-
     pub(crate) fn set(
         &mut self,
         identifier: &[u8],
         key: &BitSlice<u8, Msb0>,
         value: Felt,
     ) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
-        let tree = self.trees.get_mut(identifier); // todo entry
-        if let Some(tree) = tree {
-            tree.set(&mut self.db, key, value)
-        } else {
-            let mut tree = MerkleTree::new(identifier.into());
-            tree.set(&mut self.db, key, value)?;
-            self.trees.insert(identifier.into(), tree);
-            Ok(())
-        }
+        let tree = self
+            .trees
+            .entry_ref(identifier)
+            .or_insert_with(|| MerkleTree::new(identifier.into()));
+
+        tree.set(&mut self.db, key, value)
     }
 
     pub(crate) fn get(
@@ -191,11 +112,10 @@ impl<H: StarkHash + Send + Sync, DB: BonsaiDatabase, CommitID: Id> MerkleTrees<H
         identifier: &[u8],
         key: &BitSlice<u8, Msb0>,
     ) -> Result<Option<Felt>, BonsaiStorageError<DB::DatabaseError>> {
-        let tree = self.trees.get(identifier);
-        if let Some(tree) = tree {
+        if let Some(tree) = self.trees.get(identifier) {
             tree.get(&self.db, key)
         } else {
-            Ok(None)
+            MerkleTree::<H>::new(identifier.into()).get(&self.db, key)
         }
     }
 
@@ -205,11 +125,10 @@ impl<H: StarkHash + Send + Sync, DB: BonsaiDatabase, CommitID: Id> MerkleTrees<H
         key: &BitSlice<u8, Msb0>,
         id: CommitID,
     ) -> Result<Option<Felt>, BonsaiStorageError<DB::DatabaseError>> {
-        let tree = self.trees.get(identifier);
-        if let Some(tree) = tree {
+        if let Some(tree) = self.trees.get(identifier) {
             tree.get_at(&self.db, key, id)
         } else {
-            Ok(None)
+            MerkleTree::<H>::new(identifier.into()).get_at(&self.db, key, id)
         }
     }
 
@@ -218,11 +137,10 @@ impl<H: StarkHash + Send + Sync, DB: BonsaiDatabase, CommitID: Id> MerkleTrees<H
         identifier: &[u8],
         key: &BitSlice<u8, Msb0>,
     ) -> Result<bool, BonsaiStorageError<DB::DatabaseError>> {
-        let tree = self.trees.get(identifier);
-        if let Some(tree) = tree {
+        if let Some(tree) = self.trees.get(identifier) {
             tree.contains(&self.db, key)
         } else {
-            Ok(false)
+            MerkleTree::<H>::new(identifier.into()).contains(&self.db, key)
         }
     }
 
@@ -233,9 +151,7 @@ impl<H: StarkHash + Send + Sync, DB: BonsaiDatabase, CommitID: Id> MerkleTrees<H
     pub(crate) fn reset_to_last_commit(
         &mut self,
     ) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
-        for tree in self.trees.values_mut() {
-            tree.reset_to_last_commit::<DB>();
-        }
+        self.trees.clear(); // just clear the map
         Ok(())
     }
 
@@ -247,11 +163,10 @@ impl<H: StarkHash + Send + Sync, DB: BonsaiDatabase, CommitID: Id> MerkleTrees<H
         &self,
         identifier: &[u8],
     ) -> Result<Felt, BonsaiStorageError<DB::DatabaseError>> {
-        let tree = self.trees.get(identifier);
-        if let Some(tree) = tree {
+        if let Some(tree) = self.trees.get(identifier) {
             Ok(tree.root_hash(&self.db)?)
         } else {
-            Err(BonsaiStorageError::Trie("Tree not found".to_string()))
+            MerkleTree::<H>::new(identifier.into()).root_hash(&self.db)
         }
     }
 
@@ -342,11 +257,10 @@ impl<H: StarkHash + Send + Sync, DB: BonsaiDatabase, CommitID: Id> MerkleTrees<H
         identifier: &[u8],
         key: &BitSlice<u8, Msb0>,
     ) -> Result<Vec<ProofNode>, BonsaiStorageError<DB::DatabaseError>> {
-        let tree = self.trees.get(identifier);
-        if let Some(tree) = tree {
+        if let Some(tree) = self.trees.get(identifier) {
             tree.get_proof(&self.db, key)
         } else {
-            Err(BonsaiStorageError::Trie("Tree not found".to_string()))
+            MerkleTree::<H>::new(identifier.into()).get_proof(&self.db, key)
         }
     }
 
@@ -535,27 +449,14 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         &self.cache_leaf_modified
     }
 
-    /// Remove all the modifications that have been done since the last commit.
-    pub fn reset_to_last_commit<DB: BonsaiDatabase>(
-        &mut self,
-        // db: &mut KeyValueDB<DB, ID>,
-    ) {
-        // let node = self
-        //     .get_trie_branch_in_db_from_path(db, &Path(BitVec::<u8, Msb0>::new()))?
-        //     .ok_or(BonsaiStorageError::Trie(
-        //         "root node doesn't exist in the storage".to_string(),
-        //     ))?;
-        // let node_hash = node.hash().ok_or(BonsaiStorageError::Trie(
-        //     "Root doesn't exist in the storage".to_string(),
-        // ))?;
-        self.death_row.clear();
-        self.latest_node_id.reset();
-        self.storage_nodes.0.clear();
-        self.cache_leaf_modified.clear();
-        self.root_node = None;
-        // self.root_handle = NodeHandle::Hash(node_hash);
-        // self.root_hash = node_hash;
-    }
+    // /// Remove all the modifications that have been done since the last commit.
+    // pub fn reset_to_last_commit(&mut self) {
+    //     self.death_row.clear();
+    //     self.latest_node_id.reset();
+    //     self.storage_nodes.0.clear();
+    //     self.cache_leaf_modified.clear();
+    //     self.root_node = None;
+    // }
 
     /// Calculate all the new hashes and the root hash.
     #[allow(clippy::type_complexity)]

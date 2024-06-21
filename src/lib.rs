@@ -246,13 +246,13 @@ where
         db: DB,
         config: BonsaiStorageConfig,
         created_at: ChangeID,
-        identifiers: impl IntoIterator<Item = impl Deref<Target = [u8]>>,
+        _identifiers: impl IntoIterator<Item = impl Deref<Target = [u8]>>,
     ) -> Result<Self, BonsaiStorageError<DB::DatabaseError>> {
         let key_value_db = KeyValueDB::new(db, config.into(), Some(created_at));
-        let mut tries = MerkleTrees::<H, DB, ChangeID>::new(key_value_db);
-        for identifier in identifiers {
-            tries.init_tree(&identifier)?;
-        }
+        let tries = MerkleTrees::<H, DB, ChangeID>::new(key_value_db);
+        // for identifier in identifiers {
+        //     tries.init_tree(&identifier)?;
+        // }
         Ok(Self { tries })
     }
 
@@ -262,9 +262,10 @@ where
     /// When you insert a value in a trie, it will automatically create the trie if it doesn't exist.
     pub fn init_tree(
         &mut self,
-        identifier: &[u8],
+        _identifier: &[u8],
     ) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
-        self.tries.init_tree(identifier)
+        todo!()
+        // self.tries.init_tree(identifier)
     }
 
     /// Insert a new key/value in the trie, overwriting the previous value if it exists.
