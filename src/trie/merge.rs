@@ -512,7 +512,7 @@ mod tests {
                     }
                     Step::Remove(k) => {
                         log::trace!("== STEP == removing {k:?}");
-                        ckv.remove(&k.0);
+                        ckv.insert(k.0.clone(), Felt::ZERO);
                         tree.set(&hashmap_db, &k.0, Felt::ZERO).unwrap();
                     }
                     Step::Commit => {
@@ -806,6 +806,63 @@ mod tests {
                     Value(Felt::from_hex("0x21").unwrap()),
                 ),
                 Commit,
+            ],
+        );
+
+        pb.check();
+    }
+
+    #[test]
+    fn test_merkle_pb_5() {
+        use Step::*;
+        let _ = env_logger::builder().is_test(true).try_init();
+        log::set_max_level(log::LevelFilter::Trace);
+        let pb = MerkleTreeInsertProblem(
+            vec![
+                Insert(
+                    Key(bitvec![u8, Msb0; 0,0,0,0,1]),
+                    Value(Felt::from_hex("0x20").unwrap()),
+                ),
+                Insert(
+                    Key(bitvec![u8, Msb0; 0,0,1,0,0]),
+                    Value(Felt::from_hex("0x20").unwrap()),
+                ),
+            ],
+        );
+
+        pb.check();
+    }
+
+    #[test]
+    fn test_merkle_pb_6() {
+        use Step::*;
+        let _ = env_logger::builder().is_test(true).try_init();
+        log::set_max_level(log::LevelFilter::Trace);
+        let pb = MerkleTreeInsertProblem(
+            vec![
+                Insert(
+                    Key(bitvec![u8, Msb0; 1,0,0,0,0]),
+                    Value(Felt::from_hex("0x20").unwrap()),
+                ),
+                Insert(
+                    Key(bitvec![u8, Msb0; 1,1,0,0,0]),
+                    Value(Felt::from_hex("0x20").unwrap()),
+                ),
+                Commit,
+                Insert(
+                    Key(bitvec![u8, Msb0; 1,1,0,1,0]),
+                    Value(Felt::from_hex("0x20").unwrap()),
+                ),
+                Insert(
+                    Key(bitvec![u8, Msb0; 1,0,0,0,0]),
+                    Value(Felt::from_hex("0x20").unwrap()),
+                ),
+                Remove(
+                    Key(bitvec![u8, Msb0; 1,0,0,0,0]),
+                ),
+                Remove(
+                    Key(bitvec![u8, Msb0; 1,0,0,0,0]),
+                ),
             ],
         );
 

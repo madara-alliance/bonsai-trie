@@ -87,6 +87,7 @@
 
 // hashbrown uses ahash by default instead of siphash
 pub(crate) type HashMap<K, V> = hashbrown::HashMap<K, V>;
+pub(crate) type HashSet<K> = hashbrown::HashSet<K>;
 pub(crate) use hashbrown::hash_map;
 
 #[cfg(not(feature = "std"))]

@@ -9,7 +9,7 @@ use core::fmt;
 use bitvec::order::Msb0;
 use bitvec::slice::BitSlice;
 use parity_scale_codec::{Decode, Encode};
-use starknet_types_core::felt::{self, Felt};
+use starknet_types_core::felt::Felt;
 
 use super::path::Path;
 
