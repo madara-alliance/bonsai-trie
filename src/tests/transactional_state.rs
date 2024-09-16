@@ -301,9 +301,8 @@ fn merge_with_uncommitted_remove() {
 
     // remove pair2 but don't commit in transational state
     bonsai_at_txn.remove(&identifier, &pair2.0).unwrap();
-    assert_eq!(
-        bonsai_at_txn.contains(&identifier, &pair2.0).unwrap(),
-        false
+    assert!(
+        !bonsai_at_txn.contains(&identifier, &pair2.0).unwrap()
     );
 
     let merge = bonsai_storage.merge(bonsai_at_txn);
@@ -318,9 +317,8 @@ fn merge_with_uncommitted_remove() {
     // commit after merge
     bonsai_storage.commit(id_builder.new_id()).unwrap();
 
-    assert_eq!(
-        bonsai_storage.contains(&identifier, &pair2.0).unwrap(),
-        false
+    assert!(
+        !bonsai_storage.contains(&identifier, &pair2.0).unwrap()
     );
 }
 
@@ -366,7 +364,7 @@ fn transactional_state_after_uncommitted() {
     // uncommitted changes, done after the transactional state was created,
     // are not included in the transactional state
     let contains = bonsai_at_txn.contains(&identifier, &pair2.0).unwrap();
-    assert_eq!(contains, false);
+    assert!(!contains);
 }
 
 #[test]

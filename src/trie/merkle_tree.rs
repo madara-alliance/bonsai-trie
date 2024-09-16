@@ -62,7 +62,7 @@ impl ProofNode {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) enum RootHandle {
     Empty,
     Loaded(NodeId),
@@ -115,7 +115,7 @@ impl<H: StarkHash + Send + Sync, DB: BonsaiDatabase, CommitID: Id> MerkleTrees<H
             .entry_ref(identifier)
             .or_insert_with(|| MerkleTree::new(identifier.into()));
 
-        tree.set(&mut self.db, key, value)
+        tree.set(&self.db, key, value)
     }
 
     pub(crate) fn get(
@@ -321,11 +321,10 @@ impl<H: StarkHash> fmt::Debug for MerkleTree<H> {
 impl<H: StarkHash> Clone for MerkleTree<H> {
     fn clone(&self) -> Self {
         Self {
-            root_handle: self.root_handle.clone(),
-            root_hash: self.root_hash.clone(),
+            root_node: self.root_node.clone(),
             identifier: self.identifier.clone(),
             storage_nodes: self.storage_nodes.clone(),
-            latest_node_id: self.latest_node_id.clone(),
+            latest_node_id: self.latest_node_id,
             death_row: self.death_row.clone(),
             cache_leaf_modified: self.cache_leaf_modified.clone(),
             _hasher: PhantomData,
@@ -489,21 +488,18 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
             updates.insert(node_key, InsertOrRemove::Remove);
         }
 
-        match &self.root_node {
-            Some(RootHandle::Loaded(node_id)) => {
-                // compute hashes
-                let mut hashes = vec![];
-                self.compute_root_hash::<DB>(&mut hashes)?;
+        if let Some(RootHandle::Loaded(node_id)) = &self.root_node {
+            // compute hashes
+            let mut hashes = vec![];
+            self.compute_root_hash::<DB>(&mut hashes)?;
 
-                // commit the tree
-                self.commit_subtree::<DB>(
-                    &mut updates,
-                    *node_id,
-                    Path(BitVec::new()),
-                    &mut hashes.drain(..),
-                )?;
-            }
-            _ => {}
+            // commit the tree
+            self.commit_subtree::<DB>(
+                &mut updates,
+                *node_id,
+                Path(BitVec::new()),
+                &mut hashes.drain(..),
+            )?;
         }
 
         self.root_node = None; // unloaded
@@ -1921,8 +1917,7 @@ mod tests {
             ),
         ];
 
-        let block_1 = vec![
-            (
+        let block_1 = [(
                 str_to_felt_bytes(
                     "0x06538fdd3aa353af8a87f5fe77d1f533ea82815076e30a86d65b72d3eb4f0b80",
                 ),
@@ -2015,8 +2010,7 @@ mod tests {
                         ),
                     ),
                 ],
-            ),
-        ];
+            )];
 
         let block_2 = vec![
             (
@@ -2104,7 +2098,7 @@ mod tests {
         for (contract_address, storage) in blocks.clone() {
             let map = storage_map
                 .entry((*contract_address).into())
-                .or_insert(IndexMap::new());
+                .or_default();
 
             for (k, v) in storage {
                 let k = Felt::from_bytes_be_slice(k);
