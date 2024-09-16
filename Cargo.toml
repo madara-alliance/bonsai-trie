@@ -54,6 +54,7 @@ indexmap = "2.2.6"
 criterion = "0.5.1"
 proptest = "1.4.0"
 proptest-derive = "0.4.0"
+serde_json = "1.0.68"
 
 [[bench]]
 name = "storage"

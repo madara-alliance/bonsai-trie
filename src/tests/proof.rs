@@ -1,5 +1,5 @@
 #![cfg(all(feature = "std", feature = "rocksdb"))]
-use bitvec::vec::BitVec;
+use bitvec::{order::Msb0, vec::BitVec, view::BitView};
 use pathfinder_common::{hash::PedersenHash, trie::TrieNode};
 use pathfinder_crypto::Felt as PathfinderFelt;
 use pathfinder_merkle_tree::tree::{MerkleTree, TestStorage};
@@ -109,6 +109,53 @@ fn assert_eq_proof(bonsai_proof: &[ProofNode], pathfinder_proof: &[TrieNode]) {
             _ => panic!("Proofs are not the same"),
         }
     }
+}
+
+#[test]
+fn debug_deoxys() {
+    // Load storage_data.json file
+    let storage_data = include_str!("storage_data.json");
+    let storage_data: Vec<Vec<(String, String)>> = serde_json::from_str(storage_data).unwrap();
+    let tempdir = tempfile::tempdir().unwrap();
+    let db = create_rocks_db(tempdir.path()).unwrap();
+    let config = BonsaiStorageConfig::default();
+    let mut storage = pathfinder_merkle_tree::tree::TestStorage::default();
+    let mut id_builder = BasicIdBuilder::new();
+    let mut bonsai_storage =
+        BonsaiStorage::<_, _, Pedersen>::new(RocksDB::new(&db, RocksDBConfig::default()), config)
+            .unwrap();
+    let mut pathfinder_merkle_tree: MerkleTree<PedersenHash, 251> =
+        pathfinder_merkle_tree::tree::MerkleTree::empty();
+    let identifier =
+        Felt::from_hex("0x04acd4b2a59eae7196f6a5c26ead8cb5f9d7ad3d911096418a23357bb2eac075")
+            .unwrap()
+            .to_bytes_be()
+            .to_vec();
+    for block_changes in storage_data.iter() {
+        for pair in block_changes.iter() {
+            let key = keyer(Felt::from_hex(&pair.0).unwrap());
+            let value = Felt::from_hex(&pair.1).unwrap();
+            bonsai_storage.insert(&identifier, &key, &value).unwrap();
+            pathfinder_merkle_tree
+                .set(
+                    &storage,
+                    key,
+                    PathfinderFelt::from_hex_str(&pair.1).unwrap(),
+                )
+                .unwrap();
+        }
+        bonsai_storage.commit(id_builder.new_id()).unwrap();
+        let (_, root_id) = commit_and_persist(pathfinder_merkle_tree.clone(), &mut storage);
+        let pathfinder_root = storage.nodes.get(&root_id).unwrap().0;
+        let bonsai_root = bonsai_storage.root_hash(&identifier).unwrap();
+        println!("{:#02x}", bonsai_root);
+        println!("{:#02x}", pathfinder_root);
+        assert_eq!(pathfinder_root.to_be_bytes(), bonsai_root.to_bytes_be());
+    }
+}
+
+fn keyer(felt: Felt) -> BitVec<u8, Msb0> {
+    felt.to_bytes_be().view_bits()[5..].to_bitvec()
 }
 
 #[test]

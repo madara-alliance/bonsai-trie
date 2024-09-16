@@ -19,8 +19,7 @@ use crate::{
 /// Crate Trie <= KeyValueDB => BonsaiDatabase
 #[cfg_attr(feature = "bench", derive(Clone))]
 #[derive(Debug)]
-pub struct KeyValueDB<DB: BonsaiDatabase, ID: Id>
-{
+pub struct KeyValueDB<DB: BonsaiDatabase, ID: Id> {
     pub(crate) db: DB,
     pub(crate) changes_store: ChangeStore<ID>,
     pub(crate) snap_holder: BTreeSet<ID>,
