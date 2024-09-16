@@ -301,9 +301,7 @@ fn merge_with_uncommitted_remove() {
 
     // remove pair2 but don't commit in transational state
     bonsai_at_txn.remove(&identifier, &pair2.0).unwrap();
-    assert!(
-        !bonsai_at_txn.contains(&identifier, &pair2.0).unwrap()
-    );
+    assert!(!bonsai_at_txn.contains(&identifier, &pair2.0).unwrap());
 
     let merge = bonsai_storage.merge(bonsai_at_txn);
     match merge {
@@ -317,9 +315,7 @@ fn merge_with_uncommitted_remove() {
     // commit after merge
     bonsai_storage.commit(id_builder.new_id()).unwrap();
 
-    assert!(
-        !bonsai_storage.contains(&identifier, &pair2.0).unwrap()
-    );
+    assert!(!bonsai_storage.contains(&identifier, &pair2.0).unwrap());
 }
 
 #[test]

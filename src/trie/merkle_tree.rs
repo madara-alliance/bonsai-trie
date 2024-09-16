@@ -1917,7 +1917,8 @@ mod tests {
             ),
         ];
 
-        let block_1 = [(
+        let block_1 = [
+            (
                 str_to_felt_bytes(
                     "0x06538fdd3aa353af8a87f5fe77d1f533ea82815076e30a86d65b72d3eb4f0b80",
                 ),
@@ -2010,7 +2011,8 @@ mod tests {
                         ),
                     ),
                 ],
-            )];
+            ),
+        ];
 
         let block_2 = vec![
             (
@@ -2096,9 +2098,7 @@ mod tests {
         // (replacements are takent into account)
         let mut storage_map = IndexMap::<ByteVec, IndexMap<Felt, Felt>>::new();
         for (contract_address, storage) in blocks.clone() {
-            let map = storage_map
-                .entry((*contract_address).into())
-                .or_default();
+            let map = storage_map.entry((*contract_address).into()).or_default();
 
             for (k, v) in storage {
                 let k = Felt::from_bytes_be_slice(k);
