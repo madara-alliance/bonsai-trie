@@ -100,7 +100,8 @@ pub(crate) use alloc::{
     vec,
     vec::Vec,
 };
-use core::ops::Deref;
+use core::{fmt, ops::Deref};
+use id::Id;
 #[cfg(feature = "std")]
 pub(crate) use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
@@ -199,13 +200,18 @@ pub struct Change {
 /// Structure that hold the trie and all the necessary information to work with it.
 ///
 /// This structure is the main entry point to work with this crate.
-pub struct BonsaiStorage<ChangeID, DB, H>
-where
-    DB: BonsaiDatabase,
-    ChangeID: id::Id,
-    H: StarkHash + Send + Sync,
-{
+pub struct BonsaiStorage<ChangeID: Id, DB: BonsaiDatabase, H: StarkHash + Send + Sync> {
     tries: MerkleTrees<H, DB, ChangeID>,
+}
+
+impl<ChangeID: Id, DB: BonsaiDatabase + fmt::Debug, H: StarkHash + Send + Sync> fmt::Debug
+    for BonsaiStorage<ChangeID, DB, H>
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("BonsaiStorage")
+            .field("tries", &self.tries)
+            .finish()
+    }
 }
 
 #[cfg(feature = "bench")]
@@ -250,22 +256,7 @@ where
     ) -> Result<Self, BonsaiStorageError<DB::DatabaseError>> {
         let key_value_db = KeyValueDB::new(db, config.into(), Some(created_at));
         let tries = MerkleTrees::<H, DB, ChangeID>::new(key_value_db);
-        // for identifier in identifiers {
-        //     tries.init_tree(&identifier)?;
-        // }
         Ok(Self { tries })
-    }
-
-    /// Initialize a new trie with the given identifier.
-    /// This function is useful when you want to create a new trie in the database without inserting any value.
-    /// If the trie already exists, it will do nothing.
-    /// When you insert a value in a trie, it will automatically create the trie if it doesn't exist.
-    pub fn init_tree(
-        &mut self,
-        _identifier: &[u8],
-    ) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
-        todo!()
-        // self.tries.init_tree(identifier)
     }
 
     /// Insert a new key/value in the trie, overwriting the previous value if it exists.
@@ -329,6 +320,8 @@ where
         &mut self,
         requested_id: ChangeID,
     ) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
+        self.tries.reset_to_last_commit()?;
+
         let kv = self.tries.db_mut();
 
         // Clear current changes
@@ -401,7 +394,6 @@ where
 
         // Write revert changes and trie logs truncation
         kv.db.write_batch(batch)?;
-        self.tries.reset_to_last_commit()?;
         Ok(())
     }
 

@@ -18,10 +18,8 @@ use crate::{
 
 /// Crate Trie <= KeyValueDB => BonsaiDatabase
 #[cfg_attr(feature = "bench", derive(Clone))]
-pub struct KeyValueDB<DB, ID>
-where
-    DB: BonsaiDatabase,
-    ID: Id,
+#[derive(Debug)]
+pub struct KeyValueDB<DB: BonsaiDatabase, ID: Id>
 {
     pub(crate) db: DB,
     pub(crate) changes_store: ChangeStore<ID>,
@@ -31,7 +29,7 @@ where
     pub(crate) created_at: Option<ID>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct KeyValueDBConfig {
     /// Maximum number of trie logs to keep in the database (None = unlimited).
     pub max_saved_trie_logs: Option<usize>,

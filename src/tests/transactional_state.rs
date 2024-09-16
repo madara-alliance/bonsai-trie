@@ -249,6 +249,8 @@ fn merge_with_uncommitted_insert() {
         )
         .unwrap();
 
+    println!("{:?}", bonsai_storage);
+
     // revert to commit
     bonsai_storage.revert_to(revert_id).unwrap();
 

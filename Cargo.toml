@@ -27,9 +27,10 @@ serde = { version = "1.0.195", default-features = false, features = [
     "derive",
     "alloc",
 ] }
-starknet-types-core = { version = "0.1", default-features = false, features = [
+starknet-types-core = { version = "0.1.5", default-features = false, features = [
     "hash",
     "parity-scale-codec",
+    "alloc",
 ] }
 
 # Optionals

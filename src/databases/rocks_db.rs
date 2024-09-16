@@ -54,6 +54,41 @@ pub struct RocksDB<'db, ID: Id> {
     snapshots: BTreeMap<ID, SnapshotWithThreadMode<'db, OptimisticTransactionDB>>,
 }
 
+impl<'db, ID: Id> fmt::Debug for RocksDB<'db, ID> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(f, "ROCKSDB_DATABASE_DUMP {{")?;
+        let handle_trie = self.db.cf_handle(TRIE_CF).expect(CF_ERROR);
+        let handle_flat = self.db.cf_handle(FLAT_CF).expect(CF_ERROR);
+        let handle_trie_log = self.db.cf_handle(TRIE_LOG_CF).expect(CF_ERROR);
+        let mut iter = self.db.raw_iterator_cf(&handle_trie);
+        iter.seek_to_first();
+        while iter.valid() {
+            let key = iter.key().unwrap();
+            let value = iter.value().unwrap();
+            writeln!(f, "{:?} => {:?},", key, value)?;
+            iter.next();
+        }
+        let mut iter = self.db.raw_iterator_cf(&handle_flat);
+        iter.seek_to_first();
+        while iter.valid() {
+            let key = iter.key().unwrap();
+            let value = iter.value().unwrap();
+            writeln!(f, "{:?} => {:?},", key, value)?;
+            iter.next();
+        }
+        let mut iter = self.db.raw_iterator_cf(&handle_trie_log);
+        iter.seek_to_first();
+        while iter.valid() {
+            let key = iter.key().unwrap();
+            let value = iter.value().unwrap();
+            writeln!(f, "{:?} => {:?},", key, value)?;
+            iter.next();
+        }
+        write!(f, "}}")?;
+        Ok(())
+    }
+}
+
 /// Configuration for RocksDB database
 pub struct RocksDBConfig {
     /// Maximum number of snapshots kept in database
@@ -151,33 +186,7 @@ where
 
     #[cfg(test)]
     fn dump_database(&self) {
-        let handle_trie = self.db.cf_handle(TRIE_CF).expect(CF_ERROR);
-        let handle_flat = self.db.cf_handle(FLAT_CF).expect(CF_ERROR);
-        let handle_trie_log = self.db.cf_handle(TRIE_LOG_CF).expect(CF_ERROR);
-        let mut iter = self.db.raw_iterator_cf(&handle_trie);
-        iter.seek_to_first();
-        while iter.valid() {
-            let key = iter.key().unwrap();
-            let value = iter.value().unwrap();
-            println!("{:?} {:?}", key, value);
-            iter.next();
-        }
-        let mut iter = self.db.raw_iterator_cf(&handle_flat);
-        iter.seek_to_first();
-        while iter.valid() {
-            let key = iter.key().unwrap();
-            let value = iter.value().unwrap();
-            println!("{:?} {:?}", key, value);
-            iter.next();
-        }
-        let mut iter = self.db.raw_iterator_cf(&handle_trie_log);
-        iter.seek_to_first();
-        while iter.valid() {
-            let key = iter.key().unwrap();
-            let value = iter.value().unwrap();
-            println!("{:?} {:?}", key, value);
-            iter.next();
-        }
+        println!("{:?}", self)
     }
 
     fn insert(

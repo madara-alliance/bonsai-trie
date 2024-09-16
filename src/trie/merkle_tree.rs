@@ -2,7 +2,7 @@ use bitvec::{
     prelude::{BitSlice, BitVec, Msb0},
     view::BitView,
 };
-use core::marker::PhantomData;
+use core::{fmt, marker::PhantomData};
 use core::{iter, mem};
 use derive_more::Constructor;
 use parity_scale_codec::Decode;
@@ -71,6 +71,17 @@ pub(crate) enum RootHandle {
 pub(crate) struct MerkleTrees<H: StarkHash + Send + Sync, DB: BonsaiDatabase, CommitID: Id> {
     pub db: KeyValueDB<DB, CommitID>,
     pub trees: HashMap<ByteVec, MerkleTree<H>>,
+}
+
+impl<H: StarkHash + Send + Sync, DB: BonsaiDatabase + fmt::Debug, CommitID: Id> fmt::Debug
+    for MerkleTrees<H, DB, CommitID>
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MerkleTrees")
+            .field("db", &self.db)
+            .field("trees", &self.trees)
+            .finish()
+    }
 }
 
 #[cfg(feature = "bench")]
@@ -276,12 +287,6 @@ impl<H: StarkHash + Send + Sync, DB: BonsaiDatabase, CommitID: Id> MerkleTrees<H
 ///
 /// For more information on how this functions internally, see [here](super::merkle_node).
 pub struct MerkleTree<H: StarkHash> {
-    /// The handle to the current root node could be hash if no modifications has been done
-    /// since the last commit or in memory if there are some modifications.
-    // root_handle: NodeHandle,
-    /// The last known root hash. Updated only each commit. (possibly outdated between two commits)
-    // root_hash: Felt,
-
     /// The root node. None means the node has not been loaded yet.
     pub(crate) root_node: Option<RootHandle>,
     /// Identifier of the tree in the database.
@@ -296,6 +301,19 @@ pub struct MerkleTree<H: StarkHash> {
     pub(crate) cache_leaf_modified: HashMap<ByteVec, InsertOrRemove<Felt>>,
     /// The hasher used to hash the nodes.
     _hasher: PhantomData<H>,
+}
+
+impl<H: StarkHash> fmt::Debug for MerkleTree<H> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MerkleTree")
+            .field("root_node", &self.root_node)
+            .field("identifier", &self.identifier)
+            .field("storage_nodes", &self.storage_nodes)
+            .field("latest_node_id", &self.latest_node_id)
+            .field("death_row", &self.death_row)
+            .field("cache_leaf_modified", &self.cache_leaf_modified)
+            .finish()
+    }
 }
 
 // NB: #[derive(Clone)] does not work because it expands to an impl block which forces H: Clone, which Pedersen/Poseidon aren't.
@@ -2063,7 +2081,6 @@ mod tests {
                 "contract address (write): {:#064x}",
                 Felt::from_bytes_be_slice(contract_address)
             );
-            assert!(bonsai.init_tree(contract_address).is_ok());
 
             for (k, v) in storage {
                 // truncate only keeps the first 251 bits in a key

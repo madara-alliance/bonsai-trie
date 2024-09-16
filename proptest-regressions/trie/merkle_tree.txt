@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 8ed2164817fe54de5eb23b134024a200ceb9c6fe2fc0835740731e9cd4326e45 # shrinks to pb = MerkleTreeInsertProblem([Insert(InsertStep(BitVec<u8, bitvec::order::Msb0> { addr: 0x7254a0004ca0, head: 000, bits: 3, capacity: 64 } [1, 0, 1], Felt(FieldElement { value: UnsignedInteger { limbs: [576460752303388688, 18446744073709551615, 18446744073709551615, 18446744073709549569] } }))), Insert(InsertStep(BitVec<u8, bitvec::order::Msb0> { addr: 0x7254a00037b0, head: 000, bits: 3, capacity: 64 } [1, 0, 0], Felt(FieldElement { value: UnsignedInteger { limbs: [576460752303406096, 18446744073709551615, 18446744073709551615, 18446744073709550593] } }))), Insert(InsertStep(BitVec<u8, bitvec::order::Msb0> { addr: 0x7254a0001b10, head: 000, bits: 3, capacity: 64 } [1, 0, 0], Felt(FieldElement { value: UnsignedInteger { limbs: [576460752303284240, 18446744073709551615, 18446744073709551615, 18446744073709543425] } })))])

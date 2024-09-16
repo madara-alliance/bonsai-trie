@@ -126,6 +126,7 @@ impl MerkleTreeInsertProblem {
 }
 
 proptest::proptest! {
+    #![proptest_config(ProptestConfig::with_cases(5))] // comment this when developing, this is mostly for faster ci & whole workspace `cargo test`
     #[test]
     fn proptest_inserts(pb in any::<MerkleTreeInsertProblem>()) {
         let _ = env_logger::builder().is_test(true).try_init();

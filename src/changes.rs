@@ -114,6 +114,7 @@ pub fn key_new_value<ID: Id>(id: &ID, key: &TrieKey) -> ByteVec {
 }
 
 #[cfg_attr(feature = "bench", derive(Clone))]
+#[derive(Debug)]
 pub struct ChangeStore<ID>
 where
     ID: Id,
