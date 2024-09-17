@@ -1,21 +1,28 @@
 use bitvec::{order::Msb0, vec::BitVec};
+use core::fmt;
 use parity_scale_codec::{Decode, Encode, Error, Input, Output};
 
 use super::merkle_node::Direction;
 
-use crate::Vec;
+use crate::{ByteVec, EncodeExt};
 
 #[cfg(all(feature = "std", test))]
 use rstest::rstest;
 
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct Path(pub BitVec<u8, Msb0>);
+
+impl fmt::Debug for Path {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Path({:b})", &self.0)
+    }
+}
 
 impl Encode for Path {
     fn encode_to<T: Output + ?Sized>(&self, dest: &mut T) {
         // Copied from scale_bits crate (https://github.com/paritytech/scale-bits/blob/820a3e8e0c9db18ef6acfa2a9a19f738400b0637/src/scale/encode_iter.rs#L28)
         // but don't use it directly to avoid copy and u32 length encoding
-        // How it works ?
+        // How it works:
         // 1. We encode the number of bits in the bitvec as a u8
         // 2. We build elements of a size of u8 using bit shifting
         // 3. A last element, not full, is created if there is a remainder of bits
@@ -103,26 +110,16 @@ impl Path {
     }
 }
 
-/// Convert Path to Vec<u8> can be used, for example, to create keys for the database
-impl From<Path> for Vec<u8> {
+/// Convert Path to SByteVec can be used, for example, to create keys for the database
+impl From<Path> for ByteVec {
     fn from(path: Path) -> Self {
-        let key = if path.0.is_empty() {
-            Vec::new()
-        } else {
-            [&[path.0.len() as u8], path.0.as_raw_slice()].concat()
-        };
-        key
+        path.encode_sbytevec()
     }
 }
 
-impl From<&Path> for Vec<u8> {
+impl From<&Path> for ByteVec {
     fn from(path: &Path) -> Self {
-        let key = if path.0.is_empty() {
-            Vec::new()
-        } else {
-            [&[path.0.len() as u8], path.0.as_raw_slice()].concat()
-        };
-        key
+        path.encode_sbytevec()
     }
 }
 

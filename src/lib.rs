@@ -87,6 +87,7 @@
 
 // hashbrown uses ahash by default instead of siphash
 pub(crate) type HashMap<K, V> = hashbrown::HashMap<K, V>;
+pub(crate) type HashSet<K> = hashbrown::HashSet<K>;
 pub(crate) use hashbrown::hash_map;
 
 #[cfg(not(feature = "std"))]
@@ -99,6 +100,8 @@ pub(crate) use alloc::{
     vec,
     vec::Vec,
 };
+use core::{fmt, ops::Deref};
+use id::Id;
 #[cfg(feature = "std")]
 pub(crate) use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
@@ -109,6 +112,26 @@ pub(crate) use std::{
 };
 
 use crate::trie::merkle_tree::MerkleTree;
+
+pub type ByteVec = smallvec::SmallVec<[u8; 32]>;
+
+pub(crate) trait EncodeExt: parity_scale_codec::Encode {
+    fn encode_sbytevec(&self) -> ByteVec {
+        struct Out(ByteVec);
+        impl parity_scale_codec::Output for Out {
+            #[inline]
+            fn write(&mut self, bytes: &[u8]) {
+                self.0.extend(bytes.iter().copied())
+            }
+        }
+
+        let mut v = Out(ByteVec::with_capacity(self.size_hint()));
+        self.encode_to(&mut v);
+        v.0
+    }
+}
+impl<T: parity_scale_codec::Encode> EncodeExt for T {}
+
 use bitvec::{order::Msb0, slice::BitSlice, vec::BitVec};
 use changes::ChangeBatch;
 use key_value_db::KeyValueDB;
@@ -177,13 +200,18 @@ pub struct Change {
 /// Structure that hold the trie and all the necessary information to work with it.
 ///
 /// This structure is the main entry point to work with this crate.
-pub struct BonsaiStorage<ChangeID, DB, H>
-where
-    DB: BonsaiDatabase,
-    ChangeID: id::Id,
-    H: StarkHash + Send + Sync,
-{
+pub struct BonsaiStorage<ChangeID: Id, DB: BonsaiDatabase, H: StarkHash + Send + Sync> {
     tries: MerkleTrees<H, DB, ChangeID>,
+}
+
+impl<ChangeID: Id, DB: BonsaiDatabase + fmt::Debug, H: StarkHash + Send + Sync> fmt::Debug
+    for BonsaiStorage<ChangeID, DB, H>
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("BonsaiStorage")
+            .field("tries", &self.tries)
+            .finish()
+    }
 }
 
 #[cfg(feature = "bench")]
@@ -224,25 +252,11 @@ where
         db: DB,
         config: BonsaiStorageConfig,
         created_at: ChangeID,
-        identifiers: Vec<Vec<u8>>,
+        _identifiers: impl IntoIterator<Item = impl Deref<Target = [u8]>>,
     ) -> Result<Self, BonsaiStorageError<DB::DatabaseError>> {
         let key_value_db = KeyValueDB::new(db, config.into(), Some(created_at));
-        let mut tries = MerkleTrees::<H, DB, ChangeID>::new(key_value_db);
-        for identifier in identifiers {
-            tries.init_tree(&identifier)?;
-        }
+        let tries = MerkleTrees::<H, DB, ChangeID>::new(key_value_db);
         Ok(Self { tries })
-    }
-
-    /// Initialize a new trie with the given identifier.
-    /// This function is useful when you want to create a new trie in the database without inserting any value.
-    /// If the trie already exists, it will do nothing.
-    /// When you insert a value in a trie, it will automatically create the trie if it doesn't exist.
-    pub fn init_tree(
-        &mut self,
-        identifier: &[u8],
-    ) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
-        self.tries.init_tree(identifier)
     }
 
     /// Insert a new key/value in the trie, overwriting the previous value if it exists.
@@ -306,6 +320,8 @@ where
         &mut self,
         requested_id: ChangeID,
     ) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
+        self.tries.reset_to_last_commit()?;
+
         let kv = self.tries.db_mut();
 
         // Clear current changes
@@ -378,7 +394,6 @@ where
 
         // Write revert changes and trie logs truncation
         kv.db.write_batch(batch)?;
-        self.tries.reset_to_last_commit()?;
         Ok(())
     }
 

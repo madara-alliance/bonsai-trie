@@ -1,10 +1,11 @@
-use crate::{hash_map::Entry, id::Id, trie::TrieKey, HashMap, Vec, VecDeque};
+use crate::{hash_map::Entry, id::Id, trie::TrieKey, ByteVec, HashMap, Vec, VecDeque};
+use core::iter;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Change {
-    pub old_value: Option<Vec<u8>>,
-    pub new_value: Option<Vec<u8>>,
+    pub old_value: Option<ByteVec>,
+    pub new_value: Option<ByteVec>,
 }
 
 #[derive(Debug, Default)]
@@ -31,7 +32,7 @@ impl ChangeBatch {
         }
     }
 
-    pub fn serialize<ID: Id>(&self, id: &ID) -> Vec<(Vec<u8>, &[u8])> {
+    pub fn serialize<ID: Id>(&self, id: &ID) -> Vec<(ByteVec, &[u8])> {
         self.0
             .iter()
             .flat_map(|(change_key, change)| {
@@ -56,7 +57,7 @@ impl ChangeBatch {
             .collect()
     }
 
-    pub fn deserialize<ID: Id>(id: &ID, changes: Vec<(Vec<u8>, Vec<u8>)>) -> Self {
+    pub fn deserialize<ID: Id>(id: &ID, changes: Vec<(ByteVec, ByteVec)>) -> Self {
         let id = id.to_bytes();
         let mut change_batch = ChangeBatch(HashMap::new());
         let mut current_change = Change::default();
@@ -69,8 +70,7 @@ impl ChangeBatch {
             let mut key = key.to_vec();
             let change_type = key.pop().unwrap();
             let key_type = key.pop().unwrap();
-            let change_key =
-                TrieKey::from_variant_and_bytes(key_type, key[id.len() + 1..].to_vec());
+            let change_key = TrieKey::from_variant_and_bytes(key_type, key[id.len() + 1..].into());
             if let Some(last_key) = last_key {
                 if last_key != change_key {
                     change_batch.insert_in_place(last_key, current_change);
@@ -93,29 +93,28 @@ impl ChangeBatch {
     }
 }
 
-pub fn key_old_value<ID: Id>(id: &ID, key: &TrieKey) -> Vec<u8> {
-    [
-        id.to_bytes().as_slice(),
-        &[KEY_SEPARATOR],
-        key.as_slice(),
-        &[key.into()],
-        &[OLD_VALUE],
-    ]
-    .concat()
+pub fn key_old_value<ID: Id>(id: &ID, key: &TrieKey) -> ByteVec {
+    id.to_bytes()
+        .into_iter()
+        .chain(iter::once(KEY_SEPARATOR))
+        .chain(key.as_slice().iter().copied())
+        .chain(iter::once(key.into()))
+        .chain(iter::once(OLD_VALUE))
+        .collect()
 }
 
-pub fn key_new_value<ID: Id>(id: &ID, key: &TrieKey) -> Vec<u8> {
-    [
-        id.to_bytes().as_slice(),
-        &[KEY_SEPARATOR],
-        key.as_slice(),
-        &[key.into()],
-        &[NEW_VALUE],
-    ]
-    .concat()
+pub fn key_new_value<ID: Id>(id: &ID, key: &TrieKey) -> ByteVec {
+    id.to_bytes()
+        .into_iter()
+        .chain(iter::once(KEY_SEPARATOR))
+        .chain(key.as_slice().iter().copied())
+        .chain(iter::once(key.into()))
+        .chain(iter::once(NEW_VALUE))
+        .collect()
 }
 
 #[cfg_attr(feature = "bench", derive(Clone))]
+#[derive(Debug)]
 pub struct ChangeStore<ID>
 where
     ID: Id,

@@ -1,14 +1,15 @@
-#![cfg(feature = "std")]
+#![allow(clippy::type_complexity)]
+#![cfg(all(feature = "std", feature = "rocksdb"))]
+
 use crate::{
     databases::{create_rocks_db, RocksDB, RocksDBConfig, RocksDBTransaction},
     id::{BasicId, BasicIdBuilder},
     BonsaiStorage, BonsaiStorageConfig,
 };
 use bitvec::vec::BitVec;
+use once_cell::sync::Lazy;
 use rocksdb::OptimisticTransactionDB;
 use starknet_types_core::{felt::Felt, hash::Pedersen};
-
-use once_cell::sync::Lazy;
 
 static PAIR1: Lazy<(BitVec<u8, bitvec::prelude::Msb0>, Felt)> = Lazy::new(|| {
     (
@@ -48,21 +49,20 @@ static PAIR3: Lazy<(BitVec<u8, bitvec::prelude::Msb0>, Felt)> = Lazy::new(|| {
 /// * `id_builder` - An instance of `BasicIdBuilder`.
 /// * `start_id` - A `BasicId` representing the commit ID of the changes made in
 ///   `bonsai_storage`.
-fn init_test<'db>(
-    db: &'db OptimisticTransactionDB,
+fn init_test(
+    db: &OptimisticTransactionDB,
 ) -> (
     Vec<u8>,
-    BonsaiStorage<BasicId, RocksDB<'db, BasicId>, Pedersen>,
-    BonsaiStorage<BasicId, RocksDBTransaction<'db>, Pedersen>,
+    BonsaiStorage<BasicId, RocksDB<'_, BasicId>, Pedersen>,
+    BonsaiStorage<BasicId, RocksDBTransaction<'_>, Pedersen>,
     BasicIdBuilder,
     BasicId,
 ) {
     let identifier = vec![];
 
     let config = BonsaiStorageConfig::default();
-    let mut bonsai_storage =
-        BonsaiStorage::new(RocksDB::new(&db, RocksDBConfig::default()), config)
-            .expect("Failed to create BonsaiStorage");
+    let mut bonsai_storage = BonsaiStorage::new(RocksDB::new(db, RocksDBConfig::default()), config)
+        .expect("Failed to create BonsaiStorage");
 
     let mut id_builder = BasicIdBuilder::new();
 
@@ -116,10 +116,7 @@ fn merge_before_simple_remove() {
     bonsai_storage.merge(bonsai_at_txn).unwrap();
     bonsai_storage.commit(id_builder.new_id()).unwrap();
 
-    assert_eq!(
-        bonsai_storage.contains(&identifier, &PAIR1.0).unwrap(),
-        false
-    );
+    assert!(!bonsai_storage.contains(&identifier, &PAIR1.0).unwrap());
 
     bonsai_storage.revert_to(start_id).unwrap();
 
@@ -142,10 +139,7 @@ fn merge_tx_commit_simple_remove() {
 
     bonsai_storage.merge(bonsai_at_txn).unwrap();
 
-    assert_eq!(
-        bonsai_storage.contains(&identifier, &PAIR1.0).unwrap(),
-        false
-    );
+    assert!(!bonsai_storage.contains(&identifier, &PAIR1.0).unwrap());
 
     bonsai_storage.revert_to(start_id).unwrap();
 
@@ -168,10 +162,7 @@ fn merge_before_simple_revert_to() {
     bonsai_storage.commit(id_builder.new_id()).unwrap();
     bonsai_storage.revert_to(start_id).unwrap();
 
-    assert_eq!(
-        bonsai_storage.get(&identifier, &PAIR2.0).unwrap().is_none(),
-        true
-    );
+    assert!(bonsai_storage.get(&identifier, &PAIR2.0).unwrap().is_none());
 }
 
 #[test]
@@ -206,19 +197,10 @@ fn merge_transactional_commit_in_txn_before() {
         bonsai_storage.get(&identifier, &PAIR2.0).unwrap(),
         Some(PAIR2.1)
     );
-    assert_eq!(
-        bonsai_storage.get(&identifier, &PAIR3.0).unwrap().is_none(),
-        true
-    );
+    assert!(bonsai_storage.get(&identifier, &PAIR3.0).unwrap().is_none());
     bonsai_storage.revert_to(start_id).unwrap();
-    assert_eq!(
-        bonsai_storage.get(&identifier, &PAIR2.0).unwrap().is_none(),
-        true
-    );
-    assert_eq!(
-        bonsai_storage.get(&identifier, &PAIR3.0).unwrap().is_none(),
-        true
-    );
+    assert!(bonsai_storage.get(&identifier, &PAIR2.0).unwrap().is_none());
+    assert!(bonsai_storage.get(&identifier, &PAIR3.0).unwrap().is_none());
 }
 
 #[test]
@@ -234,10 +216,7 @@ fn merge_transactional_commit_in_txn_before_existing_key() {
     bonsai_storage.merge(bonsai_at_txn).unwrap();
     bonsai_storage.revert_to(id2).unwrap();
 
-    assert_eq!(
-        bonsai_storage.get(&identifier, &PAIR1.0).unwrap().is_none(),
-        true
-    );
+    assert!(bonsai_storage.get(&identifier, &PAIR1.0).unwrap().is_none());
 
     bonsai_storage.revert_to(start_id).unwrap();
 

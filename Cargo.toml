@@ -17,8 +17,8 @@ derive_more = { version = "0.99.17", default-features = false, features = [
 ] }
 hashbrown = "0.14.3"
 log = "0.4.20"
-smallvec = "1.11.2"
 rayon = { version = "1.9.0", optional = true }
+smallvec = { version = "1.11.2", features = ["serde"] }
 
 parity-scale-codec = { version = "3.0.0", default-features = false, features = [
     "derive",
@@ -27,9 +27,10 @@ serde = { version = "1.0.195", default-features = false, features = [
     "derive",
     "alloc",
 ] }
-starknet-types-core = { version = "0.1", default-features = false, features = [
+starknet-types-core = { version = "0.1.5", default-features = false, features = [
     "hash",
     "parity-scale-codec",
+    "alloc",
 ] }
 
 # Optionals
@@ -45,12 +46,14 @@ pathfinder-common = { git = "https://github.com/massalabs/pathfinder.git", packa
 pathfinder-crypto = { git = "https://github.com/massalabs/pathfinder.git", package = "pathfinder-crypto", rev = "b7b6d76a76ab0e10f92e5f84ce099b5f727cb4db" }
 pathfinder-merkle-tree = { git = "https://github.com/massalabs/pathfinder.git", package = "pathfinder-merkle-tree", rev = "b7b6d76a76ab0e10f92e5f84ce099b5f727cb4db" }
 pathfinder-storage = { git = "https://github.com/massalabs/pathfinder.git", package = "pathfinder-storage", rev = "b7b6d76a76ab0e10f92e5f84ce099b5f727cb4db" }
-rand = "0.8.5"
+rand = { version = "0.8.5", features = ["small_rng"] }
 tempfile = "3.8.0"
 rstest = "0.18.2"
 test-log = "0.2.15"
 indexmap = "2.2.6"
 criterion = "0.5.1"
+proptest = "1.4.0"
+proptest-derive = "0.4.0"
 serde_json = "1.0.68"
 
 [[bench]]

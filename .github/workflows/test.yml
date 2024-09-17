@@ -37,7 +37,7 @@ jobs:
           key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ hashFiles('Cargo.lock') }}
       - name: Generate test result and coverage report
         run: |
-          cargo test $CARGO_OPTIONS --no-default-features
+          cargo test $CARGO_OPTIONS
       # - name: Upload test results
       #   uses: EnricoMi/publish-unit-test-result-action@v1
       #   with:

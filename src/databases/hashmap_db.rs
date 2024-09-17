@@ -3,6 +3,7 @@ use crate::{
     id::Id,
     BTreeMap, BonsaiDatabase, HashMap, Vec,
 };
+use crate::{ByteVec, DatabaseKey};
 use core::{fmt, fmt::Display};
 
 #[derive(Debug)]
@@ -19,10 +20,35 @@ impl Display for HashMapDbError {
 
 impl DBError for HashMapDbError {}
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Debug)]
 pub struct HashMapDb<ID: Id> {
-    db: HashMap<Vec<u8>, Vec<u8>>,
+    trie_db: HashMap<ByteVec, ByteVec>,
+    flat_db: HashMap<ByteVec, ByteVec>,
+    trie_log_db: HashMap<ByteVec, ByteVec>,
     snapshots: BTreeMap<ID, HashMapDb<ID>>,
+}
+
+impl<ID: Id> HashMapDb<ID> {
+    fn get_map(&self, key: &DatabaseKey) -> &HashMap<ByteVec, ByteVec> {
+        match key {
+            DatabaseKey::Trie(_) => &self.trie_db,
+            DatabaseKey::Flat(_) => &self.flat_db,
+            DatabaseKey::TrieLog(_) => &self.trie_log_db,
+        }
+    }
+    fn get_map_mut(&mut self, key: &DatabaseKey) -> &mut HashMap<ByteVec, ByteVec> {
+        match key {
+            DatabaseKey::Trie(_) => &mut self.trie_db,
+            DatabaseKey::Flat(_) => &mut self.flat_db,
+            DatabaseKey::TrieLog(_) => &mut self.trie_log_db,
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn assert_empty(&self) {
+        assert_eq!(self.trie_db, [].into());
+        assert_eq!(self.flat_db, [].into());
+    }
 }
 
 impl<ID: Id> BonsaiDatabase for HashMapDb<ID> {
@@ -31,35 +57,32 @@ impl<ID: Id> BonsaiDatabase for HashMapDb<ID> {
 
     fn create_batch(&self) -> Self::Batch {}
 
-    fn remove_by_prefix(
-        &mut self,
-        prefix: &crate::bonsai_database::DatabaseKey,
-    ) -> Result<(), Self::DatabaseError> {
+    fn remove_by_prefix(&mut self, prefix: &DatabaseKey) -> Result<(), Self::DatabaseError> {
         let mut keys_to_remove = Vec::new();
-        for key in self.db.keys() {
+        let db = self.get_map_mut(prefix);
+        for key in db.keys() {
             if key.starts_with(prefix.as_slice()) {
                 keys_to_remove.push(key.clone());
             }
         }
         for key in keys_to_remove {
-            self.db.remove(&key);
+            db.remove(&key);
         }
         Ok(())
     }
 
-    fn get(
-        &self,
-        key: &crate::bonsai_database::DatabaseKey,
-    ) -> Result<Option<Vec<u8>>, Self::DatabaseError> {
-        Ok(self.db.get(key.as_slice()).cloned())
+    fn get(&self, key: &DatabaseKey) -> Result<Option<ByteVec>, Self::DatabaseError> {
+        let db = &self.get_map(key);
+        Ok(db.get(key.as_slice()).cloned())
     }
 
     fn get_by_prefix(
         &self,
-        prefix: &crate::bonsai_database::DatabaseKey,
-    ) -> Result<Vec<(Vec<u8>, Vec<u8>)>, Self::DatabaseError> {
+        prefix: &DatabaseKey,
+    ) -> Result<Vec<(ByteVec, ByteVec)>, Self::DatabaseError> {
         let mut result = Vec::new();
-        for (key, value) in self.db.iter() {
+        let db = self.get_map(prefix);
+        for (key, value) in db.iter() {
             if key.starts_with(prefix.as_slice()) {
                 result.push((key.clone(), value.clone()));
             }
@@ -69,26 +92,26 @@ impl<ID: Id> BonsaiDatabase for HashMapDb<ID> {
 
     fn insert(
         &mut self,
-        key: &crate::bonsai_database::DatabaseKey,
+        key: &DatabaseKey,
         value: &[u8],
         _batch: Option<&mut Self::Batch>,
-    ) -> Result<Option<Vec<u8>>, Self::DatabaseError> {
-        Ok(self.db.insert(key.as_slice().to_vec(), value.to_vec()))
+    ) -> Result<Option<ByteVec>, Self::DatabaseError> {
+        let db = self.get_map_mut(key);
+        Ok(db.insert(key.as_slice().into(), value.into()))
     }
 
     fn remove(
         &mut self,
-        key: &crate::bonsai_database::DatabaseKey,
+        key: &DatabaseKey,
         _batch: Option<&mut Self::Batch>,
-    ) -> Result<Option<Vec<u8>>, Self::DatabaseError> {
-        Ok(self.db.remove(key.as_slice()))
+    ) -> Result<Option<ByteVec>, Self::DatabaseError> {
+        let db = self.get_map_mut(key);
+        Ok(db.remove(key.as_slice()))
     }
 
-    fn contains(
-        &self,
-        key: &crate::bonsai_database::DatabaseKey,
-    ) -> Result<bool, Self::DatabaseError> {
-        Ok(self.db.contains_key(key.as_slice()))
+    fn contains(&self, key: &DatabaseKey) -> Result<bool, Self::DatabaseError> {
+        let db = self.get_map(key);
+        Ok(db.contains_key(key.as_slice()))
     }
 
     fn write_batch(&mut self, _batch: Self::Batch) -> Result<(), Self::DatabaseError> {
@@ -97,7 +120,7 @@ impl<ID: Id> BonsaiDatabase for HashMapDb<ID> {
 
     #[cfg(test)]
     fn dump_database(&self) {
-        log::debug!("{:?}", self.db);
+        log::debug!("{:?}", self);
     }
 }
 
@@ -113,7 +136,9 @@ impl<ID: Id> BonsaiPersistentDatabase<ID> for HashMapDb<ID> {
     }
 
     fn merge(&mut self, transaction: Self::Transaction) -> Result<(), Self::DatabaseError> {
-        self.db = transaction.db;
+        self.trie_db = transaction.trie_db;
+        self.flat_db = transaction.flat_db;
+        self.trie_log_db = transaction.trie_log_db;
         Ok(())
     }
 }

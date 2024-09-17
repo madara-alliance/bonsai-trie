@@ -1,6 +1,6 @@
 use crate::{
-    changes::key_new_value, format, trie::merkle_tree::bytes_to_bitvec, BTreeSet,
-    Change as ExternChange, ToString, Vec,
+    changes::key_new_value, format, trie::merkle_tree::bytes_to_bitvec, BTreeSet, ByteVec,
+    Change as ExternChange, ToString,
 };
 use bitvec::{order::Msb0, vec::BitVec};
 use hashbrown::HashMap;
@@ -18,11 +18,8 @@ use crate::{
 
 /// Crate Trie <= KeyValueDB => BonsaiDatabase
 #[cfg_attr(feature = "bench", derive(Clone))]
-pub struct KeyValueDB<DB, ID>
-where
-    DB: BonsaiDatabase,
-    ID: Id,
-{
+#[derive(Debug)]
+pub struct KeyValueDB<DB: BonsaiDatabase, ID: Id> {
     pub(crate) db: DB,
     pub(crate) changes_store: ChangeStore<ID>,
     pub(crate) snap_holder: BTreeSet<ID>,
@@ -31,7 +28,7 @@ where
     pub(crate) created_at: Option<ID>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct KeyValueDBConfig {
     /// Maximum number of trie logs to keep in the database (None = unlimited).
     pub max_saved_trie_logs: Option<usize>,
@@ -165,7 +162,7 @@ where
     pub(crate) fn get(
         &self,
         key: &TrieKey,
-    ) -> Result<Option<Vec<u8>>, BonsaiStorageError<DB::DatabaseError>> {
+    ) -> Result<Option<ByteVec>, BonsaiStorageError<DB::DatabaseError>> {
         trace!("Getting from KeyValueDB: {:?}", key);
         Ok(self.db.get(&key.into())?)
     }
@@ -174,7 +171,7 @@ where
         &self,
         key: &TrieKey,
         id: ID,
-    ) -> Result<Option<Vec<u8>>, BonsaiStorageError<DB::DatabaseError>> {
+    ) -> Result<Option<ByteVec>, BonsaiStorageError<DB::DatabaseError>> {
         trace!("Getting from KeyValueDB: {:?} at ID: {:?}", key, id);
 
         // makes sure given id exists
@@ -226,7 +223,7 @@ where
             key.clone(),
             Change {
                 old_value,
-                new_value: Some(value.to_vec()),
+                new_value: Some(value.into()),
             },
         );
         Ok(())

@@ -1,4 +1,4 @@
-use crate::{id::Id, Vec};
+use crate::{id::Id, ByteVec, Vec};
 #[cfg(feature = "std")]
 use std::error::Error;
 
@@ -38,14 +38,14 @@ pub trait BonsaiDatabase {
     fn create_batch(&self) -> Self::Batch;
 
     /// Returns the value of the key if it exists
-    fn get(&self, key: &DatabaseKey) -> Result<Option<Vec<u8>>, Self::DatabaseError>;
+    fn get(&self, key: &DatabaseKey) -> Result<Option<ByteVec>, Self::DatabaseError>;
 
     #[allow(clippy::type_complexity)]
     /// Returns all values with keys that start with the given prefix
     fn get_by_prefix(
         &self,
         prefix: &DatabaseKey,
-    ) -> Result<Vec<(Vec<u8>, Vec<u8>)>, Self::DatabaseError>;
+    ) -> Result<Vec<(ByteVec, ByteVec)>, Self::DatabaseError>;
 
     /// Returns true if the key exists
     fn contains(&self, key: &DatabaseKey) -> Result<bool, Self::DatabaseError>;
@@ -57,7 +57,7 @@ pub trait BonsaiDatabase {
         key: &DatabaseKey,
         value: &[u8],
         batch: Option<&mut Self::Batch>,
-    ) -> Result<Option<Vec<u8>>, Self::DatabaseError>;
+    ) -> Result<Option<ByteVec>, Self::DatabaseError>;
 
     /// Remove a key-value pair, returns the old value if it existed.
     /// If a batch is provided, the change will be written in the batch instead of the database.
@@ -65,7 +65,7 @@ pub trait BonsaiDatabase {
         &mut self,
         key: &DatabaseKey,
         batch: Option<&mut Self::Batch>,
-    ) -> Result<Option<Vec<u8>>, Self::DatabaseError>;
+    ) -> Result<Option<ByteVec>, Self::DatabaseError>;
 
     /// Remove all keys that start with the given prefix
     fn remove_by_prefix(&mut self, prefix: &DatabaseKey) -> Result<(), Self::DatabaseError>;
