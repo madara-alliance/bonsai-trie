@@ -1,10 +1,8 @@
 #![cfg(all(feature = "std", feature = "rocksdb"))]
 use crate::{
-    databases::{create_rocks_db, HashMapDb, RocksDB, RocksDBConfig},
-    id::{BasicId, BasicIdBuilder},
-    BonsaiStorage, BonsaiStorageConfig, Change,
+    databases::{create_rocks_db, HashMapDb, RocksDB, RocksDBConfig}, id::{BasicId, BasicIdBuilder}, BitVec, BonsaiStorage, BonsaiStorageConfig, Change
 };
-use bitvec::{order::Msb0, vec::BitVec, view::BitView};
+use bitvec::view::BitView;
 use starknet_types_core::{felt::Felt, hash::Pedersen};
 
 #[test]
@@ -493,7 +491,7 @@ fn get_changes() {
     );
 }
 
-fn keyer(felt: Felt) -> BitVec<u8, Msb0> {
+fn keyer(felt: Felt) -> BitVec {
     felt.to_bytes_be().view_bits()[5..].to_bitvec()
 }
 

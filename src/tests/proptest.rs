@@ -1,17 +1,12 @@
 #![cfg(feature = "std")]
-
-use crate::MerkleTree;
-
-use core::fmt::{self, Debug};
-
 use crate::databases::HashMapDb;
 use crate::id::BasicId;
 use crate::key_value_db::KeyValueDB;
-use crate::HashMap;
-
+use crate::trie::merkle_tree::MerkleTree;
+use crate::{BitVec, HashMap};
+use core::fmt::{self, Debug};
 use bitvec::bitvec;
 use bitvec::order::Msb0;
-use bitvec::vec::BitVec;
 use proptest::prelude::*;
 use proptest_derive::Arbitrary;
 use smallvec::smallvec;
@@ -19,7 +14,7 @@ use starknet_types_core::felt::Felt;
 use starknet_types_core::hash::Pedersen;
 
 #[derive(PartialEq, Eq, Hash)]
-struct Key(BitVec<u8, Msb0>);
+struct Key(BitVec);
 impl fmt::Debug for Key {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:b}", self.0)
@@ -31,7 +26,7 @@ impl Arbitrary for Key {
 
     fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
         <[bool; 5]>::arbitrary()
-            .prop_map(|arr| arr.into_iter().collect::<BitVec<u8, Msb0>>())
+            .prop_map(|arr| arr.into_iter().collect::<BitVec>())
             .prop_map(Self)
             .boxed()
     }
@@ -50,7 +45,7 @@ impl Arbitrary for Value {
 
     fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
         <[bool; 251]>::arbitrary()
-            .prop_map(|arr| arr.into_iter().collect::<BitVec<u8, Msb0>>())
+            .prop_map(|arr| arr.into_iter().collect::<BitVec>())
             .prop_map(|vec| Felt::from_bytes_be(vec.as_raw_slice().try_into().unwrap()))
             .prop_map(Self)
             .boxed()
@@ -97,7 +92,7 @@ impl MerkleTreeInsertProblem {
                 }
             }
             log::trace!("TREE");
-            tree.display();
+            tree.dump();
         }
 
         // check

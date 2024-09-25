@@ -1,6 +1,5 @@
 use std::hint::black_box;
 
-use bitvec::vec::BitVec;
 use bonsai_trie::{
     databases::HashMapDb,
     id::{BasicId, BasicIdBuilder},
@@ -10,7 +9,7 @@ use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
 use rand::{prelude::*, thread_rng};
 use starknet_types_core::{
     felt::Felt,
-    hash::{Pedersen, StarkHash},
+    hash::{Pedersen, Poseidon, StarkHash},
 };
 
 mod flamegraph;
@@ -244,7 +243,7 @@ fn multiple_contracts(c: &mut Criterion) {
     });
 }
 
-fn hash(c: &mut Criterion) {
+fn pedersen_hash(c: &mut Criterion) {
     c.bench_function("pedersen hash", move |b| {
         let felt0 =
             Felt::from_hex("0x100bd6fbfced88ded1b34bd1a55b747ce3a9fde9a914bca75571e4496b56443")
@@ -258,9 +257,23 @@ fn hash(c: &mut Criterion) {
     });
 }
 
+fn poseidon_hash(c: &mut Criterion) {
+    c.bench_function("poseidon hash", move |b| {
+        let felt0 =
+            Felt::from_hex("0x100bd6fbfced88ded1b34bd1a55b747ce3a9fde9a914bca75571e4496b56443")
+                .unwrap();
+        let felt1 =
+            Felt::from_hex("0x00a038cda302fedbc4f6117648c6d3faca3cda924cb9c517b46232c6316b152f")
+                .unwrap();
+        b.iter(|| {
+            black_box(Poseidon::hash(&felt0, &felt1));
+        })
+    });
+}
+
 criterion_group! {
     name = benches;
     config = Criterion::default(); // .with_profiler(flamegraph::FlamegraphProfiler::new(100));
-    targets = storage, one_update, five_updates, hash, drop_storage, storage_with_insert, multiple_contracts
+    targets = storage, one_update, five_updates, pedersen_hash, poseidon_hash, drop_storage, storage_with_insert, multiple_contracts
 }
 criterion_main!(benches);

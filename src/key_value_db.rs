@@ -1,8 +1,7 @@
 use crate::{
-    changes::key_new_value, format, trie::merkle_tree::bytes_to_bitvec, BTreeSet, ByteVec,
+    changes::key_new_value, format, trie::merkle_tree::bytes_to_bitvec, BTreeSet, BitVec, ByteVec,
     Change as ExternChange, ToString,
 };
-use bitvec::{order::Msb0, vec::BitVec};
 use hashbrown::HashMap;
 use log::trace;
 use parity_scale_codec::Decode;
@@ -92,8 +91,7 @@ where
     pub(crate) fn get_changes(
         &self,
         id: ID,
-    ) -> Result<HashMap<BitVec<u8, Msb0>, ExternChange>, BonsaiStorageError<DB::DatabaseError>>
-    {
+    ) -> Result<HashMap<BitVec, ExternChange>, BonsaiStorageError<DB::DatabaseError>> {
         if self.changes_store.id_queue.contains(&id) {
             let mut leaf_changes = HashMap::new();
             let changes = ChangeBatch::deserialize(

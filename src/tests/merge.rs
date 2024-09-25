@@ -2,30 +2,27 @@
 #![cfg(all(feature = "std", feature = "rocksdb"))]
 
 use crate::{
-    databases::{create_rocks_db, RocksDB, RocksDBConfig, RocksDBTransaction},
-    id::{BasicId, BasicIdBuilder},
-    BonsaiStorage, BonsaiStorageConfig,
+    databases::{create_rocks_db, RocksDB, RocksDBConfig, RocksDBTransaction}, id::{BasicId, BasicIdBuilder}, BitVec, BonsaiStorage, BonsaiStorageConfig
 };
-use bitvec::vec::BitVec;
 use once_cell::sync::Lazy;
 use rocksdb::OptimisticTransactionDB;
 use starknet_types_core::{felt::Felt, hash::Pedersen};
 
-static PAIR1: Lazy<(BitVec<u8, bitvec::prelude::Msb0>, Felt)> = Lazy::new(|| {
+static PAIR1: Lazy<(BitVec, Felt)> = Lazy::new(|| {
     (
         BitVec::from_vec(vec![1, 2, 2]),
         Felt::from_hex("0x66342762FDD54D033c195fec3ce2568b62052e").unwrap(),
     )
 });
 
-static PAIR2: Lazy<(BitVec<u8, bitvec::prelude::Msb0>, Felt)> = Lazy::new(|| {
+static PAIR2: Lazy<(BitVec, Felt)> = Lazy::new(|| {
     (
         BitVec::from_vec(vec![1, 2, 3]),
         Felt::from_hex("0x66342762FD54D033c195fec3ce2568b62052e").unwrap(),
     )
 });
 
-static PAIR3: Lazy<(BitVec<u8, bitvec::prelude::Msb0>, Felt)> = Lazy::new(|| {
+static PAIR3: Lazy<(BitVec, Felt)> = Lazy::new(|| {
     (
         BitVec::from_vec(vec![1, 2, 4]),
         Felt::from_hex("0x66342762FD54D033c195fec3ce2568b62052e").unwrap(),

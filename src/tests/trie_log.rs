@@ -1,10 +1,7 @@
 #![cfg(all(feature = "std", feature = "rocksdb"))]
 use crate::{
-    databases::{create_rocks_db, RocksDB, RocksDBConfig},
-    id::BasicIdBuilder,
-    BonsaiStorage, BonsaiStorageConfig, BonsaiTrieHash,
+    databases::{create_rocks_db, RocksDB, RocksDBConfig}, id::BasicIdBuilder, BitVec, BonsaiStorage, BonsaiStorageConfig, BonsaiTrieHash
 };
-use bitvec::vec::BitVec;
 use starknet_types_core::{felt::Felt, hash::Pedersen};
 
 #[test]

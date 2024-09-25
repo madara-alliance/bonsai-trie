@@ -1,5 +1,4 @@
 #![cfg(all(feature = "std", feature = "rocksdb"))]
-use bitvec::{order::Msb0, vec::BitVec, view::BitView};
 use pathfinder_common::{hash::PedersenHash, trie::TrieNode};
 use pathfinder_crypto::Felt as PathfinderFelt;
 use pathfinder_merkle_tree::tree::{MerkleTree, TestStorage};
@@ -154,7 +153,7 @@ fn debug_deoxys() {
     }
 }
 
-fn keyer(felt: Felt) -> BitVec<u8, Msb0> {
+fn keyer(felt: Felt) -> BitVec {
     felt.to_bytes_be().view_bits()[5..].to_bitvec()
 }
 
