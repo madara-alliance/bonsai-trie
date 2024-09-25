@@ -1,5 +1,5 @@
 mod merkle_node;
-pub mod merkle_tree;
+pub mod tree;
 mod path;
 pub(crate) mod trie_db;
 // pub(crate) mod proof;

@@ -2,7 +2,7 @@
 use crate::databases::HashMapDb;
 use crate::id::BasicId;
 use crate::key_value_db::KeyValueDB;
-use crate::trie::merkle_tree::MerkleTree;
+use crate::trie::tree::MerkleTree;
 use crate::{BitVec, HashMap};
 use core::fmt::{self, Debug};
 use bitvec::bitvec;

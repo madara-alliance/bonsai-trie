@@ -128,7 +128,7 @@ pub mod id;
 
 pub use bonsai_database::{BonsaiDatabase, BonsaiPersistentDatabase, DBError, DatabaseKey};
 pub use error::BonsaiStorageError;
-pub use trie::merkle_tree::Membership;
+pub use trie::tree::Membership;
 
 #[cfg(test)]
 mod tests;
@@ -153,7 +153,7 @@ impl<T: parity_scale_codec::Encode> EncodeExt for T {}
 use changes::ChangeBatch;
 use key_value_db::KeyValueDB;
 use starknet_types_core::{felt::Felt, hash::StarkHash};
-use trie::{merkle_tree::bytes_to_bitvec, trees::MerkleTrees};
+use trie::{tree::bytes_to_bitvec, trees::MerkleTrees};
 
 /// Structure that contains the configuration for the BonsaiStorage.
 /// A default implementation is provided with coherent values.
@@ -548,7 +548,7 @@ where
         for (identifier, tree) in trees {
             for (k, op) in tree.cache_leaf_modified() {
                 match op {
-                    crate::trie::merkle_tree::InsertOrRemove::Insert(v) => {
+                    crate::trie::tree::InsertOrRemove::Insert(v) => {
                         self.insert(&identifier, &bytes_to_bitvec(k), v)
                             .map_err(|e| {
                                 BonsaiStorageError::Merge(format!(
@@ -557,7 +557,7 @@ where
                                 ))
                             })?;
                     }
-                    crate::trie::merkle_tree::InsertOrRemove::Remove => {
+                    crate::trie::tree::InsertOrRemove::Remove => {
                         self.remove(&identifier, &bytes_to_bitvec(k)).map_err(|e| {
                             BonsaiStorageError::Merge(format!(
                                 "While merging remove({:?}) faced error: {:?}",

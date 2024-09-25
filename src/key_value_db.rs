@@ -1,5 +1,5 @@
 use crate::{
-    changes::key_new_value, format, trie::merkle_tree::bytes_to_bitvec, BTreeSet, BitVec, ByteVec,
+    changes::key_new_value, format, trie::tree::bytes_to_bitvec, BTreeSet, BitVec, ByteVec,
     Change as ExternChange, ToString,
 };
 use hashbrown::HashMap;

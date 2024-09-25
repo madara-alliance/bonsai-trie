@@ -1,5 +1,5 @@
 use super::merkle_node::Direction;
-use crate::{BitSlice, BitVec, ByteVec, EncodeExt};
+use crate::{BitVec, ByteVec, EncodeExt};
 use core::{
     fmt,
     ops::{Deref, DerefMut},
@@ -27,13 +27,6 @@ impl Path {
 
     pub fn len(&self) -> usize {
         self.0.len()
-    }
-
-    /// Returns the path prefix with `other`.
-    pub(crate) fn truncate_to_shared_prefix(&mut self, other: &BitSlice) {
-        // this operation is the nightly-only slice split_once / strip_suffix_of from std which is not implemented in bitslice
-        let shared_prefix = self.iter().zip(other).take_while(|(a, b)| *a == *b).count();
-        self.truncate(shared_prefix);
     }
 }
 

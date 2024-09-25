@@ -1,6 +1,6 @@
+use bitvec::view::BitView;
 use core::{fmt, marker::PhantomData};
 use core::{iter, mem};
-use bitvec::view::BitView;
 use derive_more::Constructor;
 use parity_scale_codec::Decode;
 use starknet_types_core::{felt::Felt, hash::StarkHash};
@@ -11,6 +11,7 @@ use crate::{
     EncodeExt, HashMap, HashSet, KeyValueDB, ToString, Vec,
 };
 
+use super::iterator::MerkleTreeIterator;
 use super::{
     merkle_node::{BinaryNode, Direction, EdgeNode, Node, NodeHandle, NodeId},
     path::Path,
@@ -186,6 +187,15 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         }
     }
 
+    /// Note: as iterators load nodes from the database, this takes an &mut self. However,
+    /// note that it will not modify anything in the database - hence the &db.
+    pub fn iter<'a, DB: BonsaiDatabase, ID: Id>(
+        &'a mut self,
+        db: &'a KeyValueDB<DB, ID>,
+    ) -> MerkleTreeIterator<'a, H, DB, ID> {
+        MerkleTreeIterator::new(self, db)
+    }
+
     /// # Panics
     ///
     /// Calling this function when the tree has uncommited changes is invalid as the hashes need to be recomputed.
@@ -197,10 +207,10 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
             Some(RootHandle::Empty) => Ok(Felt::ZERO),
             Some(RootHandle::Loaded(node_id)) => {
                 let node = self.node_storage.nodes.0.get(&node_id).ok_or_else(|| {
-                    BonsaiStorageError::Trie("could not fetch root node from storage".into())
+                    BonsaiStorageError::Trie("Could not fetch root node from storage".into())
                 })?;
                 node.hash().ok_or_else(|| {
-                    BonsaiStorageError::Trie("the tree has uncommited changes".into())
+                    BonsaiStorageError::Trie("The tree has uncommited changes".into())
                 })
             }
             None => {
@@ -213,8 +223,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
                 else {
                     return Ok(Felt::ZERO);
                 };
-                // UNWRAP: the node has just been fetched
-                Ok(node.hash().unwrap())
+                Ok(node.hash().expect("The fetched node has no computed hash"))
             }
         }
     }
@@ -246,7 +255,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
                 &mut updates,
                 *node_id,
                 Path::default(),
-                &mut hashes.drain(..),
+                &mut hashes.into_iter(),
             )?;
         }
 
@@ -547,7 +556,14 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
                 return Ok(());
             }
         }
-        let (path_nodes, _path) = self.preload_nodes(db, key)?;
+        log::trace!("KEY={key:b}");
+        self.dump();
+        let mut iter = self.iter(db);
+        iter.seek_to(key)?;
+        log::trace!("iter={iter:?}");
+        let path_nodes_ = iter.cur_path_nodes_heights.into_iter().map(|n| n.0).collect::<Vec<_>>();
+        // let (path_nodes, _path) = self.preload_nodes(db, key)?;
+        // assert_eq!(path_nodes_, path_nodes);
         // There are three possibilities.
         //
         // 1. The leaf exists, in which case we simply change its value.

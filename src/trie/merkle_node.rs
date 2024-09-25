@@ -207,6 +207,20 @@ impl EdgeNode {
             == key[(self.height as usize)..(self.height + self.path.0.len() as u64) as usize]
     }
 
+    pub fn path_matches_(&self, key: &BitSlice, node_height: usize) -> bool {
+        assert_eq!(self.height as usize, node_height);
+        let lower_bound = node_height.min(key.len());
+        let upper_bound = (node_height + self.path.0.len()).min(key.len());
+        log::trace!(
+            "path_matches {:b}{lower_bound}..{upper_bound} ({}) - {:b}0..{}",
+            &key[lower_bound..upper_bound],
+            upper_bound - lower_bound,
+            self.path.0,
+            self.path.len()
+        );
+        self.path.starts_with(&key[lower_bound..upper_bound])
+    }
+
     /// Returns the common bit prefix between the edge node's path and the given key.
     ///
     /// This is calculated with the edge's height taken into account.
