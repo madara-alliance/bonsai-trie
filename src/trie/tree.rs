@@ -556,14 +556,12 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
                 return Ok(());
             }
         }
-        log::trace!("KEY={key:b}");
-        self.dump();
         let mut iter = self.iter(db);
         iter.seek_to(key)?;
         log::trace!("iter={iter:?}");
         let path_nodes_ = iter.cur_path_nodes_heights.into_iter().map(|n| n.0).collect::<Vec<_>>();
-        // let (path_nodes, _path) = self.preload_nodes(db, key)?;
-        // assert_eq!(path_nodes_, path_nodes);
+        let (path_nodes, _path) = self.preload_nodes(db, key)?;
+        assert_eq!(path_nodes_, path_nodes);
         // There are three possibilities.
         //
         // 1. The leaf exists, in which case we simply change its value.
