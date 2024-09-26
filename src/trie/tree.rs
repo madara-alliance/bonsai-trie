@@ -22,12 +22,6 @@ use super::{
 #[cfg(test)]
 use log::trace;
 
-#[derive(Debug, PartialEq, Eq)]
-pub enum Membership {
-    Member,
-    NonMember,
-}
-
 /// Wrapper type for a [HashMap<NodeId, Node>] object. (It's not really a wrapper it's a
 /// copy of the type but we implement the necessary traits.)
 #[derive(Clone, Debug, PartialEq, Eq, Default, Constructor)]
@@ -97,11 +91,11 @@ impl NodesMapping {
     /// This allows to update the parent node pointer in the first step, which cannot be done in the second
     /// step without having to drop the &mut Node because it borrows into the node storage. The alternative
     /// would involve a double-lookup.
-    pub(crate) fn load_db_node_to_id<'a, DB: BonsaiDatabase>(
-        &'a mut self,
+    pub(crate) fn load_db_node_to_id<DB: BonsaiDatabase>(
+        &mut self,
         target_id: NodeId,
         db_node: Node,
-    ) -> Result<&'a mut Node, BonsaiStorageError<DB::DatabaseError>> {
+    ) -> Result<&mut Node, BonsaiStorageError<DB::DatabaseError>> {
         // Insert and return reference at the same time. Entry occupied case should not be possible.
         match self.0.entry(target_id) {
             hash_map::Entry::Occupied(_) => Err(BonsaiStorageError::Trie(
@@ -112,7 +106,7 @@ impl NodesMapping {
     }
 
     /// First step of two phase init.
-    pub(crate) fn load_db_node_get_id<'a, DB: BonsaiDatabase, ID: Id>(
+    pub(crate) fn load_db_node_get_id<DB: BonsaiDatabase, ID: Id>(
         latest_node_id: &mut NodeId,
         death_row: &HashSet<TrieKey>,
         db: &KeyValueDB<DB, ID>,

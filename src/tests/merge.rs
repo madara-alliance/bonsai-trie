@@ -2,7 +2,9 @@
 #![cfg(all(feature = "std", feature = "rocksdb"))]
 
 use crate::{
-    databases::{create_rocks_db, RocksDB, RocksDBConfig, RocksDBTransaction}, id::{BasicId, BasicIdBuilder}, BitVec, BonsaiStorage, BonsaiStorageConfig
+    databases::{create_rocks_db, RocksDB, RocksDBConfig, RocksDBTransaction},
+    id::{BasicId, BasicIdBuilder},
+    BitVec, BonsaiStorage, BonsaiStorageConfig,
 };
 use once_cell::sync::Lazy;
 use rocksdb::OptimisticTransactionDB;

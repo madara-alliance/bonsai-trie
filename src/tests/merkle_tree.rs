@@ -4,7 +4,9 @@ use indexmap::IndexMap;
 use starknet_types_core::{felt::Felt, hash::Pedersen};
 
 use crate::{
-    databases::{create_rocks_db, RocksDB, RocksDBConfig}, id::BasicId, BitVec, BonsaiStorage, BonsaiStorageConfig, ByteVec
+    databases::{create_rocks_db, RocksDB, RocksDBConfig},
+    id::BasicId,
+    BitVec, BonsaiStorage, BonsaiStorageConfig, ByteVec,
 };
 
 #[test_log::test]

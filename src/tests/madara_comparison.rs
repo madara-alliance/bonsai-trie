@@ -3,7 +3,9 @@ use bitvec::{bits, order::Msb0};
 use starknet_types_core::{felt::Felt, hash::Pedersen};
 
 use crate::{
-    databases::{create_rocks_db, RocksDB, RocksDBConfig}, id::BasicIdBuilder, BitVec, BonsaiStorage, BonsaiStorageConfig
+    databases::{create_rocks_db, RocksDB, RocksDBConfig},
+    id::BasicIdBuilder,
+    BitVec, BonsaiStorage, BonsaiStorageConfig,
 };
 
 #[test]

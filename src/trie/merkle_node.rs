@@ -57,6 +57,7 @@ pub struct BinaryNode {
     /// has not yet been committed.
     pub hash: Option<Felt>,
     /// The height of this node in the tree.
+    // TODO: this field will be removed in the future.
     pub height: u64,
     /// [Left](Direction::Left) child.
     pub left: NodeHandle,
@@ -71,6 +72,7 @@ pub struct EdgeNode {
     /// has not yet been committed.
     pub hash: Option<Felt>,
     /// The starting height of this node in the tree.
+    // TODO: this field will be removed in the future.
     pub height: u64,
     /// The path this edge takes.
     pub path: Path,
@@ -202,12 +204,8 @@ impl EdgeNode {
     /// # Arguments
     ///
     /// * `key` - The key to check if the path matches with the edge node.
-    pub fn path_matches(&self, key: &BitSlice) -> bool {
-        self.path.0
-            == key[(self.height as usize)..(self.height + self.path.0.len() as u64) as usize]
-    }
-
-    pub fn path_matches_(&self, key: &BitSlice, node_height: usize) -> bool {
+    /// * `node_height` - The height of the edge node.
+    pub fn path_matches(&self, key: &BitSlice, node_height: usize) -> bool {
         assert_eq!(self.height as usize, node_height);
         let lower_bound = node_height.min(key.len());
         let upper_bound = (node_height + self.path.0.len()).min(key.len());
@@ -251,7 +249,7 @@ fn test_path_matches_basic() {
     };
 
     let key = BitSlice::from_slice(&[0b10101010, 0b01010101, 0b10101010, 0b01010101]);
-    assert!(edge.path_matches(key));
+    assert!(edge.path_matches(key, 0));
 }
 
 #[test]
@@ -266,7 +264,7 @@ fn test_path_matches_with_height() {
     };
 
     let key = BitSlice::from_slice(&[0b10101010, 0b10101010, 0b01010101, 0b10101010, 0b01010101]);
-    assert!(edge.path_matches(key));
+    assert!(edge.path_matches(key, 8));
 }
 
 #[test]
@@ -283,7 +281,7 @@ fn test_path_matches_only_part_with_height() {
     let key = BitSlice::from_slice(&[
         0b10101010, 0b10101010, 0b01010101, 0b10101010, 0b01010101, 0b10101010,
     ]);
-    assert!(edge.path_matches(key));
+    assert!(edge.path_matches(key, 8));
 }
 
 #[test]
@@ -298,7 +296,7 @@ fn test_path_dont_match() {
     };
 
     let key = BitSlice::from_slice(&[0b10101010, 0b01010101, 0b10101010, 0b01010101, 0b10101010]);
-    assert!(!edge.path_matches(key));
+    assert!(!edge.path_matches(key, 0));
 }
 
 #[test]

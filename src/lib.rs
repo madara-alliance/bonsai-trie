@@ -128,7 +128,7 @@ pub mod id;
 
 pub use bonsai_database::{BonsaiDatabase, BonsaiPersistentDatabase, DBError, DatabaseKey};
 pub use error::BonsaiStorageError;
-pub use trie::tree::Membership;
+pub use trie::proof::Membership;
 
 #[cfg(test)]
 mod tests;

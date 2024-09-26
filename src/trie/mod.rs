@@ -1,9 +1,9 @@
-mod merkle_node;
-pub mod tree;
-mod path;
-pub(crate) mod trie_db;
-// pub(crate) mod proof;
 pub(crate) mod iterator;
+mod merkle_node;
+mod path;
+pub(crate) mod proof;
+pub mod tree;
 pub(crate) mod trees;
+pub(crate) mod trie_db;
 
 pub(crate) use trie_db::TrieKey;

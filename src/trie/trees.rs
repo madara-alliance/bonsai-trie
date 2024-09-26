@@ -1,6 +1,7 @@
 use super::tree::MerkleTree;
 use crate::{
-    id::Id, key_value_db::KeyValueDB, trie::tree::InsertOrRemove, BitSlice, BonsaiDatabase, BonsaiStorageError, ByteVec, HashMap
+    id::Id, key_value_db::KeyValueDB, trie::tree::InsertOrRemove, BitSlice, BonsaiDatabase,
+    BonsaiStorageError, ByteVec, HashMap,
 };
 use core::fmt;
 use starknet_types_core::{felt::Felt, hash::StarkHash};
