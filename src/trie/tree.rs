@@ -70,7 +70,7 @@ impl NodesMapping {
             // funky thinggy to make borrow checker happy
             root_node @ None => {
                 // load the node
-                let node = self.load_db_node(
+                let node = Self::load_db_node_get_id(
                     latest_node_id,
                     death_row,
                     db,
@@ -79,6 +79,7 @@ impl NodesMapping {
 
                 match node {
                     Some((id, n)) => {
+                        let n = self.load_db_node_to_id::<DB>(id, n)?;
                         *root_node = Some(RootHandle::Loaded(id));
                         Ok(Some((id, n)))
                     }
@@ -91,29 +92,41 @@ impl NodesMapping {
         }
     }
 
-    pub(crate) fn load_db_node<'a, DB: BonsaiDatabase, ID: Id>(
+    /// Two phase init: first get a new slot, which does not borrow into the node storage
+    /// Then, set the node at that target.
+    /// This allows to update the parent node pointer in the first step, which cannot be done in the second
+    /// step without having to drop the &mut Node because it borrows into the node storage. The alternative
+    /// would involve a double-lookup.
+    pub(crate) fn load_db_node_to_id<'a, DB: BonsaiDatabase>(
         &'a mut self,
+        target_id: NodeId,
+        db_node: Node,
+    ) -> Result<&'a mut Node, BonsaiStorageError<DB::DatabaseError>> {
+        // Insert and return reference at the same time. Entry occupied case should not be possible.
+        match self.0.entry(target_id) {
+            hash_map::Entry::Occupied(_) => Err(BonsaiStorageError::Trie(
+                "Duplicate node id in storage".to_string(),
+            )),
+            hash_map::Entry::Vacant(entry) => Ok(entry.insert(db_node)),
+        }
+    }
+
+    /// First step of two phase init.
+    pub(crate) fn load_db_node_get_id<'a, DB: BonsaiDatabase, ID: Id>(
         latest_node_id: &mut NodeId,
         death_row: &HashSet<TrieKey>,
         db: &KeyValueDB<DB, ID>,
         key: &TrieKey,
-    ) -> Result<Option<(NodeId, &'a mut Node)>, BonsaiStorageError<DB::DatabaseError>> {
+    ) -> Result<Option<(NodeId, Node)>, BonsaiStorageError<DB::DatabaseError>> {
         if death_row.contains(key) {
             return Ok(None);
         }
-
         let node = db.get(key)?;
         let Some(node) = node else { return Ok(None) };
 
         let node = Node::decode(&mut node.as_slice())?;
         let node_id = latest_node_id.next_id();
-        // Insert and return reference at the same time. Entry occupied case should not be possible.
-        match self.0.entry(node_id) {
-            hash_map::Entry::Occupied(_) => Err(BonsaiStorageError::Trie(
-                "duplicate node id in storage".to_string(),
-            )),
-            hash_map::Entry::Vacant(entry) => Ok(Some((node_id, entry.insert(node)))),
-        }
+        Ok(Some((node_id, node)))
     }
 }
 
@@ -556,12 +569,11 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
                 return Ok(());
             }
         }
+
         let mut iter = self.iter(db);
         iter.seek_to(key)?;
-        log::trace!("iter={iter:?}");
-        let path_nodes_ = iter.cur_path_nodes_heights.into_iter().map(|n| n.0).collect::<Vec<_>>();
-        let (path_nodes, _path) = self.preload_nodes(db, key)?;
-        assert_eq!(path_nodes_, path_nodes);
+        let path_nodes = iter.cur_path_nodes_heights;
+
         // There are three possibilities.
         //
         // 1. The leaf exists, in which case we simply change its value.
@@ -582,7 +594,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         log::trace!("preload nodes: {:?}", path_nodes);
         use Node::*;
         match path_nodes.last() {
-            Some(node_id) => {
+            Some((node_id, _)) => {
                 let mut nodes_to_add = Vec::new();
                 self.node_storage
                     .nodes
@@ -771,12 +783,14 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         }
         leaf_entry.insert(InsertOrRemove::Remove);
 
-        let (path_nodes, _path) = self.preload_nodes(db, key)?;
+        let mut iter = self.iter(db);
+        iter.seek_to(key)?;
+        let path_nodes = iter.cur_path_nodes_heights;
 
         let mut last_binary_path = Path(key.to_bitvec());
 
         // Go backwards until we hit a branch node.
-        let mut node_iter = path_nodes.into_iter().rev().skip_while(|node| {
+        let mut node_iter = path_nodes.into_iter().rev().skip_while(|(node, _)| {
             let node = match self.node_storage.nodes.0.entry(*node) {
                 hash_map::Entry::Occupied(entry) => entry,
                 // SAFETY: Has been populate by preload_nodes just above
@@ -816,7 +830,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         );
 
         match branch_node {
-            Some(node_id) => {
+            Some((node_id, _)) => {
                 let (new_edge, par_path) = {
                     let node = self.node_storage.nodes.0.get_mut(&node_id).ok_or(
                         BonsaiStorageError::Trie("Node not found in memory".to_string()),
@@ -848,7 +862,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
                     (edge, cl)
                 };
                 // Check the parent of the new edge. If it is also an edge, then they must merge.
-                if let Some(parent_node_id) = parent_branch_node {
+                if let Some((parent_node_id, _)) = parent_branch_node {
                     // Get a mutable reference to the parent node to merge them
                     let parent_node = self.node_storage.nodes.0.get_mut(&parent_node_id).ok_or(
                         BonsaiStorageError::Trie("Node not found in memory".to_string()),
@@ -952,121 +966,6 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
             }
         }
         db.contains(&TrieKey::new(&self.identifier, TrieKeyType::Flat, &key))
-    }
-
-    /// preload_nodes from the current root towards the destination [Leaf](Node::Leaf) node.
-    /// If the destination node exists, it will be the final node in the list.
-    ///
-    /// This means that the final node will always be either a the destination [Leaf](Node::Leaf)
-    /// node, or an [Edge](Node::Edge) node who's path suffix does not match the leaf's path.
-    ///
-    /// The final node can __not__ be a [Binary](Node::Binary) node since it would always be
-    /// possible to continue on towards the destination. Nor can it be an
-    /// [Unresolved](Node::Unresolved) node since this would be resolved to check if we can
-    /// travel further.
-    ///
-    /// # Arguments
-    ///
-    /// * `dst` - The node to get to.
-    ///
-    /// # Returns
-    ///
-    /// The list of nodes along the path.
-    fn preload_nodes<DB: BonsaiDatabase, ID: Id>(
-        &mut self,
-        db: &KeyValueDB<DB, ID>,
-        dst: &BitSlice,
-    ) -> Result<(Vec<NodeId>, Path), BonsaiStorageError<DB::DatabaseError>> {
-        let mut nodes = Vec::with_capacity(251);
-        let mut path = Path::default();
-
-        let mut prev_handle = None::<&mut NodeHandle>; // None signals tree root
-
-        loop {
-            // get node from cache or database
-            let (node_id, node) = match prev_handle {
-                // tree root
-                None => {
-                    match self.node_storage.nodes.get_root_node(
-                        &mut self.node_storage.root_node,
-                        &mut self.node_storage.latest_node_id,
-                        &self.death_row,
-                        &self.identifier,
-                        db,
-                    )? {
-                        Some((node_id, node)) => (node_id, node),
-                        None => {
-                            // empty tree
-                            return Ok((nodes, path));
-                        }
-                    }
-                }
-                // not tree root
-                Some(prev_handle) => match prev_handle {
-                    NodeHandle::Hash(_) => {
-                        // load from db
-                        let Some(node) = Self::get_trie_branch_in_db_from_path(
-                            &self.death_row,
-                            &self.identifier,
-                            db,
-                            &path,
-                        )?
-                        else {
-                            // end of path traversal
-                            break;
-                        };
-
-                        // put it in inmemory storage
-                        self.node_storage.latest_node_id.next_id();
-                        *prev_handle = NodeHandle::InMemory(self.node_storage.latest_node_id);
-                        let node = self
-                            .node_storage
-                            .nodes
-                            .0
-                            .entry(self.node_storage.latest_node_id)
-                            .insert(node);
-
-                        (self.node_storage.latest_node_id, node.into_mut())
-                    }
-                    NodeHandle::InMemory(node_id) => {
-                        let node_id = *node_id;
-
-                        let node = self.node_storage.nodes.0.get_mut(&node_id).ok_or(
-                            BonsaiStorageError::Trie(
-                                "Couldn't get node from temp storage".to_string(),
-                            ),
-                        )?;
-
-                        (node_id, node)
-                    }
-                },
-            };
-
-            nodes.push(node_id);
-
-            // visit the child
-            match node {
-                Node::Binary(binary_node) => {
-                    let next_direction = binary_node.direction(dst);
-                    path.0.push(bool::from(next_direction));
-                    prev_handle = Some(binary_node.get_child_mut(next_direction));
-                }
-
-                Node::Edge(edge_node) if edge_node.path_matches(dst) => {
-                    path.0.extend_from_bitslice(&edge_node.path.0);
-                    if path.0 == dst {
-                        break; // found it :)
-                    }
-
-                    prev_handle = Some(&mut edge_node.child);
-                }
-
-                // We are in a case where the edge node doesn't match the path we want to preload so we return nothing.
-                Node::Edge(_) => break,
-            }
-        }
-
-        Ok((nodes, path))
     }
 
     /// Get the node of the trie that corresponds to the path.

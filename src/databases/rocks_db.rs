@@ -173,6 +173,12 @@ pub struct RocksDBTransaction<'a> {
     column_families: HashMap<String, ColumnFamilyRef<'a>>,
 }
 
+impl<'a> fmt::Debug for RocksDBTransaction<'a> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("RocksDBTransaction").finish()
+    }
+}
+
 impl<'db, ID> BonsaiDatabase for RocksDB<'db, ID>
 where
     ID: Id,

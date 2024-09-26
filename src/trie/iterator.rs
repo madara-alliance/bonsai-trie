@@ -6,7 +6,7 @@ use super::{
     TrieKey,
 };
 use crate::{
-    id::Id, key_value_db::KeyValueDB, BitSlice, BonsaiDatabase, BonsaiStorageError, ByteVec,
+    id::Id, key_value_db::KeyValueDB, trie::tree::NodesMapping, BitSlice, BonsaiDatabase, BonsaiStorageError, ByteVec
 };
 use core::fmt;
 use starknet_types_core::hash::StarkHash;
@@ -42,6 +42,7 @@ impl<'a, H: StarkHash, DB: BonsaiDatabase, ID: Id> MerkleTreeIterator<'a, H, DB,
         }
     }
 
+    #[cfg(test)]
     pub fn cur_nodes(&self) -> Vec<NodeId> {
         self.cur_path_nodes_heights
             .iter()
@@ -164,7 +165,7 @@ impl<'a, H: StarkHash, DB: BonsaiDatabase, ID: Id> MerkleTreeIterator<'a, H, DB,
                         let path: ByteVec = self.current_path.clone().into();
                         log::trace!("Visiting db node {:?}", self.current_path);
                         let key = TrieKey::new(&self.tree.identifier, TrieKeyType::Trie, &path);
-                        let Some((node_id, node)) = self.tree.node_storage.nodes.load_db_node(
+                        let Some((node_id, node)) = NodesMapping::load_db_node_get_id(
                             &mut self.tree.node_storage.latest_node_id,
                             &self.tree.death_row,
                             &self.db,
@@ -176,6 +177,8 @@ impl<'a, H: StarkHash, DB: BonsaiDatabase, ID: Id> MerkleTreeIterator<'a, H, DB,
                                 "Could not get node from db".to_string(),
                             ));
                         };
+                        *next_to_visit = NodeHandle::InMemory(node_id);
+                        let node = self.tree.node_storage.nodes.load_db_node_to_id::<DB>(node_id, node)?;
                         (node_id, node)
                     }
                     NodeHandle::InMemory(node_id) => {
@@ -291,17 +294,26 @@ mod tests {
         // from scratch, should find the leaf
         iter.seek_to(&bits![u8, Msb0; 0,0,0,1,0,0,0,0]).unwrap();
         assert_eq!(iter.current_value, Some(NodeHandle::Hash(ONE)));
-        assert_eq!(iter.cur_nodes(), vec![NodeId(1), NodeId(7), NodeId(6), NodeId(4), NodeId(2)]);
+        assert_eq!(
+            iter.cur_nodes(),
+            vec![NodeId(1), NodeId(7), NodeId(6), NodeId(4), NodeId(2)]
+        );
         println!("{iter:?}");
         // from a closeby leaf, should backtrack and find the next one
         iter.seek_to(&bits![u8, Msb0; 0,0,0,1,0,0,0,1]).unwrap();
         assert_eq!(iter.current_value, Some(NodeHandle::Hash(TWO)));
-        assert_eq!(iter.cur_nodes(), vec![NodeId(1), NodeId(7), NodeId(6), NodeId(4), NodeId(2)]);
+        assert_eq!(
+            iter.cur_nodes(),
+            vec![NodeId(1), NodeId(7), NodeId(6), NodeId(4), NodeId(2)]
+        );
         println!("{iter:?}");
         // backtrack farther, should find the leaf
         iter.seek_to(&bits![u8, Msb0; 0,0,0,1,0,0,1,0]).unwrap();
         assert_eq!(iter.current_value, Some(NodeHandle::Hash(THREE)));
-        assert_eq!(iter.cur_nodes(), vec![NodeId(1), NodeId(7), NodeId(6), NodeId(4), NodeId(3)]);
+        assert_eq!(
+            iter.cur_nodes(),
+            vec![NodeId(1), NodeId(7), NodeId(6), NodeId(4), NodeId(3)]
+        );
         println!("{iter:?}");
         // backtrack farther, should find the leaf
         iter.seek_to(&bits![u8, Msb0; 0,1,0,0,0,0,0,0]).unwrap();
@@ -312,7 +324,10 @@ mod tests {
         // similar case
         iter.seek_to(&bits![u8, Msb0; 0,0,0,1,0,0,0,1]).unwrap();
         assert_eq!(iter.current_value, Some(NodeHandle::Hash(TWO)));
-        assert_eq!(iter.cur_nodes(), vec![NodeId(1), NodeId(7), NodeId(6), NodeId(4), NodeId(2)]);
+        assert_eq!(
+            iter.cur_nodes(),
+            vec![NodeId(1), NodeId(7), NodeId(6), NodeId(4), NodeId(2)]
+        );
         println!("{iter:?}");
 
         // SEEK MIDWAY INTO THE TREE
@@ -340,7 +355,10 @@ mod tests {
         // The current value should reflect the binary node
         assert_eq!(iter.current_value, Some(NodeHandle::InMemory(NodeId(2))));
         assert_eq!(iter.current_path.0, bits![u8, Msb0; 0,0,0,1,0,0,0]);
-        assert_eq!(iter.cur_nodes(), vec![NodeId(1), NodeId(7), NodeId(6), NodeId(4)]);
+        assert_eq!(
+            iter.cur_nodes(),
+            vec![NodeId(1), NodeId(7), NodeId(6), NodeId(4)]
+        );
         println!("{iter:?}");
 
         // jump to the end of an edge

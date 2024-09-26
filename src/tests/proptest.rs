@@ -4,9 +4,9 @@ use crate::id::BasicId;
 use crate::key_value_db::KeyValueDB;
 use crate::trie::tree::MerkleTree;
 use crate::{BitVec, HashMap};
-use core::fmt::{self, Debug};
 use bitvec::bitvec;
 use bitvec::order::Msb0;
+use core::fmt::{self, Debug};
 use proptest::prelude::*;
 use proptest_derive::Arbitrary;
 use smallvec::smallvec;
@@ -121,7 +121,7 @@ impl MerkleTreeInsertProblem {
 }
 
 proptest::proptest! {
-    #![proptest_config(ProptestConfig::with_cases(5))] // comment this when developing, this is mostly for faster ci & whole workspace `cargo test`
+    // #![proptest_config(ProptestConfig::with_cases(5))] // comment this when developing, this is mostly for faster ci & whole workspace `cargo test`
     #[test]
     fn proptest_inserts(pb in any::<MerkleTreeInsertProblem>()) {
         let _ = env_logger::builder().is_test(true).try_init();
@@ -271,6 +271,30 @@ fn test_merkle_pb_6() {
         ),
         Remove(Key(bitvec![u8, Msb0; 1,0,0,0,0])),
         Remove(Key(bitvec![u8, Msb0; 1,0,0,0,0])),
+    ]);
+
+    pb.check();
+}
+
+#[test]
+fn test_merkle_pb_7() {
+    use Step::*;
+    let _ = env_logger::builder().is_test(true).try_init();
+    log::set_max_level(log::LevelFilter::Trace);
+    let pb = MerkleTreeInsertProblem(vec![
+        Insert(
+            Key(bitvec![u8, Msb0; 0,0,0,0,0]),
+            Value(Felt::from_hex("0x20").unwrap()),
+        ),
+        Insert(
+            Key(bitvec![u8, Msb0; 1,0,0,0,0]),
+            Value(Felt::from_hex("0x20").unwrap()),
+        ),
+        Commit,
+        Insert(
+            Key(bitvec![u8, Msb0; 0,0,0,0,0]),
+            Value(Felt::from_hex("0x40").unwrap()),
+        ),
     ]);
 
     pb.check();
