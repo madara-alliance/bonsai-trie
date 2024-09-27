@@ -218,6 +218,28 @@ impl<'a, H: StarkHash + Send + Sync, DB: BonsaiDatabase, ID: Id> MerkleTreeItera
 
 #[cfg(test)]
 mod tests {
+    //! The tree used in this series of cases looks like this:
+    //! ```
+    //!                    │                   
+    //!                   ┌▼┐                  
+    //!                (1)│ │[0]               
+    //!                   │ │                  
+    //!                   └┬┘                  
+    //!                (7)┌▼┐                  
+    //!              ┌────┴─┴────────┐         
+    //!             ┌▼┐             ┌▼┐        
+    //!          (6)│ │[0100]    (5)│ │[000000]
+    //!             │ │             │ │        
+    //!             └┬┘             │ │        
+    //!          (4)┌▼┐             │ │        
+    //!        ┌────┴─┴─────┐       │ │        
+    //!        │           ┌▼┐      │ │        
+    //!    (2)┌▼┐       (3)│ │[0]   │ │        
+    //!    ┌──┴─┴─┐        │ │      │ │        
+    //!    │      │        └┬┘      └┬┘        
+    //!   0x1    0x2       0x3      0x4        
+    //! ```
+    
     use crate::{
         databases::{create_rocks_db, RocksDB, RocksDBConfig},
         id::{BasicId, Id},
@@ -421,7 +443,7 @@ mod tests {
     proptest::proptest! {
         // #![proptest_config(ProptestConfig::with_cases(5))] // comment this when developing, this is mostly for faster ci & whole workspace `cargo test`
         #[test]
-        /// This proptest will apply the above seek_to cases in a random order
+        /// This proptest will apply the above seek_to cases in a random order, and possibly with duplicates.
         fn proptest_seek_to(cases in vec(0..all_cases_len(), size_range(0..20)).boxed()) {
             test_iterator_seek_to_inner(cases)
         }
