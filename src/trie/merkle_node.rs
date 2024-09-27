@@ -9,23 +9,7 @@ use core::fmt;
 use parity_scale_codec::{Decode, Encode};
 use starknet_types_core::felt::Felt;
 
-use super::path::Path;
-
-/// Id of a Node within the tree
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Default, PartialOrd, Ord, Hash, Encode, Decode)]
-pub struct NodeId(pub u64);
-
-impl NodeId {
-    /// Mutates the given NodeId to be the next one and returns it.
-    pub fn next_id(&mut self) -> NodeId {
-        self.0 = self.0.checked_add(1).expect("Node id overflow");
-        NodeId(self.0)
-    }
-
-    pub fn reset(&mut self) {
-        self.0 = 0;
-    }
-}
+use super::{path::Path, tree::NodeKey};
 
 /// A node in a Binary Merkle-Patricia Tree graph.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Encode, Decode)]
@@ -39,8 +23,18 @@ pub enum Node {
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Encode, Decode)]
 pub enum NodeHandle {
     Hash(Felt),
-    InMemory(NodeId),
+    InMemory(NodeKey),
 }
+impl NodeHandle {
+    pub fn as_hash(self) -> Option<Felt> {
+        match self {
+            NodeHandle::Hash(felt) => Some(felt),
+            NodeHandle::InMemory(_) => None,
+        }
+    }
+}
+
+
 impl fmt::Debug for NodeHandle {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -185,12 +179,33 @@ impl Node {
     /// Convert to node to binary node type (returns None if it's not a binary node).
     pub fn as_binary(&self) -> Option<&BinaryNode> {
         match self {
-            Node::Binary(binary) => Some(binary),
+            Node::Binary(node) => Some(node),
+            _ => None,
+        }
+    }
+    /// Convert to node to binary node type (returns None if it's not a binary node).
+    pub fn as_binary_mut(&mut self) -> Option<&mut BinaryNode> {
+        match self {
+            Node::Binary(node) => Some(node),
+            _ => None,
+        }
+    }
+    /// Convert to node to edge node type (returns None if it's not an edge node).
+    pub fn as_edge(&self) -> Option<&EdgeNode> {
+        match self {
+            Node::Edge(node) => Some(node),
+            _ => None,
+        }
+    }
+    /// Convert to node to edge node type (returns None if it's not an edge node).
+    pub fn as_edge_mut(&mut self) -> Option<&mut EdgeNode> {
+        match self {
+            Node::Edge(node) => Some(node),
             _ => None,
         }
     }
 
-    pub fn hash(&self) -> Option<Felt> {
+    pub fn get_hash(&self) -> Option<Felt> {
         match self {
             Node::Binary(binary) => binary.hash,
             Node::Edge(edge) => edge.hash,

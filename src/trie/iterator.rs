@@ -1,33 +1,28 @@
 use super::{
-    merkle_node::{Direction, Node, NodeHandle, NodeId},
+    merkle_node::{Direction, Node, NodeHandle},
     path::Path,
-    tree::MerkleTree,
-    trie_db::TrieKeyType,
-    TrieKey,
+    tree::{MerkleTree, NodeKey},
 };
-use crate::{
-    id::Id, key_value_db::KeyValueDB, trie::tree::NodesMapping, BitSlice, BonsaiDatabase,
-    BonsaiStorageError, ByteVec,
-};
-use core::fmt;
-use starknet_types_core::hash::StarkHash;
+use crate::{id::Id, key_value_db::KeyValueDB, BitSlice, BonsaiDatabase, BonsaiStorageError};
+use core::{fmt, marker::PhantomData};
+use starknet_types_core::{felt::Felt, hash::StarkHash};
 
 /// This trait's function will be called on every node visited during a seek operation.
-pub trait NodeVisitor {
-    fn visit_node(&mut self, node: &Node, node_id: NodeId, prev_height: usize);
+pub trait NodeVisitor<H: StarkHash> {
+    fn visit_node(&mut self, tree: &mut MerkleTree<H>, node_id: NodeKey, prev_height: usize);
 }
 
-pub struct NoopVisitor;
-impl NodeVisitor for NoopVisitor {
-    fn visit_node(&mut self, _node: &Node, _node_id: NodeId, _prev_height: usize) {}
+pub struct NoopVisitor<H>(PhantomData<H>);
+impl<H: StarkHash> NodeVisitor<H> for NoopVisitor<H> {
+    fn visit_node(&mut self, _tree: &mut MerkleTree<H>, _node_id: NodeKey, _prev_height: usize) {}
 }
 
 pub struct MerkleTreeIterator<'a, H: StarkHash, DB: BonsaiDatabase, ID: Id> {
     pub(crate) tree: &'a mut MerkleTree<H>,
     pub(crate) db: &'a KeyValueDB<DB, ID>,
     pub(crate) current_path: Path,
-    pub(crate) cur_path_nodes_heights: Vec<(NodeId, usize)>,
-    pub(crate) current_value: Option<NodeHandle>,
+    pub(crate) current_nodes_heights: Vec<(NodeKey, usize)>,
+    pub(crate) leaf_hash: Option<Felt>,
 }
 
 impl<'a, H: StarkHash, DB: BonsaiDatabase, ID: Id> fmt::Debug
@@ -36,43 +31,103 @@ impl<'a, H: StarkHash, DB: BonsaiDatabase, ID: Id> fmt::Debug
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("MerkleTreeIterator")
             .field("cur_path", &self.current_path)
-            .field("cur_path_nodes_heights", &self.cur_path_nodes_heights)
-            .field("current_value", &self.current_value)
+            .field("cur_path_nodes_heights", &self.current_nodes_heights)
             .finish()
     }
 }
 
-impl<'a, H: StarkHash, DB: BonsaiDatabase, ID: Id> MerkleTreeIterator<'a, H, DB, ID> {
+impl<'a, H: StarkHash + Send + Sync, DB: BonsaiDatabase, ID: Id> MerkleTreeIterator<'a, H, DB, ID> {
     pub fn new(tree: &'a mut MerkleTree<H>, db: &'a KeyValueDB<DB, ID>) -> Self {
         Self {
             tree,
             db,
             current_path: Default::default(),
-            cur_path_nodes_heights: Vec::with_capacity(251),
-            current_value: None,
+            current_nodes_heights: Vec::with_capacity(251),
+            leaf_hash: None,
         }
     }
 
     #[cfg(test)]
-    pub fn cur_nodes(&self) -> Vec<NodeId> {
-        self.cur_path_nodes_heights
+    /// For testing purposes.
+    pub fn cur_nodes_ids(&self) -> Vec<u64> {
+        use slotmap::Key;
+        self.current_nodes_heights
             .iter()
-            .map(|n| n.0)
+            .map(|n| n.0.data().as_ffi() & !(1 << 32))
             .collect::<Vec<_>>()
     }
 
     pub fn seek_to(&mut self, key: &BitSlice) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
-        self.traverse_to(&mut NoopVisitor, key)
+        self.traverse_to(&mut NoopVisitor(PhantomData), key)
     }
 
-    pub fn traverse_to<V: NodeVisitor>(
+    fn traverse_one(
+        &mut self,
+        node_id: NodeKey,
+        height: usize,
+        key: &BitSlice,
+    ) -> Result<Option<NodeKey>, BonsaiStorageError<DB::DatabaseError>> {
+        self.current_nodes_heights
+            .push((node_id, self.current_path.len()));
+
+        let node = self.tree.node_storage.get_node_mut::<DB>(node_id)?;
+        let (node_handle, path_matches) = match node {
+            Node::Binary(binary_node) => {
+                log::trace!(
+                    "Continue from binary node current_path={:?} key={:b}",
+                    self.current_path,
+                    key,
+                );
+                let next_direction = Direction::from(key[self.current_path.len()]);
+                self.current_path.push(bool::from(next_direction));
+                (binary_node.get_child(next_direction), true)
+            }
+            Node::Edge(edge_node) => {
+                self.current_path.extend_from_bitslice(&edge_node.path);
+                (edge_node.child, edge_node.path_matches(key, height))
+            }
+        };
+
+        // path_matches is false when the edge node doesn't match the path we want to preload so we return nothing.
+        if !path_matches || self.current_path.len() >= key.len() {
+            log::trace!(
+                "Compare: path_matches={path_matches} {:?} ?= {:b} (node_handle {node_handle:?})",
+                self.current_path,
+                key
+            );
+            self.leaf_hash = node_handle.as_hash();
+            return Ok(None); // end of traversal
+        }
+
+        let child_key = self
+            .tree
+            .load_node_handle(self.db, node_handle, &self.current_path)?;
+
+        // update parent ref
+        match self.tree.node_storage.get_node_mut::<DB>(node_id)? {
+            Node::Binary(binary_node) => {
+                *binary_node.get_child_mut(Direction::from(
+                    *self
+                        .current_path
+                        .last()
+                        .expect("current path should have a length > 0 at this point"),
+                )) = NodeHandle::InMemory(child_key);
+            }
+            Node::Edge(edge_node) => {
+                edge_node.child = NodeHandle::InMemory(child_key);
+            }
+        };
+
+        Ok(Some(child_key))
+    }
+
+    pub fn traverse_to<V: NodeVisitor<H>>(
         &mut self,
         visitor: &mut V,
         key: &BitSlice,
     ) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
-        self.current_value = None;
-
         // First, truncate the curent path and nodes list to match the new key.
+        log::trace!("Start traverse_to");
 
         let shared_prefix_len = self
             .current_path
@@ -84,57 +139,58 @@ impl<'a, H: StarkHash, DB: BonsaiDatabase, ID: Id> MerkleTreeIterator<'a, H, DB,
         let nodes_new_len = if shared_prefix_len == 0 {
             0
         } else {
+            self.leaf_hash = None;
             // partition point is a binary search under the hood
             // TODO(perf): measure whether binary search is actually better than reverse iteration - the happy path may be that
             //  only the last few bits are different.
             let nodes_new_len = self
-                .cur_path_nodes_heights
+                .current_nodes_heights
                 .partition_point(|(_node, height)| *height < shared_prefix_len);
-            nodes_new_len + 1
+            nodes_new_len
         };
-        self.cur_path_nodes_heights.truncate(nodes_new_len);
+        log::trace!(
+            "Truncate pre node id cache shared_prefix_len={:?}, nodes_new_len={:?}, cur_path_nodes_heights={:?}, current_path={:?}",
+            shared_prefix_len, nodes_new_len,
+            self.current_nodes_heights,
+            self.current_path,
+        );
+
+        self.current_nodes_heights.truncate(nodes_new_len);
+        self.current_path.truncate(key.len());
+        let truncated = self.current_nodes_heights.len() == nodes_new_len;
+        if shared_prefix_len == key.len() {
+            // Nothing to do here after truncation.
+
+            // Keep the leaf_hash intact here in a case of noop.
+            if truncated {
+                self.leaf_hash = None
+            }
+            return Ok(()); // end of traversal
+        }
+        self.leaf_hash = None;
 
         log::trace!(
             "Truncate node id cache shared_prefix_len={:?}, nodes_new_len={:?}, cur_path_nodes_heights={:?}",
             shared_prefix_len, nodes_new_len,
-            self.cur_path_nodes_heights
+            self.current_nodes_heights
         );
 
-        // At first, there are no node in `cur_path_nodes` - which means `next_to_visit` will be `None`. This
-        // signals that the next node to visit is the root node.
-        let mut next_to_visit = if let Some((node_id, height)) = self.cur_path_nodes_heights.last()
-        {
-            self.current_path.truncate(*height);
-            let node = self.tree.node_storage.nodes.0.get_mut(node_id).ok_or(
-                // Dangling node id in memory
-                BonsaiStorageError::Trie("Could not get node from temp storage".to_string()),
-            )?;
-            match node {
-                Node::Binary(binary_node) => {
-                    log::trace!(
-                        "Continue from binary node current_path={:?} key={:b}",
-                        self.current_path,
-                        key,
-                    );
-                    let next_direction = Direction::from(key[self.current_path.len() - 1]);
-                    *self.current_path.last_mut().expect(
-                        "current path can't be empty if cur_path_nodes_heights is not empty",
-                    ) = bool::from(next_direction);
-                    Some(binary_node.get_child_mut(next_direction))
-                }
-                Node::Edge(edge_node)
-                    if edge_node.path_matches(key, height.saturating_sub(edge_node.path.len())) =>
-                {
-                    Some(&mut edge_node.child)
-                }
-
-                // We are in a case where the edge node doesn't match the path we want to preload so we return nothing.
-                Node::Edge(_) => return Ok(()),
-            }
+        let mut next_to_visit = if let Some((node_id, height)) = self.current_nodes_heights.pop() {
+            self.current_path.truncate(height);
+            self.traverse_one(node_id, height, key)?
         } else {
-            self.current_path.clear();
             // Start from tree root.
-            None
+            self.current_path.clear();
+            let Some(node_id) = self.tree.node_storage.load_root_node(
+                &self.tree.death_row,
+                &self.tree.identifier,
+                self.db,
+            )?
+            else {
+                // empty tree, not found
+                return Ok(());
+            };
+            Some(node_id)
         };
 
         log::trace!(
@@ -146,105 +202,14 @@ impl<'a, H: StarkHash, DB: BonsaiDatabase, ID: Id> MerkleTreeIterator<'a, H, DB,
         // Tree traversal :)
 
         loop {
-            log::trace!("Loop start cur={:b} key={:b}", self.current_path.0, key);
-            if self.current_path.len() > key.len() {
-                // We overshot. Keep the last value.
-                return Ok(()); // end of traversal
-            }
-            if self.current_path.len() == key.len() {
-                // Exact match, no overshoot: return this new value.
-                self.current_value = next_to_visit.as_ref().map(|c| **c);
-                return Ok(()); // end of traversal
-            }
-            self.current_value = next_to_visit.as_ref().map(|c| **c);
+            log::trace!("Loop start cur={:?} key={:b}", self.current_path, key);
 
-            // get node from cache or database
-            let (node_id, node) = match next_to_visit {
-                // tree root
-                None => {
-                    match self.tree.node_storage.nodes.get_root_node(
-                        &mut self.tree.node_storage.root_node,
-                        &mut self.tree.node_storage.latest_node_id,
-                        &self.tree.death_row,
-                        &self.tree.identifier,
-                        self.db,
-                    )? {
-                        Some((node_id, node)) => (node_id, node),
-                        None => return Ok(()), // empty tree, not found
-                    }
-                }
-                // not tree root
-                Some(next_to_visit) => match *next_to_visit {
-                    NodeHandle::Hash(_) => {
-                        // load from db
-
-                        // TODO(perf): useless allocs everywhere here...
-                        let path: ByteVec = self.current_path.clone().into();
-                        log::trace!("Visiting db node {:?}", self.current_path);
-                        let key = TrieKey::new(&self.tree.identifier, TrieKeyType::Trie, &path);
-                        let Some((node_id, node)) = NodesMapping::load_db_node_get_id(
-                            &mut self.tree.node_storage.latest_node_id,
-                            &self.tree.death_row,
-                            self.db,
-                            &key,
-                        )?
-                        else {
-                            // Dangling node id in db
-                            return Err(BonsaiStorageError::Trie(
-                                "Could not get node from db".to_string(),
-                            ));
-                        };
-                        *next_to_visit = NodeHandle::InMemory(node_id);
-                        let node = self
-                            .tree
-                            .node_storage
-                            .nodes
-                            .load_db_node_to_id::<DB>(node_id, node)?;
-                        (node_id, node)
-                    }
-                    NodeHandle::InMemory(node_id) => {
-                        log::trace!("Visiting inmemory node {:?}", self.current_path);
-                        let node = self.tree.node_storage.nodes.0.get_mut(&node_id).ok_or(
-                            // Dangling node id in memory
-                            BonsaiStorageError::Trie(
-                                "Could not get node from temp storage".to_string(),
-                            ),
-                        )?;
-
-                        (node_id, node)
-                    }
-                },
-            };
-
-            visitor.visit_node(node, node_id, self.current_path.len());
-
-            // visit the child
-            let updated_next_to_visit = match node {
-                Node::Binary(binary_node) => {
-                    let next_direction = Direction::from(key[self.current_path.len()]);
-                    self.current_path.push(bool::from(next_direction));
-                    Some(binary_node.get_child_mut(next_direction))
-                }
-
-                Node::Edge(edge_node) if edge_node.path_matches(key, self.current_path.len()) => {
-                    self.current_path.extend_from_bitslice(&edge_node.path);
-                    Some(&mut edge_node.child)
-                }
-
-                // We are in a case where the edge node doesn't match the path we want to preload so we return nothing.
-                Node::Edge(edge_node) => {
-                    self.current_path.extend_from_bitslice(&edge_node.path);
-                    None
-                }
-            };
-
-            self.cur_path_nodes_heights
-                .push((node_id, self.current_path.len()));
-
-            let Some(updated_next_to_visit) = updated_next_to_visit else {
+            let Some(node_id) = next_to_visit else {
                 return Ok(());
             };
-            next_to_visit = Some(updated_next_to_visit);
+
+            visitor.visit_node(&mut self.tree, node_id, self.current_path.len());
+            next_to_visit = self.traverse_one(node_id, self.current_path.len(), key)?;
 
             log::trace!(
                 "Got nodeid={:?} height={}, cur path={:?}, next to visit={:?}",
@@ -261,18 +226,28 @@ impl<'a, H: StarkHash, DB: BonsaiDatabase, ID: Id> MerkleTreeIterator<'a, H, DB,
 mod tests {
     use crate::{
         databases::{create_rocks_db, RocksDB, RocksDBConfig},
-        id::BasicId,
-        trie::{
-            iterator::MerkleTreeIterator,
-            merkle_node::{NodeHandle, NodeId},
-        },
-        BonsaiStorage, BonsaiStorageConfig,
+        id::{BasicId, Id},
+        trie::iterator::MerkleTreeIterator,
+        BonsaiDatabase, BonsaiStorage, BonsaiStorageConfig,
     };
     use bitvec::{bits, order::Msb0};
-    use starknet_types_core::{felt::Felt, hash::Pedersen};
+    use prop::{collection::vec, sample::size_range};
+    use proptest::prelude::*;
+    use starknet_types_core::{
+        felt::Felt,
+        hash::{Pedersen, StarkHash},
+    };
+
+    const ONE: Felt = Felt::ONE;
+    const TWO: Felt = Felt::TWO;
+    const THREE: Felt = Felt::THREE;
+    const FOUR: Felt = Felt::from_hex_unchecked("0x4");
 
     #[test]
     fn test_iterator_seek_to() {
+        test_iterator_seek_to_inner((0..all_cases_len()).collect());
+    }
+    fn test_iterator_seek_to_inner(cases: Vec<usize>) {
         let _ = env_logger::builder().is_test(true).try_init();
         log::set_max_level(log::LevelFilter::Trace);
         let tempdir = tempfile::tempdir().unwrap();
@@ -282,14 +257,6 @@ mod tests {
             BonsaiStorageConfig::default(),
         )
         .unwrap();
-
-        #[allow(non_snake_case)]
-        let [ONE, TWO, THREE, FOUR] = [
-            Felt::ONE,
-            Felt::TWO,
-            Felt::THREE,
-            Felt::from_hex_unchecked("0x4"),
-        ];
 
         bonsai_storage
             .insert(&[], bits![u8, Msb0; 0,0,0,1,0,0,0,0], &ONE)
@@ -315,120 +282,132 @@ mod tests {
             .unwrap();
         let mut iter = MerkleTreeIterator::new(tree, &bonsai_storage.tries.db);
 
-        // SEEK TO LEAF
-
-        // from scratch, should find the leaf
-        iter.seek_to(bits![u8, Msb0; 0,0,0,1,0,0,0,0]).unwrap();
-        assert_eq!(iter.current_value, Some(NodeHandle::Hash(ONE)));
-        assert_eq!(
-            iter.cur_nodes(),
-            vec![NodeId(1), NodeId(7), NodeId(6), NodeId(4), NodeId(2)]
-        );
-        println!("{iter:?}");
-        // from a closeby leaf, should backtrack and find the next one
-        iter.seek_to(bits![u8, Msb0; 0,0,0,1,0,0,0,1]).unwrap();
-        assert_eq!(iter.current_value, Some(NodeHandle::Hash(TWO)));
-        assert_eq!(
-            iter.cur_nodes(),
-            vec![NodeId(1), NodeId(7), NodeId(6), NodeId(4), NodeId(2)]
-        );
-        println!("{iter:?}");
-        // backtrack farther, should find the leaf
-        iter.seek_to(bits![u8, Msb0; 0,0,0,1,0,0,1,0]).unwrap();
-        assert_eq!(iter.current_value, Some(NodeHandle::Hash(THREE)));
-        assert_eq!(
-            iter.cur_nodes(),
-            vec![NodeId(1), NodeId(7), NodeId(6), NodeId(4), NodeId(3)]
-        );
-        println!("{iter:?}");
-        // backtrack farther, should find the leaf
-        iter.seek_to(bits![u8, Msb0; 0,1,0,0,0,0,0,0]).unwrap();
-        assert_eq!(iter.current_value, Some(NodeHandle::Hash(FOUR)));
-        assert_eq!(iter.cur_nodes(), vec![NodeId(1), NodeId(7), NodeId(5)]);
-        println!("{iter:?}");
-
-        // similar case
-        iter.seek_to(bits![u8, Msb0; 0,0,0,1,0,0,0,1]).unwrap();
-        assert_eq!(iter.current_value, Some(NodeHandle::Hash(TWO)));
-        assert_eq!(
-            iter.cur_nodes(),
-            vec![NodeId(1), NodeId(7), NodeId(6), NodeId(4), NodeId(2)]
-        );
-        println!("{iter:?}");
-
-        // SEEK MIDWAY INTO THE TREE
-
-        // jump midway into an edge
-        iter.seek_to(bits![u8, Msb0; 0,1,0,0,0]).unwrap();
-        // The current value should reflect the edge
-        assert_eq!(iter.current_value, Some(NodeHandle::InMemory(NodeId(5))));
-        // The current path should reflect the tip of the edge
-        assert_eq!(iter.current_path.0, bits![u8, Msb0; 0,1,0,0,0,0,0,0]);
-        assert_eq!(iter.cur_nodes(), vec![NodeId(1), NodeId(7), NodeId(5)]);
-        println!("{iter:?}");
-
-        // jump midway into an edge, but its child is not a leaf
-        iter.seek_to(bits![u8, Msb0; 0,0,0]).unwrap();
-        // The current value should reflect the edge
-        assert_eq!(iter.current_value, Some(NodeHandle::InMemory(NodeId(6))));
-        // The current path should reflect the edge
-        assert_eq!(iter.current_path.0, bits![u8, Msb0; 0,0,0,1,0,0]);
-        assert_eq!(iter.cur_nodes(), vec![NodeId(1), NodeId(7), NodeId(6)]);
-        println!("{iter:?}");
-
-        // jump to a binary node
-        iter.seek_to(bits![u8, Msb0; 0,0,0,1,0,0,0]).unwrap();
-        // The current value should reflect the binary node
-        assert_eq!(iter.current_value, Some(NodeHandle::InMemory(NodeId(2))));
-        assert_eq!(iter.current_path.0, bits![u8, Msb0; 0,0,0,1,0,0,0]);
-        assert_eq!(
-            iter.cur_nodes(),
-            vec![NodeId(1), NodeId(7), NodeId(6), NodeId(4)]
-        );
-        println!("{iter:?}");
-
-        // jump to the end of an edge
-        iter.seek_to(bits![u8, Msb0; 0,0,0,1,0,0]).unwrap();
-        // The current value should reflect the binary node
-        assert_eq!(iter.current_value, Some(NodeHandle::InMemory(NodeId(4))));
-        // The current path should reflect the tip of the edge
-        assert_eq!(iter.current_path.0, bits![u8, Msb0; 0,0,0,1,0,0]);
-        assert_eq!(iter.cur_nodes(), vec![NodeId(1), NodeId(7), NodeId(6)]);
-        println!("{iter:?}");
-
-        // jump to top
-        iter.seek_to(bits![u8, Msb0; ]).unwrap();
-        assert_eq!(iter.current_value, None);
-        assert_eq!(iter.current_path.0, bits![u8, Msb0; ]);
-        assert_eq!(iter.cur_nodes(), vec![]);
-        println!("{iter:?}");
-
-        // jump to first node
-        iter.seek_to(bits![u8, Msb0; 0]).unwrap();
-        assert_eq!(iter.current_value, Some(NodeHandle::InMemory(NodeId(7))));
-        assert_eq!(iter.current_path.0, bits![u8, Msb0; 0]);
-        assert_eq!(iter.cur_nodes(), vec![NodeId(1)]);
-        println!("{iter:?}");
-
-        // jump to non existent node, returning same edge
-        iter.seek_to(bits![u8, Msb0; 0,1,0,1,0,0,0]).unwrap();
-        assert_eq!(iter.current_value, Some(NodeHandle::InMemory(NodeId(5))));
-        assert_eq!(iter.current_path.0, bits![u8, Msb0; 0,1,0,0,0,0,0,0]);
-        assert_eq!(iter.cur_nodes(), vec![NodeId(1), NodeId(7), NodeId(5)]);
-        println!("{iter:?}");
-
-        // jump to non existent node, deviating from edge, should not go into the children
-        iter.seek_to(bits![u8, Msb0; 1,0,0,1,0,0,0]).unwrap();
-        assert_eq!(iter.current_value, None);
-        assert_eq!(iter.current_path.0, bits![u8, Msb0; 0]);
-        assert_eq!(iter.cur_nodes(), vec![NodeId(1)]);
-        println!("{iter:?}");
-
-        // jump to non existent node, deviating from first node
-        iter.seek_to(bits![u8, Msb0; 1]).unwrap();
-        assert_eq!(iter.current_value, None);
-        assert_eq!(iter.current_path.0, bits![u8, Msb0; 0]);
-        assert_eq!(iter.cur_nodes(), vec![NodeId(1)]);
-        println!("{iter:?}");
+        let cases_funcs = all_cases();
+        for case in cases {
+            cases_funcs[case](&mut iter)
+        }
     }
+
+    fn all_cases<H: StarkHash + Send + Sync, DB: BonsaiDatabase, ID: Id>(
+    ) -> Vec<fn(&mut MerkleTreeIterator<H, DB, ID>)> {
+        vec![
+            // SEEK TO LEAF
+            |iter| {
+                // from scratch, should find the leaf
+                iter.seek_to(bits![u8, Msb0; 0,0,0,1,0,0,0,0]).unwrap();
+                assert_eq!(iter.leaf_hash, Some(ONE));
+                assert_eq!(iter.cur_nodes_ids(), vec![1, 7, 6, 4, 2]);
+                println!("{iter:?}");
+            },
+            |iter| {
+                // from a closeby leaf, should backtrack and find the next one
+                iter.seek_to(bits![u8, Msb0; 0,0,0,1,0,0,0,1]).unwrap();
+                assert_eq!(iter.leaf_hash, Some(TWO));
+                assert_eq!(iter.cur_nodes_ids(), vec![1, 7, 6, 4, 2]);
+                println!("{iter:?}");
+            },
+            |iter| {
+                // backtrack farther, should find the leaf
+                iter.seek_to(bits![u8, Msb0; 0,0,0,1,0,0,1,0]).unwrap();
+                assert_eq!(iter.leaf_hash, Some(THREE));
+                assert_eq!(iter.cur_nodes_ids(), vec![1, 7, 6, 4, 3]);
+                println!("{iter:?}");
+            },
+            |iter| {
+                // backtrack farther, should find the leaf
+                iter.seek_to(bits![u8, Msb0; 0,1,0,0,0,0,0,0]).unwrap();
+                assert_eq!(iter.leaf_hash, Some(FOUR));
+                assert_eq!(iter.cur_nodes_ids(), vec![1, 7, 5]);
+                println!("{iter:?}");
+            },
+            |iter| {
+                // similar case
+                iter.seek_to(bits![u8, Msb0; 0,0,0,1,0,0,0,1]).unwrap();
+                assert_eq!(iter.leaf_hash, Some(TWO));
+                assert_eq!(iter.cur_nodes_ids(), vec![1, 7, 6, 4, 2]);
+                println!("{iter:?}");
+            },
+            // SEEK MIDWAY INTO THE TREE
+            |iter| {
+                // jump midway into an edge
+                iter.seek_to(bits![u8, Msb0; 0,1,0,0,0]).unwrap();
+                // The current path should reflect the tip of the edge
+                assert_eq!(iter.current_path.0, bits![u8, Msb0; 0,1,0,0,0,0,0,0]);
+                assert_eq!(iter.cur_nodes_ids(), vec![1, 7, 5]);
+                println!("{iter:?}");
+            },
+            |iter| {
+                // jump midway into an edge, but its child is not a leaf
+                iter.seek_to(bits![u8, Msb0; 0,0,0]).unwrap();
+                // The current path should reflect the edge
+                assert_eq!(iter.current_path.0, bits![u8, Msb0; 0,0,0,1,0,0]);
+                assert_eq!(iter.cur_nodes_ids(), vec![1, 7, 6]);
+                println!("{iter:?}");
+            },
+            |iter| {
+                // jump to a binary node
+                iter.seek_to(bits![u8, Msb0; 0,0,0,1,0,0,0]).unwrap();
+                assert_eq!(iter.current_path.0, bits![u8, Msb0; 0,0,0,1,0,0,0]);
+                assert_eq!(iter.cur_nodes_ids(), vec![1, 7, 6, 4]);
+                println!("{iter:?}");
+            },
+            |iter| {
+                // jump to the end of an edge
+                iter.seek_to(bits![u8, Msb0; 0,0,0,1,0,0]).unwrap();
+                // The current path should reflect the tip of the edge
+                assert_eq!(iter.current_path.0, bits![u8, Msb0; 0,0,0,1,0,0]);
+                assert_eq!(iter.cur_nodes_ids(), vec![1, 7, 6]);
+                println!("{iter:?}");
+            },
+            |iter| {
+                // jump to top
+                iter.seek_to(bits![u8, Msb0; ]).unwrap();
+                assert_eq!(iter.leaf_hash, None);
+                assert_eq!(iter.current_path.0, bits![u8, Msb0; ]);
+                assert_eq!(iter.cur_nodes_ids(), vec![]);
+                println!("{iter:?}");
+            },
+            |iter| {
+                // jump to first node
+                iter.seek_to(bits![u8, Msb0; 0]).unwrap();
+                assert_eq!(iter.current_path.0, bits![u8, Msb0; 0]);
+                assert_eq!(iter.cur_nodes_ids(), vec![1]);
+                println!("{iter:?}");
+            },
+            |iter| {
+                // jump to non existent node, returning same edge
+                iter.seek_to(bits![u8, Msb0; 0,1,0,1,0,0,0]).unwrap();
+                assert_eq!(iter.current_path.0, bits![u8, Msb0; 0,1,0,0,0,0,0,0]);
+                assert_eq!(iter.cur_nodes_ids(), vec![1, 7, 5]);
+                println!("{iter:?}");
+            },
+            |iter| {
+                // jump to non existent node, deviating from edge, should not go into the children
+                iter.seek_to(bits![u8, Msb0; 1,0,0,1,0,0,0]).unwrap();
+                assert_eq!(iter.current_path.0, bits![u8, Msb0; 0]);
+                assert_eq!(iter.cur_nodes_ids(), vec![1]);
+                println!("{iter:?}");
+            },
+            |iter| {
+                // jump to non existent node, deviating from first node
+                iter.seek_to(bits![u8, Msb0; 1]).unwrap();
+                assert_eq!(iter.current_path.0, bits![u8, Msb0; 0]);
+                assert_eq!(iter.cur_nodes_ids(), vec![1]);
+                println!("{iter:?}");
+            },
+        ]
+    }
+
+    fn all_cases_len() -> usize {
+        all_cases::<Pedersen, RocksDB<'static, BasicId>, BasicId>().len()
+    }
+
+    // proptest::proptest! {
+    //     // #![proptest_config(ProptestConfig::with_cases(5))] // comment this when developing, this is mostly for faster ci & whole workspace `cargo test`
+    //     #[test]
+    //     /// This proptest will apply the above seek_to cases in a random order
+    //     fn proptest_seek_to(cases in vec(0..all_cases_len(), size_range(0..20)).boxed()) {
+    //         test_iterator_seek_to_inner(cases)
+    //     }
+    // }
 }
