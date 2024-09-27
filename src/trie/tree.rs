@@ -1,10 +1,10 @@
-use bitvec::view::BitView;
 use core::{fmt, marker::PhantomData};
 use core::{iter, mem};
 use parity_scale_codec::Decode;
 use slotmap::SlotMap;
 use starknet_types_core::{felt::Felt, hash::StarkHash};
 
+use crate::trie::merkle_node::{hash_binary_node, hash_edge_node};
 use crate::BitVec;
 use crate::{
     error::BonsaiStorageError, format, hash_map, id::Id, vec, BitSlice, BonsaiDatabase, ByteVec,
@@ -210,6 +210,46 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
                 Ok(node_key)
             }
             NodeHandle::InMemory(node_key) => Ok(node_key),
+        }
+    }
+
+    /// Get or compute the hash of a node.
+    pub(crate) fn get_or_compute_node_hash<DB: BonsaiDatabase>(
+        &mut self,
+        node: NodeHandle,
+    ) -> Result<Felt, BonsaiStorageError<DB::DatabaseError>> {
+        match node {
+            NodeHandle::Hash(felt) => Ok(felt),
+            NodeHandle::InMemory(node_key) => {
+                let computed_hash = match self.node_storage.get_node_mut::<DB>(node_key)? {
+                    Node::Binary(binary_node) => {
+                        if let Some(hash) = binary_node.hash {
+                            return Ok(hash);
+                        }
+                        let (left, right) = (binary_node.left, binary_node.right);
+                        let left_hash = self.get_or_compute_node_hash::<DB>(left)?;
+                        let right_hash = self.get_or_compute_node_hash::<DB>(right)?;
+                        hash_binary_node::<H>(left_hash, right_hash)
+                    }
+                    Node::Edge(edge_node) => {
+                        if let Some(hash) = edge_node.hash {
+                            return Ok(hash);
+                        }
+                        let (path, child) = (edge_node.path.clone(), edge_node.child);
+                        // edge_node borrow ends here
+                        let child_hash = self.get_or_compute_node_hash::<DB>(child)?;
+                        hash_edge_node::<H>(&path, child_hash)
+                    }
+                };
+
+                // reborrow, for lifetime reasons (can't go into children if a borrow is alive)
+                match self.node_storage.get_node_mut::<DB>(node_key)? {
+                    Node::Binary(binary_node) => binary_node.hash = Some(computed_hash),
+                    Node::Edge(edge_node) => edge_node.hash = Some(computed_hash),
+                }
+
+                Ok(computed_hash)
+            }
         }
     }
 
@@ -431,7 +471,8 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
                     }
                 };
 
-                let hash = H::hash(&left_hash, &right_hash);
+                let hash = hash_binary_node::<H>(left_hash, right_hash);
+
                 hashes.push(hash);
                 Ok(hash)
             }
@@ -446,17 +487,9 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
                     }
                 };
 
-                let mut bytes = [0u8; 32];
-                bytes.view_bits_mut()[256 - edge.path.0.len()..].copy_from_bitslice(&edge.path.0);
-
-                let felt_path = Felt::from_bytes_be(&bytes);
-                let mut length = [0; 32];
-                // Safe as len() is guaranteed to be <= 251
-                length[31] = edge.path.0.len() as u8;
-
-                let length = Felt::from_bytes_be(&length);
-                let hash = H::hash(&child_hash, &felt_path) + length;
+                let hash = hash_edge_node::<H>(&edge.path, child_hash);
                 hashes.push(hash);
+
                 Ok(hash)
             }
         }

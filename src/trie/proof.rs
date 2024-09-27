@@ -4,8 +4,12 @@ use super::{path::Path, tree::MerkleTree};
 use crate::{
     id::Id,
     key_value_db::KeyValueDB,
-    trie::{iterator::NodeVisitor, tree::NodeKey},
-    BitSlice, BonsaiDatabase, BonsaiStorageError,
+    trie::{
+        iterator::NodeVisitor,
+        merkle_node::{Node, NodeHandle},
+        tree::NodeKey,
+    },
+    BitSlice, BonsaiDatabase, BonsaiStorageError, HashMap,
 };
 use bitvec::view::BitView;
 use starknet_types_core::{felt::Felt, hash::StarkHash};
@@ -40,37 +44,38 @@ impl ProofNode {
 }
 
 impl<H: StarkHash + Send + Sync> MerkleTree<H> {
-    /// Returns the list of nodes along the path.
-    ///
-    /// if it exists, or down to the node which proves that the key does not exist.
-    ///
-    /// The nodes are returned in order, root first.
-    ///
-    /// Verification is performed by confirming that:
-    ///   1. the chain follows the path of `key`, and
-    ///   2. the hashes are correct, and
-    ///   3. the root hash matches the known root
-    ///
-    /// # Arguments
-    ///
-    /// * `key` - The key to get the merkle proof of.
-    ///
-    /// # Returns
-    ///
-    /// The merkle proof and all the child nodes hashes.
     pub fn get_multi_proof<DB: BonsaiDatabase, ID: Id>(
         &mut self,
         db: &KeyValueDB<DB, ID>,
         keys: impl IntoIterator<Item = impl AsRef<BitSlice>>,
-    ) -> Result<Vec<ProofNode>, BonsaiStorageError<DB::DatabaseError>> {
-        struct ProofVisitor<H>(Vec<ProofNode>, PhantomData<H>);
-        impl<H: StarkHash> NodeVisitor<H> for ProofVisitor<H> {
-            fn visit_node(&mut self, _tree: &mut MerkleTree<H>, node_id: NodeKey, prev_height: usize) {
-                log::trace!(
-                    "Visiting {:?} prev height: {:?}",
-                    node_id,
-                    prev_height
-                );
+    ) -> Result<HashMap<Felt, ProofNode>, BonsaiStorageError<DB::DatabaseError>> {
+        struct ProofVisitor<H>(HashMap<Felt, ProofNode>, PhantomData<H>);
+        impl<H: StarkHash + Send + Sync> NodeVisitor<H> for ProofVisitor<H> {
+            fn visit_node<DB: BonsaiDatabase>(
+                &mut self,
+                tree: &mut MerkleTree<H>,
+                node_id: NodeKey,
+                _prev_height: usize,
+            ) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
+                let proof_node = match tree.node_storage.get_node_mut::<DB>(node_id)? {
+                    Node::Binary(binary_node) => {
+                        let (left, right) = (binary_node.left, binary_node.right);
+                        ProofNode::Binary {
+                            left: tree.get_or_compute_node_hash::<DB>(left)?,
+                            right: tree.get_or_compute_node_hash::<DB>(right)?,
+                        }
+                    }
+                    Node::Edge(edge_node) => {
+                        let (child, path) = (edge_node.child, edge_node.path.clone());
+                        ProofNode::Edge {
+                            child: tree.get_or_compute_node_hash::<DB>(child)?,
+                            path,
+                        }
+                    }
+                };
+                let hash = tree.get_or_compute_node_hash::<DB>(NodeHandle::InMemory(node_id))?;
+                self.0.insert(hash, proof_node);
+                Ok(())
             }
         }
         let mut visitor = ProofVisitor::<H>(Default::default(), PhantomData);
@@ -162,5 +167,64 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         //     // Hash mismatch. Return `None`.
         //     None
         // }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        databases::{create_rocks_db, RocksDB, RocksDBConfig},
+        id::BasicId,
+        BonsaiStorage, BonsaiStorageConfig,
+    };
+    use bitvec::{bits, order::Msb0};
+    use starknet_types_core::{felt::Felt, hash::Pedersen};
+
+    const ONE: Felt = Felt::ONE;
+    const TWO: Felt = Felt::TWO;
+    const THREE: Felt = Felt::THREE;
+    const FOUR: Felt = Felt::from_hex_unchecked("0x4");
+
+    #[test]
+    fn test_multiproof() {
+        let _ = env_logger::builder().is_test(true).try_init();
+        log::set_max_level(log::LevelFilter::Trace);
+        let tempdir = tempfile::tempdir().unwrap();
+        let db = create_rocks_db(tempdir.path()).unwrap();
+        let mut bonsai_storage: BonsaiStorage<BasicId, _, Pedersen> = BonsaiStorage::new(
+            RocksDB::<BasicId>::new(&db, RocksDBConfig::default()),
+            BonsaiStorageConfig::default(),
+        )
+        .unwrap();
+
+        bonsai_storage
+            .insert(&[], bits![u8, Msb0; 0,0,0,1,0,0,0,0], &ONE)
+            .unwrap();
+        bonsai_storage
+            .insert(&[], bits![u8, Msb0; 0,0,0,1,0,0,0,1], &TWO)
+            .unwrap();
+        bonsai_storage
+            .insert(&[], bits![u8, Msb0; 0,0,0,1,0,0,1,0], &THREE)
+            .unwrap();
+        bonsai_storage
+            .insert(&[], bits![u8, Msb0; 0,1,0,0,0,0,0,0], &FOUR)
+            .unwrap();
+
+        bonsai_storage.dump();
+
+        let tree = bonsai_storage
+            .tries
+            .trees
+            .get_mut(&smallvec::smallvec![])
+            .unwrap();
+
+        let proof = tree.get_multi_proof(&bonsai_storage.tries.db, [
+            bits![u8, Msb0; 0,0,0,1,0,0,0,1],
+            bits![u8, Msb0; 0,1,0,0,0,0,0,0],
+            ])
+            .unwrap();
+
+        log::trace!("proof: {proof:?}");
+        todo!()
     }
 }

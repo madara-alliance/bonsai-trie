@@ -5,9 +5,10 @@
 //! [`MerkleTree`](super::merkle_tree::MerkleTree).
 
 use crate::BitSlice;
+use bitvec::view::BitView;
 use core::fmt;
 use parity_scale_codec::{Decode, Encode};
-use starknet_types_core::felt::Felt;
+use starknet_types_core::{felt::Felt, hash::StarkHash};
 
 use super::{path::Path, tree::NodeKey};
 
@@ -33,7 +34,6 @@ impl NodeHandle {
         }
     }
 }
-
 
 impl fmt::Debug for NodeHandle {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -250,6 +250,22 @@ impl EdgeNode {
 
         &self.path.0[..common_length]
     }
+}
+
+pub fn hash_binary_node<H: StarkHash>(left_hash: Felt, right_hash: Felt) -> Felt {
+    H::hash(&left_hash, &right_hash)
+}
+pub fn hash_edge_node<H: StarkHash>(path: &Path, child_hash: Felt) -> Felt {
+    let mut bytes = [0u8; 32];
+    bytes.view_bits_mut()[256 - path.len()..].copy_from_bitslice(path);
+
+    let felt_path = Felt::from_bytes_be(&bytes);
+    let mut length = [0; 32];
+    // Safe as len() is guaranteed to be <= 251
+    length[31] = path.len() as u8;
+
+    let length = Felt::from_bytes_be(&length);
+    H::hash(&child_hash, &felt_path) + length
 }
 
 #[test]

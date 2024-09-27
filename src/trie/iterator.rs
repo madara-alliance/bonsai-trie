@@ -9,12 +9,24 @@ use starknet_types_core::{felt::Felt, hash::StarkHash};
 
 /// This trait's function will be called on every node visited during a seek operation.
 pub trait NodeVisitor<H: StarkHash> {
-    fn visit_node(&mut self, tree: &mut MerkleTree<H>, node_id: NodeKey, prev_height: usize);
+    fn visit_node<DB: BonsaiDatabase>(
+        &mut self,
+        tree: &mut MerkleTree<H>,
+        node_id: NodeKey,
+        prev_height: usize,
+    ) -> Result<(), BonsaiStorageError<DB::DatabaseError>>;
 }
 
 pub struct NoopVisitor<H>(PhantomData<H>);
 impl<H: StarkHash> NodeVisitor<H> for NoopVisitor<H> {
-    fn visit_node(&mut self, _tree: &mut MerkleTree<H>, _node_id: NodeKey, _prev_height: usize) {}
+    fn visit_node<DB: BonsaiDatabase>(
+        &mut self,
+        _tree: &mut MerkleTree<H>,
+        _node_id: NodeKey,
+        _prev_height: usize,
+    ) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
+        Ok(())
+    }
 }
 
 pub struct MerkleTreeIterator<'a, H: StarkHash, DB: BonsaiDatabase, ID: Id> {
@@ -153,10 +165,9 @@ impl<'a, H: StarkHash + Send + Sync, DB: BonsaiDatabase, ID: Id> MerkleTreeItera
             // partition point is a binary search under the hood
             // TODO(perf): measure whether binary search is actually better than reverse iteration - the happy path may be that
             //  only the last few bits are different.
-            let nodes_new_len = self
-                .current_nodes_heights
-                .partition_point(|(_node, height)| *height < shared_prefix_len);
-            nodes_new_len
+
+            self.current_nodes_heights
+                .partition_point(|(_node, height)| *height < shared_prefix_len)
         };
         log::trace!(
             "Truncate pre node id cache shared_prefix_len={:?}, nodes_new_len={:?}, cur_path_nodes_heights={:?}, current_path={:?}",
@@ -202,7 +213,7 @@ impl<'a, H: StarkHash + Send + Sync, DB: BonsaiDatabase, ID: Id> MerkleTreeItera
                 return Ok(());
             };
 
-            visitor.visit_node(&mut self.tree, node_id, self.current_path.len());
+            visitor.visit_node::<DB>(self.tree, node_id, self.current_path.len())?;
             next_to_visit = self.traverse_one(node_id, self.current_path.len(), key)?;
 
             log::trace!(
@@ -218,7 +229,7 @@ impl<'a, H: StarkHash + Send + Sync, DB: BonsaiDatabase, ID: Id> MerkleTreeItera
 
 #[cfg(test)]
 mod tests {
-    //! The tree used in this series of cases looks like this:
+    //! The tree used in this series of tests looks like this:
     //! ```
     //!                    │                   
     //!                   ┌▼┐                  
@@ -239,7 +250,7 @@ mod tests {
     //!    │      │        └┬┘      └┬┘        
     //!   0x1    0x2       0x3      0x4        
     //! ```
-    
+
     use crate::{
         databases::{create_rocks_db, RocksDB, RocksDBConfig},
         id::{BasicId, Id},
@@ -304,6 +315,7 @@ mod tests {
         }
     }
 
+    #[allow(clippy::type_complexity)]
     fn all_cases<H: StarkHash + Send + Sync, DB: BonsaiDatabase, ID: Id>(
     ) -> Vec<fn(&mut MerkleTreeIterator<H, DB, ID>)> {
         vec![
