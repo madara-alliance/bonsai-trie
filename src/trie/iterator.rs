@@ -89,13 +89,17 @@ impl<'a, H: StarkHash + Send + Sync, DB: BonsaiDatabase, ID: Id> MerkleTreeItera
         };
 
         // path_matches is false when the edge node doesn't match the path we want to preload so we return nothing.
+        log::trace!(
+            "Compare: path_matches={path_matches} {:?} ?= {:b} (node_handle {node_handle:?})",
+            self.current_path,
+            key
+        );
         if !path_matches || self.current_path.len() >= key.len() {
-            log::trace!(
-                "Compare: path_matches={path_matches} {:?} ?= {:b} (node_handle {node_handle:?})",
-                self.current_path,
-                key
-            );
-            self.leaf_hash = node_handle.as_hash();
+            self.leaf_hash = if path_matches && self.current_path.len() == key.len() {
+                node_handle.as_hash()
+            } else {
+                None
+            };
             return Ok(None); // end of traversal
         }
 
@@ -129,6 +133,13 @@ impl<'a, H: StarkHash + Send + Sync, DB: BonsaiDatabase, ID: Id> MerkleTreeItera
         // First, truncate the curent path and nodes list to match the new key.
         log::trace!("Start traverse_to");
 
+        if key.is_empty() {
+            self.current_nodes_heights.clear();
+            self.current_path.clear();
+            self.leaf_hash = None;
+            return Ok(());
+        }
+
         let shared_prefix_len = self
             .current_path
             .iter()
@@ -139,7 +150,6 @@ impl<'a, H: StarkHash + Send + Sync, DB: BonsaiDatabase, ID: Id> MerkleTreeItera
         let nodes_new_len = if shared_prefix_len == 0 {
             0
         } else {
-            self.leaf_hash = None;
             // partition point is a binary search under the hood
             // TODO(perf): measure whether binary search is actually better than reverse iteration - the happy path may be that
             //  only the last few bits are different.
@@ -157,23 +167,6 @@ impl<'a, H: StarkHash + Send + Sync, DB: BonsaiDatabase, ID: Id> MerkleTreeItera
 
         self.current_nodes_heights.truncate(nodes_new_len);
         self.current_path.truncate(key.len());
-        let truncated = self.current_nodes_heights.len() == nodes_new_len;
-        if shared_prefix_len == key.len() {
-            // Nothing to do here after truncation.
-
-            // Keep the leaf_hash intact here in a case of noop.
-            if truncated {
-                self.leaf_hash = None
-            }
-            return Ok(()); // end of traversal
-        }
-        self.leaf_hash = None;
-
-        log::trace!(
-            "Truncate node id cache shared_prefix_len={:?}, nodes_new_len={:?}, cur_path_nodes_heights={:?}",
-            shared_prefix_len, nodes_new_len,
-            self.current_nodes_heights
-        );
 
         let mut next_to_visit = if let Some((node_id, height)) = self.current_nodes_heights.pop() {
             self.current_path.truncate(height);
@@ -188,6 +181,7 @@ impl<'a, H: StarkHash + Send + Sync, DB: BonsaiDatabase, ID: Id> MerkleTreeItera
             )?
             else {
                 // empty tree, not found
+                self.leaf_hash = None;
                 return Ok(());
             };
             Some(node_id)
@@ -292,6 +286,7 @@ mod tests {
     ) -> Vec<fn(&mut MerkleTreeIterator<H, DB, ID>)> {
         vec![
             // SEEK TO LEAF
+            // case 0
             |iter| {
                 // from scratch, should find the leaf
                 iter.seek_to(bits![u8, Msb0; 0,0,0,1,0,0,0,0]).unwrap();
@@ -299,6 +294,7 @@ mod tests {
                 assert_eq!(iter.cur_nodes_ids(), vec![1, 7, 6, 4, 2]);
                 println!("{iter:?}");
             },
+            // case 1
             |iter| {
                 // from a closeby leaf, should backtrack and find the next one
                 iter.seek_to(bits![u8, Msb0; 0,0,0,1,0,0,0,1]).unwrap();
@@ -306,6 +302,7 @@ mod tests {
                 assert_eq!(iter.cur_nodes_ids(), vec![1, 7, 6, 4, 2]);
                 println!("{iter:?}");
             },
+            // case 2
             |iter| {
                 // backtrack farther, should find the leaf
                 iter.seek_to(bits![u8, Msb0; 0,0,0,1,0,0,1,0]).unwrap();
@@ -313,6 +310,7 @@ mod tests {
                 assert_eq!(iter.cur_nodes_ids(), vec![1, 7, 6, 4, 3]);
                 println!("{iter:?}");
             },
+            // case 3
             |iter| {
                 // backtrack farther, should find the leaf
                 iter.seek_to(bits![u8, Msb0; 0,1,0,0,0,0,0,0]).unwrap();
@@ -320,6 +318,7 @@ mod tests {
                 assert_eq!(iter.cur_nodes_ids(), vec![1, 7, 5]);
                 println!("{iter:?}");
             },
+            // case 4
             |iter| {
                 // similar case
                 iter.seek_to(bits![u8, Msb0; 0,0,0,1,0,0,0,1]).unwrap();
@@ -328,37 +327,46 @@ mod tests {
                 println!("{iter:?}");
             },
             // SEEK MIDWAY INTO THE TREE
+            // case 5
             |iter| {
                 // jump midway into an edge
                 iter.seek_to(bits![u8, Msb0; 0,1,0,0,0]).unwrap();
                 // The current path should reflect the tip of the edge
                 assert_eq!(iter.current_path.0, bits![u8, Msb0; 0,1,0,0,0,0,0,0]);
+                assert_eq!(iter.leaf_hash, None);
                 assert_eq!(iter.cur_nodes_ids(), vec![1, 7, 5]);
                 println!("{iter:?}");
             },
+            // case 6
             |iter| {
                 // jump midway into an edge, but its child is not a leaf
                 iter.seek_to(bits![u8, Msb0; 0,0,0]).unwrap();
                 // The current path should reflect the edge
                 assert_eq!(iter.current_path.0, bits![u8, Msb0; 0,0,0,1,0,0]);
+                assert_eq!(iter.leaf_hash, None);
                 assert_eq!(iter.cur_nodes_ids(), vec![1, 7, 6]);
                 println!("{iter:?}");
             },
+            // case 7
             |iter| {
                 // jump to a binary node
                 iter.seek_to(bits![u8, Msb0; 0,0,0,1,0,0,0]).unwrap();
                 assert_eq!(iter.current_path.0, bits![u8, Msb0; 0,0,0,1,0,0,0]);
+                assert_eq!(iter.leaf_hash, None);
                 assert_eq!(iter.cur_nodes_ids(), vec![1, 7, 6, 4]);
                 println!("{iter:?}");
             },
+            // case 8
             |iter| {
                 // jump to the end of an edge
                 iter.seek_to(bits![u8, Msb0; 0,0,0,1,0,0]).unwrap();
                 // The current path should reflect the tip of the edge
                 assert_eq!(iter.current_path.0, bits![u8, Msb0; 0,0,0,1,0,0]);
+                assert_eq!(iter.leaf_hash, None);
                 assert_eq!(iter.cur_nodes_ids(), vec![1, 7, 6]);
                 println!("{iter:?}");
             },
+            // case 9
             |iter| {
                 // jump to top
                 iter.seek_to(bits![u8, Msb0; ]).unwrap();
@@ -367,31 +375,39 @@ mod tests {
                 assert_eq!(iter.cur_nodes_ids(), vec![]);
                 println!("{iter:?}");
             },
+            // case 10
             |iter| {
                 // jump to first node
                 iter.seek_to(bits![u8, Msb0; 0]).unwrap();
                 assert_eq!(iter.current_path.0, bits![u8, Msb0; 0]);
+                assert_eq!(iter.leaf_hash, None);
                 assert_eq!(iter.cur_nodes_ids(), vec![1]);
                 println!("{iter:?}");
             },
+            // case 11
             |iter| {
                 // jump to non existent node, returning same edge
                 iter.seek_to(bits![u8, Msb0; 0,1,0,1,0,0,0]).unwrap();
                 assert_eq!(iter.current_path.0, bits![u8, Msb0; 0,1,0,0,0,0,0,0]);
+                assert_eq!(iter.leaf_hash, None);
                 assert_eq!(iter.cur_nodes_ids(), vec![1, 7, 5]);
                 println!("{iter:?}");
             },
+            // case 12
             |iter| {
                 // jump to non existent node, deviating from edge, should not go into the children
                 iter.seek_to(bits![u8, Msb0; 1,0,0,1,0,0,0]).unwrap();
                 assert_eq!(iter.current_path.0, bits![u8, Msb0; 0]);
+                assert_eq!(iter.leaf_hash, None);
                 assert_eq!(iter.cur_nodes_ids(), vec![1]);
                 println!("{iter:?}");
             },
+            // case 13
             |iter| {
                 // jump to non existent node, deviating from first node
                 iter.seek_to(bits![u8, Msb0; 1]).unwrap();
                 assert_eq!(iter.current_path.0, bits![u8, Msb0; 0]);
+                assert_eq!(iter.leaf_hash, None);
                 assert_eq!(iter.cur_nodes_ids(), vec![1]);
                 println!("{iter:?}");
             },
@@ -402,12 +418,12 @@ mod tests {
         all_cases::<Pedersen, RocksDB<'static, BasicId>, BasicId>().len()
     }
 
-    // proptest::proptest! {
-    //     // #![proptest_config(ProptestConfig::with_cases(5))] // comment this when developing, this is mostly for faster ci & whole workspace `cargo test`
-    //     #[test]
-    //     /// This proptest will apply the above seek_to cases in a random order
-    //     fn proptest_seek_to(cases in vec(0..all_cases_len(), size_range(0..20)).boxed()) {
-    //         test_iterator_seek_to_inner(cases)
-    //     }
-    // }
+    proptest::proptest! {
+        // #![proptest_config(ProptestConfig::with_cases(5))] // comment this when developing, this is mostly for faster ci & whole workspace `cargo test`
+        #[test]
+        /// This proptest will apply the above seek_to cases in a random order
+        fn proptest_seek_to(cases in vec(0..all_cases_len(), size_range(0..20)).boxed()) {
+            test_iterator_seek_to_inner(cases)
+        }
+    }
 }
