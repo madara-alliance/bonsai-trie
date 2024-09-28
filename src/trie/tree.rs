@@ -653,6 +653,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
                             log::trace!("change val: {:?} => {:#x}", key_bytes, value);
                             self.cache_leaf_modified
                                 .insert(key_bytes, InsertOrRemove::Insert(value));
+                            self.node_storage.nodes[*node_id] = node;
                             return Ok(());
                         }
                         // Height of the binary node's children
@@ -782,6 +783,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         db: &KeyValueDB<DB, ID>,
         key: &BitSlice,
     ) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
+        log::trace!("delete leaf");
         // Algorithm explanation:
         //
         // The leaf's parent node is either an edge, or a binary node.

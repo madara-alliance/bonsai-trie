@@ -642,6 +642,7 @@ fn test_insert_zero() {
 
 #[test]
 fn test_block_7_starknet() {
+    let _ = env_logger::builder().is_test(true).try_init();
     let config = BonsaiStorageConfig::default();
     let bonsai_db = HashMapDb::<BasicId>::default();
     let mut bonsai_storage = BonsaiStorage::<_, _, Pedersen>::new(bonsai_db, config)
@@ -678,6 +679,7 @@ fn test_block_7_starknet() {
             .expect("Failed to insert storage update into trie");
     }
 
+    bonsai_storage.dump();
     let mut id_builder = BasicIdBuilder::new();
     let id = id_builder.new_id();
     bonsai_storage
@@ -747,6 +749,7 @@ fn test_block_7_starknet() {
             .expect("Failed to insert storage update into trie");
     }
 
+    bonsai_storage.dump();
     let id = id_builder.new_id();
     bonsai_storage
         .commit(id)

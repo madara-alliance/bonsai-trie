@@ -153,7 +153,7 @@ impl<T: parity_scale_codec::Encode> EncodeExt for T {}
 use changes::ChangeBatch;
 use key_value_db::KeyValueDB;
 use starknet_types_core::{felt::Felt, hash::StarkHash};
-use trie::{tree::bytes_to_bitvec, trees::MerkleTrees};
+use trie::{proof::MultiProof, tree::bytes_to_bitvec, trees::MerkleTrees};
 
 /// Structure that contains the configuration for the BonsaiStorage.
 /// A default implementation is provided with coherent values.
@@ -473,15 +473,13 @@ where
         self.tries.db_ref().get_latest_id()
     }
 
-    // /// Verifies a merkle-proof for a given `key` and `value`.
-    // pub fn verify_proof(
-    //     root: Felt,
-    //     key: &BitSlice,
-    //     value: Felt,
-    //     proofs: &[ProofNode],
-    // ) -> Option<Membership> {
-    //     MerkleTree::<Pedersen>::verify_proof(root, key, value, proofs)
-    // }
+    pub fn get_multi_proof(
+        &mut self,
+        identifier: &[u8],
+        keys: impl IntoIterator<Item = impl AsRef<BitSlice>>,
+    ) -> Result<MultiProof, BonsaiStorageError<DB::DatabaseError>> {
+        self.tries.get_multi_proof(identifier, keys)
+    }
 }
 
 impl<ChangeID, DB, H> BonsaiStorage<ChangeID, DB, H>

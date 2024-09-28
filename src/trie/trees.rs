@@ -1,4 +1,4 @@
-use super::tree::MerkleTree;
+use super::{proof::MultiProof, tree::MerkleTree};
 use crate::{
     id::Id, key_value_db::KeyValueDB, trie::tree::InsertOrRemove, BitSlice, BonsaiDatabase,
     BonsaiStorageError, ByteVec, HashMap,
@@ -227,5 +227,18 @@ impl<H: StarkHash + Send + Sync, DB: BonsaiDatabase, CommitID: Id> MerkleTrees<H
 
     pub(crate) fn get_identifiers(&self) -> Vec<Vec<u8>> {
         self.trees.keys().cloned().map(ByteVec::into_vec).collect()
+    }
+
+    pub fn get_multi_proof(
+        &mut self,
+        identifier: &[u8],
+        keys: impl IntoIterator<Item = impl AsRef<BitSlice>>,
+    ) -> Result<MultiProof, BonsaiStorageError<DB::DatabaseError>> {
+        let tree = self
+            .trees
+            .entry_ref(identifier)
+            .or_insert_with(|| MerkleTree::new(identifier.into()));
+
+        tree.get_multi_proof(&self.db, keys)
     }
 }

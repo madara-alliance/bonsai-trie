@@ -59,13 +59,14 @@ pub struct MultiProof(pub HashMap<Felt, ProofNode>);
 impl MultiProof {
     /// If the proof proves more than just the provided `key_values`, this function will not fail.
     /// Not the most optimized way of doing it, but we don't actually need to verify proofs in madara.
-    /// As such, it has not been properly proptested.
+    /// As such, it has also not been properly proptested.
     pub fn verify_proof<'a, 'b: 'a, H: StarkHash>(
         &'b self,
         root: Felt,
         key_values: impl IntoIterator<Item = (impl AsRef<BitSlice>, Felt)> + 'a,
     ) -> impl Iterator<Item = Membership> + 'a {
         let mut checked_cache: HashSet<Felt> = Default::default();
+        let mut current_path = BitVec::with_capacity(251);
         key_values.into_iter().map(move |(k, v)| {
             let k = k.as_ref();
 
@@ -75,7 +76,7 @@ impl MultiProof {
             // }
 
             // Go down the tree, starting from the root.
-            let mut current_path = BitVec::with_capacity(251);
+            current_path.clear(); // hoisted alloc
             let mut current_felt = root;
 
             loop {
@@ -261,6 +262,5 @@ mod tests {
                 .all(|v| v.into()),
             true
         );
-        todo!()
     }
 }

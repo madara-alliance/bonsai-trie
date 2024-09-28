@@ -1,6 +1,5 @@
 mod madara_comparison;
 mod merge;
-// mod proof;
 mod merkle_tree;
 mod proptest;
 mod simple;
