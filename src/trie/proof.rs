@@ -1,11 +1,10 @@
-use core::marker::PhantomData;
-
 use super::{
     merkle_node::{hash_binary_node, hash_edge_node, Direction},
     path::Path,
     tree::MerkleTree,
 };
 use crate::{
+    format,
     id::Id,
     key_value_db::KeyValueDB,
     trie::{
@@ -15,6 +14,7 @@ use crate::{
     },
     BitSlice, BitVec, BonsaiDatabase, BonsaiStorageError, HashMap, HashSet,
 };
+use core::marker::PhantomData;
 use hashbrown::hash_set;
 use starknet_types_core::{felt::Felt, hash::StarkHash};
 
@@ -153,7 +153,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
                 node_id: NodeKey,
                 _prev_height: usize,
             ) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
-                let proof_node = match tree.node_storage.get_node_mut::<DB>(node_id)? {
+                let proof_node = match tree.get_node_mut::<DB>(node_id)? {
                     Node::Binary(binary_node) => {
                         let (left, right) = (binary_node.left, binary_node.right);
                         ProofNode::Binary {
@@ -253,14 +253,11 @@ mod tests {
             .unwrap();
 
         log::trace!("proof: {proof:?}");
-        assert_eq!(
-            proof
-                .verify_proof::<Pedersen>(
-                    tree.root_hash(&bonsai_storage.tries.db).unwrap(),
-                    [(bits![u8, Msb0; 0,0,0,1,0,0,0,0], ONE)]
-                )
-                .all(|v| v.into()),
-            true
-        );
+        assert!(proof
+            .verify_proof::<Pedersen>(
+                tree.root_hash(&bonsai_storage.tries.db).unwrap(),
+                [(bits![u8, Msb0; 0,0,0,1,0,0,0,0], ONE)]
+            )
+            .all(|v| v.into()));
     }
 }

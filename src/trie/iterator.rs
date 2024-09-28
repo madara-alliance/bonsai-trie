@@ -3,7 +3,7 @@ use super::{
     path::Path,
     tree::{MerkleTree, NodeKey},
 };
-use crate::{id::Id, key_value_db::KeyValueDB, BitSlice, BonsaiDatabase, BonsaiStorageError};
+use crate::{id::Id, key_value_db::KeyValueDB, BitSlice, BonsaiDatabase, BonsaiStorageError, Vec};
 use core::{fmt, marker::PhantomData};
 use starknet_types_core::{felt::Felt, hash::StarkHash};
 
@@ -88,7 +88,7 @@ impl<'a, H: StarkHash + Send + Sync, DB: BonsaiDatabase, ID: Id> MerkleTreeItera
         self.current_nodes_heights
             .push((node_id, self.current_path.len()));
 
-        let node = self.tree.node_storage.get_node_mut::<DB>(node_id)?;
+        let node = self.tree.get_node_mut::<DB>(node_id)?;
         let (node_handle, path_matches) = match node {
             Node::Binary(binary_node) => {
                 log::trace!(
@@ -126,7 +126,7 @@ impl<'a, H: StarkHash + Send + Sync, DB: BonsaiDatabase, ID: Id> MerkleTreeItera
             .load_node_handle(self.db, node_handle, &self.current_path)?;
 
         // update parent ref
-        match self.tree.node_storage.get_node_mut::<DB>(node_id)? {
+        match self.tree.get_node_mut::<DB>(node_id)? {
             Node::Binary(binary_node) => {
                 *binary_node.get_child_mut(Direction::from(
                     *self
@@ -191,12 +191,7 @@ impl<'a, H: StarkHash + Send + Sync, DB: BonsaiDatabase, ID: Id> MerkleTreeItera
         } else {
             // Start from tree root.
             self.current_path.clear();
-            let Some(node_id) = self.tree.node_storage.load_root_node(
-                &self.tree.death_row,
-                &self.tree.identifier,
-                self.db,
-            )?
-            else {
+            let Some(node_id) = self.tree.load_root_node(self.db)? else {
                 // empty tree, not found
                 self.leaf_hash = None;
                 return Ok(());
