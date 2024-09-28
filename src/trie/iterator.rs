@@ -32,8 +32,13 @@ impl<H: StarkHash> NodeVisitor<H> for NoopVisitor<H> {
 pub struct MerkleTreeIterator<'a, H: StarkHash, DB: BonsaiDatabase, ID: Id> {
     pub(crate) tree: &'a mut MerkleTree<H>,
     pub(crate) db: &'a KeyValueDB<DB, ID>,
+    /// Current iteration path.
     pub(crate) current_path: Path,
+    /// The loaded nodes in the current path with their corresponding heights. Height is at the base of the node, meaning
+    /// the first node here will always have height 0.
     pub(crate) current_nodes_heights: Vec<(NodeKey, usize)>,
+    /// Current leaf hash. Note that partial traversal (traversal that stops midway through the tree) will
+    /// also update this field if an exact match for the key is found, even though we may not have reached a leaf.
     pub(crate) leaf_hash: Option<Felt>,
 }
 
@@ -43,7 +48,8 @@ impl<'a, H: StarkHash, DB: BonsaiDatabase, ID: Id> fmt::Debug
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("MerkleTreeIterator")
             .field("cur_path", &self.current_path)
-            .field("cur_path_nodes_heights", &self.current_nodes_heights)
+            .field("current_nodes_heights", &self.current_nodes_heights)
+            .field("leaf_hash", &self.leaf_hash)
             .finish()
     }
 }

@@ -21,6 +21,8 @@ where
     Database(DatabaseError),
     /// Error when decoding a node
     NodeDecodeError(parity_scale_codec::Error),
+    /// Error when creating a storage proof.
+    CreateProof(String),
 }
 
 impl<DatabaseError: DBError> core::convert::From<DatabaseError>
@@ -52,6 +54,7 @@ where
             BonsaiStorageError::Merge(e) => write!(f, "Merge error: {}", e),
             BonsaiStorageError::Database(e) => write!(f, "Database error: {}", e),
             BonsaiStorageError::NodeDecodeError(e) => write!(f, "Node decode error: {}", e),
+            BonsaiStorageError::CreateProof(e) => write!(f, "Proof creation error: {}", e),
         }
     }
 }
