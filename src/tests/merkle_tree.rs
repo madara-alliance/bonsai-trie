@@ -17,7 +17,8 @@ fn test_key_retrieval() {
     let rocksdb = create_rocks_db(tempdir.path()).unwrap();
     let db = RocksDB::new(&rocksdb, RocksDBConfig::default());
     let mut bonsai =
-        BonsaiStorage::<BasicId, _, Pedersen>::new(db, BonsaiStorageConfig::default()).unwrap();
+        BonsaiStorage::<BasicId, _, Pedersen>::new(db, BonsaiStorageConfig::default(), 251)
+            .unwrap();
 
     let block_0 = vec![
         (

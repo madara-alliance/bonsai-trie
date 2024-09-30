@@ -283,6 +283,7 @@ mod tests {
         let mut bonsai_storage: BonsaiStorage<BasicId, _, Pedersen> = BonsaiStorage::new(
             RocksDB::<BasicId>::new(&db, RocksDBConfig::default()),
             BonsaiStorageConfig::default(),
+            8,
         )
         .unwrap();
 

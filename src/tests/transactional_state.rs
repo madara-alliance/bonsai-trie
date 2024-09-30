@@ -14,7 +14,7 @@ fn basics() {
     let db = create_rocks_db(tempdir.path()).unwrap();
     let config = BonsaiStorageConfig::default();
     let mut bonsai_storage =
-        BonsaiStorage::new(RocksDB::new(&db, RocksDBConfig::default()), config).unwrap();
+        BonsaiStorage::new(RocksDB::new(&db, RocksDBConfig::default()), config, 251).unwrap();
     let mut id_builder = BasicIdBuilder::new();
 
     let pair1 = (
@@ -58,8 +58,12 @@ fn test_thread() {
     let tempdir = tempfile::tempdir().unwrap();
     let db = create_rocks_db(tempdir.path()).unwrap();
     let config = BonsaiStorageConfig::default();
-    let mut bonsai_storage =
-        BonsaiStorage::new(RocksDB::new(&db, RocksDBConfig::default()), config.clone()).unwrap();
+    let mut bonsai_storage = BonsaiStorage::new(
+        RocksDB::new(&db, RocksDBConfig::default()),
+        config.clone(),
+        251,
+    )
+    .unwrap();
     let mut id_builder = BasicIdBuilder::new();
 
     let pair1 = (
@@ -119,7 +123,7 @@ fn remove() {
     let db = create_rocks_db(tempdir.path()).unwrap();
     let config = BonsaiStorageConfig::default();
     let mut bonsai_storage =
-        BonsaiStorage::new(RocksDB::new(&db, RocksDBConfig::default()), config).unwrap();
+        BonsaiStorage::new(RocksDB::new(&db, RocksDBConfig::default()), config, 251).unwrap();
     let mut id_builder = BasicIdBuilder::new();
 
     let pair1 = (
@@ -164,7 +168,7 @@ fn merge() {
     let db = create_rocks_db(tempdir.path()).unwrap();
     let config = BonsaiStorageConfig::default();
     let mut bonsai_storage =
-        BonsaiStorage::new(RocksDB::new(&db, RocksDBConfig::default()), config).unwrap();
+        BonsaiStorage::new(RocksDB::new(&db, RocksDBConfig::default()), config, 251).unwrap();
     let mut id_builder = BasicIdBuilder::new();
 
     let pair1 = (
@@ -207,7 +211,7 @@ fn merge_with_uncommitted_insert() {
     let db = create_rocks_db(tempdir.path()).unwrap();
     let config = BonsaiStorageConfig::default();
     let mut bonsai_storage =
-        BonsaiStorage::new(RocksDB::new(&db, RocksDBConfig::default()), config).unwrap();
+        BonsaiStorage::new(RocksDB::new(&db, RocksDBConfig::default()), config, 251).unwrap();
     let mut id_builder = BasicIdBuilder::new();
 
     let pair1 = (
@@ -269,7 +273,7 @@ fn merge_with_uncommitted_remove() {
     let db = create_rocks_db(tempdir.path()).unwrap();
     let config = BonsaiStorageConfig::default();
     let mut bonsai_storage =
-        BonsaiStorage::new(RocksDB::new(&db, RocksDBConfig::default()), config).unwrap();
+        BonsaiStorage::new(RocksDB::new(&db, RocksDBConfig::default()), config, 251).unwrap();
     let mut id_builder = BasicIdBuilder::new();
 
     let pair1 = (
@@ -327,7 +331,7 @@ fn transactional_state_after_uncommitted() {
     let db = create_rocks_db(tempdir.path()).unwrap();
     let config = BonsaiStorageConfig::default();
     let mut bonsai_storage =
-        BonsaiStorage::new(RocksDB::new(&db, RocksDBConfig::default()), config).unwrap();
+        BonsaiStorage::new(RocksDB::new(&db, RocksDBConfig::default()), config, 251).unwrap();
     let mut id_builder = BasicIdBuilder::new();
 
     let pair1 = (
@@ -369,7 +373,7 @@ fn merge_override() {
     let db = create_rocks_db(tempdir.path()).unwrap();
     let config = BonsaiStorageConfig::default();
     let mut bonsai_storage =
-        BonsaiStorage::new(RocksDB::new(&db, RocksDBConfig::default()), config).unwrap();
+        BonsaiStorage::new(RocksDB::new(&db, RocksDBConfig::default()), config, 251).unwrap();
     let mut id_builder = BasicIdBuilder::new();
 
     let pair1 = (
@@ -412,7 +416,7 @@ fn merge_remove() {
     let db = create_rocks_db(tempdir.path()).unwrap();
     let config = BonsaiStorageConfig::default();
     let mut bonsai_storage =
-        BonsaiStorage::new(RocksDB::new(&db, RocksDBConfig::default()), config).unwrap();
+        BonsaiStorage::new(RocksDB::new(&db, RocksDBConfig::default()), config, 251).unwrap();
     let mut id_builder = BasicIdBuilder::new();
 
     let pair1 = (
@@ -451,7 +455,7 @@ fn merge_txn_revert() {
     let db = create_rocks_db(tempdir.path()).unwrap();
     let config = BonsaiStorageConfig::default();
     let mut bonsai_storage =
-        BonsaiStorage::new(RocksDB::new(&db, RocksDBConfig::default()), config).unwrap();
+        BonsaiStorage::new(RocksDB::new(&db, RocksDBConfig::default()), config, 251).unwrap();
     let mut id_builder = BasicIdBuilder::new();
 
     let pair1 = (
@@ -511,7 +515,7 @@ fn merge_invalid() {
     let db = create_rocks_db(tempdir.path()).unwrap();
     let config = BonsaiStorageConfig::default();
     let mut bonsai_storage =
-        BonsaiStorage::new(RocksDB::new(&db, RocksDBConfig::default()), config).unwrap();
+        BonsaiStorage::new(RocksDB::new(&db, RocksDBConfig::default()), config, 251).unwrap();
     let mut id_builder = BasicIdBuilder::new();
 
     let pair1 = (
@@ -558,7 +562,7 @@ fn many_snapshots() {
         ..Default::default()
     };
     let mut bonsai_storage: BonsaiStorage<_, _, Pedersen> =
-        BonsaiStorage::new(RocksDB::new(&db, RocksDBConfig::default()), config).unwrap();
+        BonsaiStorage::new(RocksDB::new(&db, RocksDBConfig::default()), config, 251).unwrap();
     let mut id_builder = BasicIdBuilder::new();
 
     let pair1 = (

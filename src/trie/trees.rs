@@ -9,6 +9,7 @@ use starknet_types_core::{felt::Felt, hash::StarkHash};
 pub(crate) struct MerkleTrees<H: StarkHash + Send + Sync, DB: BonsaiDatabase, CommitID: Id> {
     pub db: KeyValueDB<DB, CommitID>,
     pub trees: HashMap<ByteVec, MerkleTree<H>>,
+    pub max_height: u8,
 }
 
 impl<H: StarkHash + Send + Sync, DB: BonsaiDatabase + fmt::Debug, CommitID: Id> fmt::Debug
@@ -30,15 +31,17 @@ impl<H: StarkHash + Send + Sync, DB: BonsaiDatabase + Clone, CommitID: Id> Clone
         Self {
             db: self.db.clone(),
             trees: self.trees.clone(),
+            max_height: self.max_height,
         }
     }
 }
 
 impl<H: StarkHash + Send + Sync, DB: BonsaiDatabase, CommitID: Id> MerkleTrees<H, DB, CommitID> {
-    pub(crate) fn new(db: KeyValueDB<DB, CommitID>) -> Self {
+    pub(crate) fn new(db: KeyValueDB<DB, CommitID>, tree_height: u8) -> Self {
         Self {
             db,
             trees: HashMap::new(),
+            max_height: tree_height,
         }
     }
 
@@ -51,7 +54,7 @@ impl<H: StarkHash + Send + Sync, DB: BonsaiDatabase, CommitID: Id> MerkleTrees<H
         let tree = self
             .trees
             .entry_ref(identifier)
-            .or_insert_with(|| MerkleTree::new(identifier.into()));
+            .or_insert_with(|| MerkleTree::new(identifier.into(), self.max_height));
 
         tree.set(&self.db, key, value)
     }
@@ -64,7 +67,7 @@ impl<H: StarkHash + Send + Sync, DB: BonsaiDatabase, CommitID: Id> MerkleTrees<H
         if let Some(tree) = self.trees.get(identifier) {
             tree.get(&self.db, key)
         } else {
-            MerkleTree::<H>::new(identifier.into()).get(&self.db, key)
+            MerkleTree::<H>::new(identifier.into(), self.max_height).get(&self.db, key)
         }
     }
 
@@ -77,7 +80,7 @@ impl<H: StarkHash + Send + Sync, DB: BonsaiDatabase, CommitID: Id> MerkleTrees<H
         if let Some(tree) = self.trees.get(identifier) {
             tree.get_at(&self.db, key, id)
         } else {
-            MerkleTree::<H>::new(identifier.into()).get_at(&self.db, key, id)
+            MerkleTree::<H>::new(identifier.into(), self.max_height).get_at(&self.db, key, id)
         }
     }
 
@@ -89,7 +92,7 @@ impl<H: StarkHash + Send + Sync, DB: BonsaiDatabase, CommitID: Id> MerkleTrees<H
         if let Some(tree) = self.trees.get(identifier) {
             tree.contains(&self.db, key)
         } else {
-            MerkleTree::<H>::new(identifier.into()).contains(&self.db, key)
+            MerkleTree::<H>::new(identifier.into(), self.max_height).contains(&self.db, key)
         }
     }
 
@@ -124,7 +127,7 @@ impl<H: StarkHash + Send + Sync, DB: BonsaiDatabase, CommitID: Id> MerkleTrees<H
         if let Some(tree) = self.trees.get(identifier) {
             Ok(tree.root_hash(&self.db)?)
         } else {
-            MerkleTree::<H>::new(identifier.into()).root_hash(&self.db)
+            MerkleTree::<H>::new(identifier.into(), self.max_height).root_hash(&self.db)
         }
     }
 
@@ -237,7 +240,7 @@ impl<H: StarkHash + Send + Sync, DB: BonsaiDatabase, CommitID: Id> MerkleTrees<H
         let tree = self
             .trees
             .entry_ref(identifier)
-            .or_insert_with(|| MerkleTree::new(identifier.into()));
+            .or_insert_with(|| MerkleTree::new(identifier.into(), self.max_height));
 
         tree.get_multi_proof(&self.db, keys)
     }

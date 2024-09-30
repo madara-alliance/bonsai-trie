@@ -65,6 +65,8 @@ pub struct MerkleTree<H: StarkHash> {
     pub(crate) death_row: HashSet<TrieKey>,
     /// The list of leaves that have been modified during the current commit.
     pub(crate) cache_leaf_modified: HashMap<ByteVec, InsertOrRemove<Felt>>,
+    /// The maximum height of the tree. This is an u8 because we may rely on the fact that it's less than 256 in the future for optimizations.
+    pub(crate) max_height: u8,
     /// The hasher used to hash the nodes.
     _hasher: PhantomData<H>,
 }
@@ -86,6 +88,7 @@ impl<H: StarkHash> fmt::Debug for MerkleTree<H> {
 impl<H: StarkHash> Clone for MerkleTree<H> {
     fn clone(&self) -> Self {
         Self {
+            max_height: self.max_height,
             root_node: self.root_node,
             nodes: self.nodes.clone(),
             identifier: self.identifier.clone(),
@@ -107,13 +110,14 @@ enum NodeOrFelt<'a> {
 }
 
 impl<H: StarkHash + Send + Sync> MerkleTree<H> {
-    pub fn new(identifier: ByteVec) -> Self {
+    pub fn new(identifier: ByteVec, max_height: u8) -> Self {
         Self {
             root_node: None,
             nodes: Default::default(),
             identifier,
             death_row: HashSet::new(),
             cache_leaf_modified: HashMap::new(),
+            max_height,
             _hasher: PhantomData,
         }
     }
@@ -568,6 +572,12 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         if value == Felt::ZERO {
             return self.delete_leaf(db, key);
         }
+        if key.len() != self.max_height as _ {
+            return Err(BonsaiStorageError::KeyLength {
+                expected: self.max_height as _,
+                got: key.len(),
+            });
+        }
         let key_bytes = bitslice_to_bytes(key);
         log::trace!("key_bytes: {:?}", key_bytes);
 
@@ -759,6 +769,12 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         db: &KeyValueDB<DB, ID>,
         key: &BitSlice,
     ) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
+        if key.len() != self.max_height as _ {
+            return Err(BonsaiStorageError::KeyLength {
+                expected: self.max_height as _,
+                got: key.len(),
+            });
+        }
         log::trace!("delete leaf");
         // Algorithm explanation:
         //

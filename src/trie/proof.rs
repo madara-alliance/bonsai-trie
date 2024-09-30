@@ -64,16 +64,16 @@ impl MultiProof {
         &'b self,
         root: Felt,
         key_values: impl IntoIterator<Item = (impl AsRef<BitSlice>, Felt)> + 'a,
+        tree_height: u8,
     ) -> impl Iterator<Item = Membership> + 'a {
         let mut checked_cache: HashSet<Felt> = Default::default();
         let mut current_path = BitVec::with_capacity(251);
         key_values.into_iter().map(move |(k, v)| {
             let k = k.as_ref();
 
-            // todo: find a way to disable this check in non-251bit key tests.
-            // if key.len() != 251 {
-            //     return Err(BonsaiStorageError::CreateProof(format!("Key {key:b} is not the correct length.")));
-            // }
+            if k.len() != tree_height as _ {
+                return Membership::NonMember;
+            }
 
             // Go down the tree, starting from the root.
             current_path.clear(); // hoisted alloc
@@ -145,6 +145,8 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         db: &KeyValueDB<DB, ID>,
         keys: impl IntoIterator<Item = impl AsRef<BitSlice>>,
     ) -> Result<MultiProof, BonsaiStorageError<DB::DatabaseError>> {
+        let max_height = self.max_height;
+
         struct ProofVisitor<H>(MultiProof, PhantomData<H>);
         impl<H: StarkHash + Send + Sync> NodeVisitor<H> for ProofVisitor<H> {
             fn visit_node<DB: BonsaiDatabase>(
@@ -179,10 +181,12 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         let mut iter = self.iter(db);
         for key in keys {
             let key = key.as_ref();
-            // todo: find a way to disable this check in non-251bit key tests.
-            // if key.len() != 251 {
-            //     return Err(BonsaiStorageError::CreateProof(format!("Key {key:b} is not the correct length.")));
-            // }
+            if key.len() != max_height as _ {
+                return Err(BonsaiStorageError::KeyLength {
+                    expected: self.max_height as _,
+                    got: key.len(),
+                });
+            }
             iter.traverse_to(&mut visitor, key)?;
             // We should have found a leaf here.
             iter.leaf_hash.ok_or_else(|| {
@@ -218,6 +222,7 @@ mod tests {
         let mut bonsai_storage: BonsaiStorage<BasicId, _, Pedersen> = BonsaiStorage::new(
             RocksDB::<BasicId>::new(&db, RocksDBConfig::default()),
             BonsaiStorageConfig::default(),
+            8,
         )
         .unwrap();
 
@@ -256,7 +261,8 @@ mod tests {
         assert!(proof
             .verify_proof::<Pedersen>(
                 tree.root_hash(&bonsai_storage.tries.db).unwrap(),
-                [(bits![u8, Msb0; 0,0,0,1,0,0,0,0], ONE)]
+                [(bits![u8, Msb0; 0,0,0,1,0,0,0,0], ONE)],
+                8
             )
             .all(|v| v.into()));
     }

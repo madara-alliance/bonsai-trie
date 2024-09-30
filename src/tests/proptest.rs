@@ -73,7 +73,7 @@ impl MerkleTreeInsertProblem {
         let mut ckv = HashMap::new();
 
         // apply steps
-        let mut tree = MerkleTree::<Pedersen>::new(smallvec![]);
+        let mut tree = MerkleTree::<Pedersen>::new(smallvec![], 251);
         for step in &self.0 {
             match step {
                 Step::Insert(k, v) => {

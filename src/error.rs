@@ -23,6 +23,8 @@ where
     NodeDecodeError(parity_scale_codec::Error),
     /// Error when creating a storage proof.
     CreateProof(String),
+    /// Malformated trie key.
+    KeyLength { expected: usize, got: usize },
 }
 
 impl<DatabaseError: DBError> core::convert::From<DatabaseError>
@@ -55,6 +57,9 @@ where
             BonsaiStorageError::Database(e) => write!(f, "Database error: {}", e),
             BonsaiStorageError::NodeDecodeError(e) => write!(f, "Node decode error: {}", e),
             BonsaiStorageError::CreateProof(e) => write!(f, "Proof creation error: {}", e),
+            BonsaiStorageError::KeyLength { expected, got } => {
+                write!(f, "Malformated key length: expected {expected}, got {got}")
+            }
         }
     }
 }

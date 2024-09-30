@@ -237,21 +237,23 @@ where
     pub fn new(
         db: DB,
         config: BonsaiStorageConfig,
+        max_height: u8,
     ) -> Result<Self, BonsaiStorageError<DB::DatabaseError>> {
         let key_value_db = KeyValueDB::new(db, config.into(), None);
         Ok(Self {
-            tries: MerkleTrees::new(key_value_db),
+            tries: MerkleTrees::new(key_value_db, max_height),
         })
     }
 
     pub fn new_from_transactional_state(
         db: DB,
         config: BonsaiStorageConfig,
+        max_height: u8,
         created_at: ChangeID,
         _identifiers: impl IntoIterator<Item = impl Deref<Target = [u8]>>,
     ) -> Result<Self, BonsaiStorageError<DB::DatabaseError>> {
         let key_value_db = KeyValueDB::new(db, config.into(), Some(created_at));
-        let tries = MerkleTrees::<H, DB, ChangeID>::new(key_value_db);
+        let tries = MerkleTrees::<H, DB, ChangeID>::new(key_value_db, max_height);
         Ok(Self { tries })
     }
 
@@ -516,6 +518,7 @@ where
             Ok(Some(BonsaiStorage::new_from_transactional_state(
                 transaction,
                 config,
+                self.tries.max_height,
                 change_id,
                 self.tries.get_identifiers(),
             )?))
