@@ -14,7 +14,7 @@ fn basics() {
     let db = create_rocks_db(tempdir.path()).unwrap();
     let config = BonsaiStorageConfig::default();
     let mut bonsai_storage: BonsaiStorage<_, _, Pedersen> =
-        BonsaiStorage::new(RocksDB::new(&db, RocksDBConfig::default()), config, 251).unwrap();
+        BonsaiStorage::new(RocksDB::new(&db, RocksDBConfig::default()), config, 24).unwrap();
     let mut id_builder = BasicIdBuilder::new();
     let pair1 = (
         vec![1, 2, 1],
@@ -69,7 +69,7 @@ fn root_hash_similar_rocks_db() {
         let db = create_rocks_db(tempdir.path()).unwrap();
         let config = BonsaiStorageConfig::default();
         let mut bonsai_storage: BonsaiStorage<_, _, Pedersen> =
-            BonsaiStorage::new(RocksDB::new(&db, RocksDBConfig::default()), config, 251).unwrap();
+            BonsaiStorage::new(RocksDB::new(&db, RocksDBConfig::default()), config, 24).unwrap();
         let mut id_builder = BasicIdBuilder::new();
         let pair1 = (
             vec![1, 2, 1],
@@ -116,7 +116,7 @@ fn root_hash_similar_rocks_db() {
         let db = create_rocks_db(tempdir.path()).unwrap();
         let config = BonsaiStorageConfig::default();
         let mut bonsai_storage: BonsaiStorage<_, _, Pedersen> =
-            BonsaiStorage::new(RocksDB::new(&db, RocksDBConfig::default()), config, 251).unwrap();
+            BonsaiStorage::new(RocksDB::new(&db, RocksDBConfig::default()), config, 24).unwrap();
         let mut id_builder = BasicIdBuilder::new();
         let pair1 = (
             vec![1, 2, 3],
@@ -237,7 +237,7 @@ fn root_hash_similar_hashmap_db() {
         let db = HashMapDb::<BasicId>::default();
         let config = BonsaiStorageConfig::default();
         let mut bonsai_storage: BonsaiStorage<_, _, Pedersen> =
-            BonsaiStorage::new(db, config, 251).unwrap();
+            BonsaiStorage::new(db, config, 24).unwrap();
         let mut id_builder = BasicIdBuilder::new();
         let pair1 = (
             vec![1, 2, 1],
@@ -283,7 +283,7 @@ fn root_hash_similar_hashmap_db() {
         let db = HashMapDb::<BasicId>::default();
         let config = BonsaiStorageConfig::default();
         let mut bonsai_storage: BonsaiStorage<_, _, Pedersen> =
-            BonsaiStorage::new(db, config, 251).unwrap();
+            BonsaiStorage::new(db, config, 24).unwrap();
         let mut id_builder = BasicIdBuilder::new();
         let pair1 = (
             vec![1, 2, 3],
@@ -450,7 +450,7 @@ fn get_changes() {
     let db = create_rocks_db(tempdir.path()).unwrap();
     let config = BonsaiStorageConfig::default();
     let mut bonsai_storage: BonsaiStorage<_, _, Pedersen> =
-        BonsaiStorage::new(RocksDB::new(&db, RocksDBConfig::default()), config, 251).unwrap();
+        BonsaiStorage::new(RocksDB::new(&db, RocksDBConfig::default()), config, 24).unwrap();
     let mut id_builder = BasicIdBuilder::new();
     let pair1 = (vec![1, 2, 1], Felt::from_hex("0x01").unwrap());
     let bitvec = BitVec::from_vec(pair1.0.clone());
