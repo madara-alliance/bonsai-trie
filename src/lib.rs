@@ -128,7 +128,7 @@ pub mod id;
 
 pub use bonsai_database::{BonsaiDatabase, BonsaiPersistentDatabase, DBError, DatabaseKey};
 pub use error::BonsaiStorageError;
-pub use trie::proof::Membership;
+pub use trie::proof::{Membership, MultiProof, ProofNode};
 
 #[cfg(test)]
 mod tests;
@@ -153,7 +153,7 @@ impl<T: parity_scale_codec::Encode> EncodeExt for T {}
 use changes::ChangeBatch;
 use key_value_db::KeyValueDB;
 use starknet_types_core::{felt::Felt, hash::StarkHash};
-use trie::{proof::MultiProof, tree::bytes_to_bitvec, trees::MerkleTrees};
+use trie::{tree::bytes_to_bitvec, trees::MerkleTrees};
 
 /// Structure that contains the configuration for the BonsaiStorage.
 /// A default implementation is provided with coherent values.

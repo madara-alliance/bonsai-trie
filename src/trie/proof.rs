@@ -4,7 +4,6 @@ use super::{
     tree::MerkleTree,
 };
 use crate::{
-    format,
     id::Id,
     key_value_db::KeyValueDB,
     trie::{
@@ -71,7 +70,7 @@ impl MultiProof {
         key_values.into_iter().map(move |(k, v)| {
             let k = k.as_ref();
 
-            if k.len() != tree_height as _ {
+            if k.len() != tree_height as usize {
                 return Membership::NonMember;
             }
 
@@ -187,11 +186,15 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
                     got: key.len(),
                 });
             }
+            log::debug!("go to = {key:b}");
             iter.traverse_to(&mut visitor, key)?;
+
+            log::debug!("iter = {iter:?}");
             // We should have found a leaf here.
-            iter.leaf_hash.ok_or_else(|| {
-                BonsaiStorageError::CreateProof(format!("Key {key:b} is not in the trie."))
-            })?;
+            iter.leaf_hash
+                .ok_or(BonsaiStorageError::CreateProofKeyNotInTree {
+                    key: key.to_bitvec(),
+                })?;
         }
 
         Ok(visitor.0)
