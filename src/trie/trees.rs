@@ -228,10 +228,6 @@ impl<H: StarkHash + Send + Sync, DB: BonsaiDatabase, CommitID: Id> MerkleTrees<H
     //     }
     // }
 
-    pub(crate) fn get_identifiers(&self) -> Vec<Vec<u8>> {
-        self.trees.keys().cloned().map(ByteVec::into_vec).collect()
-    }
-
     pub fn get_multi_proof(
         &mut self,
         identifier: &[u8],

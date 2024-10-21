@@ -32,7 +32,9 @@ pub trait BonsaiDatabase: core::fmt::Debug {
     #[cfg(feature = "std")]
     type DatabaseError: Error + DBError;
     #[cfg(not(feature = "std"))]
-    type DatabaseError: DBError;
+    type DatabaseError: DBError; 
+
+    
 
     /// Create a new empty batch of changes to be used in `insert`, `remove` and applied in database using `write_batch`.
     fn create_batch(&self) -> Self::Batch;
@@ -79,7 +81,7 @@ pub trait BonsaiDatabase: core::fmt::Debug {
 }
 
 pub trait BonsaiPersistentDatabase<ID: Id> {
-    type Transaction: BonsaiDatabase<DatabaseError = Self::DatabaseError>;
+    type Transaction<'a>: BonsaiDatabase<DatabaseError = Self::DatabaseError> where Self: 'a;
     #[cfg(feature = "std")]
     type DatabaseError: Error + DBError;
     #[cfg(not(feature = "std"))]
@@ -89,8 +91,8 @@ pub trait BonsaiPersistentDatabase<ID: Id> {
     fn snapshot(&mut self, id: ID);
 
     /// Create a transaction based on the given snapshot id
-    fn transaction(&self, id: ID) -> Option<Self::Transaction>;
+    fn transaction(&self, id: ID) -> Option<(ID, Self::Transaction<'_>)>;
 
     /// Merge a transaction in the current persistent database
-    fn merge(&mut self, transaction: Self::Transaction) -> Result<(), Self::DatabaseError>;
+    fn merge<'a>(&mut self, transaction: Self::Transaction<'a>) -> Result<(), Self::DatabaseError> where Self: 'a;
 }

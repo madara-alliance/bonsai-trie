@@ -26,6 +26,7 @@ log = "0.4.20"
 rayon = { version = "1.9.0", optional = true }
 smallvec = { version = "1.11.2", features = ["serde"] }
 slotmap = "1.0.7"
+thiserror = "1.0"
 
 parity-scale-codec = { version = "3.0.0", default-features = false, features = [
   "derive",

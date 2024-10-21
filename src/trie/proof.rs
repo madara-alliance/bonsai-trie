@@ -13,29 +13,33 @@ use crate::{
     },
     BitSlice, BitVec, BonsaiDatabase, BonsaiStorageError, HashMap, HashSet,
 };
-use core::marker::PhantomData;
+use core::{marker::PhantomData, mem};
 use hashbrown::hash_set;
 use starknet_types_core::{felt::Felt, hash::StarkHash};
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub enum Membership {
-    Member,
-    NonMember,
-}
-
-impl From<Membership> for bool {
-    fn from(value: Membership) -> Self {
-        value == Membership::Member
-    }
-}
-
-impl From<bool> for Membership {
-    fn from(value: bool) -> Self {
-        match value {
-            true => Self::Member,
-            false => Self::NonMember,
-        }
-    }
+#[derive(Debug, thiserror::Error)]
+pub enum ProofVerificationError {
+    #[error("Key length mismatch: key {path:b}, expected length {expected}, got {got}")]
+    KeyLengthMismatch {
+        path: BitVec,
+        expected: u8,
+        got: usize,
+    },
+    #[error("Missing node in proof: key {path:b}, hash {hash:#x}")]
+    MissingNode { path: BitVec, hash: Felt },
+    #[error(
+        "Overshot the expected path: path {path:b}, expected max height {expected_max_height}"
+    )]
+    Overshot {
+        path: BitVec,
+        expected_max_height: u8,
+    },
+    #[error("Node hash mismatch: path {path:b}, expected {expected:#x}, got {got:#x}")]
+    HashMismatch {
+        path: BitVec,
+        expected: Felt,
+        got: Felt,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -59,19 +63,26 @@ impl MultiProof {
     /// If the proof proves more than just the provided `key_values`, this function will not fail.
     /// Not the most optimized way of doing it, but we don't actually need to verify proofs in madara.
     /// As such, it has also not been properly proptested.
+    ///
+    /// Returns an iterator of the values. Felt::ZERO is returned when the key is not a member of the trie.
+    /// Do not forget to check the values returned by the iterator :)
     pub fn verify_proof<'a, 'b: 'a, H: StarkHash>(
         &'b self,
         root: Felt,
-        key_values: impl IntoIterator<Item = (impl AsRef<BitSlice>, Felt)> + 'a,
+        key_values: impl IntoIterator<Item = impl AsRef<BitSlice>> + 'a,
         tree_height: u8,
-    ) -> impl Iterator<Item = Membership> + 'a {
+    ) -> impl Iterator<Item = Result<Felt, ProofVerificationError>> + 'a {
         let mut checked_cache: HashSet<Felt> = Default::default();
         let mut current_path = BitVec::with_capacity(251);
-        key_values.into_iter().map(move |(k, v)| {
+        key_values.into_iter().map(move |k| {
             let k = k.as_ref();
 
             if k.len() != tree_height as usize {
-                return Membership::NonMember;
+                return Err(ProofVerificationError::KeyLengthMismatch {
+                    path: k.into(),
+                    expected: tree_height,
+                    got: k.len(),
+                });
             }
 
             // Go down the tree, starting from the root.
@@ -81,28 +92,38 @@ impl MultiProof {
             loop {
                 log::trace!("Start verify loop: {current_path:b} => {current_felt:#x}");
                 if current_path.len() == k.len() {
-                    // End of traversal, check if value is correct
+                    // End of traversal, return value
                     log::trace!("End of traversal");
-                    break (v == current_felt).into();
+                    return Ok(current_felt);
                 }
                 if current_path.len() > k.len() {
                     // We overshot.
                     log::trace!("Overshot");
-                    break Membership::NonMember;
+                    return Err(ProofVerificationError::Overshot {
+                        path: mem::take(&mut current_path),
+                        expected_max_height: tree_height,
+                    });
                 }
                 let Some(node) = self.0.get(&current_felt) else {
                     // Missing node.
                     log::trace!("Missing");
-                    break Membership::NonMember;
+                    return Err(ProofVerificationError::MissingNode {
+                        path: mem::take(&mut current_path),
+                        hash: current_felt,
+                    });
                 };
 
                 // Check hash and save to verification cache.
-                if let hash_set::Entry::Vacant(entry) = checked_cache.entry(v) {
+                if let hash_set::Entry::Vacant(entry) = checked_cache.entry(current_felt) {
                     let computed_hash = node.hash::<H>();
                     if computed_hash != current_felt {
                         // Hash mismatch.
                         log::trace!("Hash mismatch: {computed_hash:#x} {current_felt:#x}");
-                        break Membership::NonMember;
+                        return Err(ProofVerificationError::HashMismatch {
+                            expected: current_felt,
+                            got: computed_hash,
+                            path: mem::take(&mut current_path),
+                        });
                     }
                     entry.insert();
                 }
@@ -124,8 +145,8 @@ impl MultiProof {
                             != Some(&path.0)
                         {
                             log::trace!("Wrong edge: {path:?}");
-                            // Wrong edge path.
-                            break Membership::NonMember;
+                            // Wrong edge path: that's a non-membership proof.
+                            return Ok(Felt::ZERO);
                         }
                         current_path.extend_from_bitslice(&path.0);
                         current_felt = *child;
@@ -180,7 +201,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         let mut iter = self.iter(db);
         for key in keys {
             let key = key.as_ref();
-            if key.len() != max_height as _ {
+            if key.len() != max_height as usize {
                 return Err(BonsaiStorageError::KeyLength {
                     expected: self.max_height as _,
                     got: key.len(),
@@ -190,11 +211,8 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
             iter.traverse_to(&mut visitor, key)?;
 
             log::debug!("iter = {iter:?}");
-            // We should have found a leaf here.
-            iter.leaf_hash
-                .ok_or(BonsaiStorageError::CreateProofKeyNotInTree {
-                    key: key.to_bitvec(),
-                })?;
+            // We should have found a leaf here. If we didn't, the value is not in the trie: return Felt::ZERO.
+            // iter.leaf_hash.unwrap_or(Felt::ZERO) // no need to return a value, actually?
         }
 
         Ok(visitor.0)
@@ -226,8 +244,7 @@ mod tests {
             RocksDB::<BasicId>::new(&db, RocksDBConfig::default()),
             BonsaiStorageConfig::default(),
             8,
-        )
-        .unwrap();
+        );
 
         bonsai_storage
             .insert(&[], bits![u8, Msb0; 0,0,0,1,0,0,0,0], &ONE)
@@ -261,12 +278,34 @@ mod tests {
             .unwrap();
 
         log::trace!("proof: {proof:?}");
-        assert!(proof
-            .verify_proof::<Pedersen>(
-                tree.root_hash(&bonsai_storage.tries.db).unwrap(),
-                [(bits![u8, Msb0; 0,0,0,1,0,0,0,0], ONE)],
-                8
-            )
-            .all(|v| v.into()));
+        assert_eq!(
+            proof
+                .verify_proof::<Pedersen>(
+                    tree.root_hash(&bonsai_storage.tries.db).unwrap(),
+                    [
+                        bits![u8, Msb0; 0,0,0,1,0,0,0,0],
+                        bits![u8, Msb0; 0,0,0,1,0,0,0,1],
+                        bits![u8, Msb0; 0,0,0,1,1,1,0,1],
+                        bits![u8, Msb0; 1,0,0,1,0,0,0,1],
+                        bits![u8, Msb0; 0,1,1,1,1,1,0,1],
+                        bits![u8, Msb0; 0,0,0,1,0,0,1,0],
+                        bits![u8, Msb0; 0,1,0,0,0,0,0,0],
+                        bits![u8, Msb0; 1,0,0,1,0,1,0,1],
+                    ],
+                    8
+                )
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap(),
+            vec![
+                ONE,
+                TWO,
+                Felt::ZERO,
+                Felt::ZERO,
+                Felt::ZERO,
+                THREE,
+                FOUR,
+                Felt::ZERO
+            ]
+        );
     }
 }

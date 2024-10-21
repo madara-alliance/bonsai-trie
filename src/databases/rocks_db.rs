@@ -451,7 +451,7 @@ impl<'db, ID> BonsaiPersistentDatabase<ID> for RocksDB<'db, ID>
 where
     ID: Id,
 {
-    type Transaction = RocksDBTransaction<'db>;
+    type Transaction<'a> = RocksDBTransaction<'a> where Self: 'a;
     type DatabaseError = RocksDBError;
 
     fn snapshot(&mut self, id: ID) {
@@ -465,9 +465,9 @@ where
         }
     }
 
-    fn transaction(&self, id: ID) -> Option<Self::Transaction> {
+    fn transaction(&self, id: ID) -> Option<(ID, Self::Transaction<'_>)> {
         trace!("Generating RocksDB transaction");
-        if let Some(snapshot) = self.snapshots.get(&id) {
+        if let Some((id, snapshot)) = self.snapshots.range(..&id).next() {
             let write_opts = WriteOptions::default();
             let mut txn_opts = OptimisticTransactionOptions::default();
             txn_opts.set_snapshot(true);
@@ -494,13 +494,16 @@ where
                 column_families,
                 read_options,
             };
-            Some(boxed_txn)
+            Some((*id, boxed_txn))
         } else {
             None
         }
     }
 
-    fn merge(&mut self, transaction: Self::Transaction) -> Result<(), Self::DatabaseError> {
+    fn merge<'a>(&mut self, transaction: Self::Transaction<'a>) -> Result<(), Self::DatabaseError>
+    where
+        Self: 'a,
+    {
         transaction.txn.commit()?;
         Ok(())
     }

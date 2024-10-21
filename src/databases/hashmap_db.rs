@@ -126,16 +126,22 @@ impl<ID: Id> BonsaiDatabase for HashMapDb<ID> {
 
 impl<ID: Id> BonsaiPersistentDatabase<ID> for HashMapDb<ID> {
     type DatabaseError = HashMapDbError;
-    type Transaction = HashMapDb<ID>;
+    type Transaction<'a> = HashMapDb<ID> where ID: 'a;
     fn snapshot(&mut self, id: ID) {
         self.snapshots.insert(id, self.clone());
     }
 
-    fn transaction(&self, id: ID) -> Option<Self::Transaction> {
-        self.snapshots.get(&id).cloned()
+    fn transaction(&self, id: ID) -> Option<(ID, Self::Transaction<'_>)> {
+        self.snapshots
+            .range(..&id)
+            .next()
+            .map(|(id, snapshot)| (*id, snapshot.clone()))
     }
 
-    fn merge(&mut self, transaction: Self::Transaction) -> Result<(), Self::DatabaseError> {
+    fn merge<'a>(&mut self, transaction: Self::Transaction<'a>) -> Result<(), Self::DatabaseError>
+    where
+        ID: 'a,
+    {
         self.trie_db = transaction.trie_db;
         self.flat_db = transaction.flat_db;
         self.trie_log_db = transaction.trie_log_db;

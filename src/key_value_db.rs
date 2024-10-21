@@ -1,5 +1,5 @@
 use crate::{
-    changes::key_new_value, format, trie::tree::bytes_to_bitvec, BTreeSet, BitVec, ByteVec,
+    changes::key_new_value, format, trie::tree::bytes_to_bitvec, BitVec, ByteVec,
     Change as ExternChange, ToString,
 };
 use hashbrown::HashMap;
@@ -20,9 +20,7 @@ use crate::{
 #[derive(Debug)]
 pub struct KeyValueDB<DB: BonsaiDatabase, ID: Id> {
     pub(crate) db: DB,
-    pub(crate) changes_store: ChangeStore<ID>,
-    pub(crate) snap_holder: BTreeSet<ID>,
-    pub(crate) snap_counter: u64,
+    pub(crate) changes_store: ChangeStore,
     pub(crate) config: KeyValueDBConfig,
     pub(crate) created_at: Option<ID>,
 }
@@ -73,15 +71,10 @@ where
     ID: Id,
 {
     pub(crate) fn new(underline_db: DB, config: KeyValueDBConfig, created_at: Option<ID>) -> Self {
-        let mut changes_store = ChangeStore::new();
-        if let Some(created_at) = created_at {
-            changes_store.id_queue.push_back(created_at);
-        }
+        let changes_store = ChangeStore::new();
         Self {
             db: underline_db,
             changes_store,
-            snap_holder: BTreeSet::new(),
-            snap_counter: 0,
             config,
             created_at,
         }
@@ -92,60 +85,59 @@ where
         &self,
         id: ID,
     ) -> Result<HashMap<BitVec, ExternChange>, BonsaiStorageError<DB::DatabaseError>> {
-        if self.changes_store.id_queue.contains(&id) {
-            let mut leaf_changes = HashMap::new();
-            let changes = ChangeBatch::deserialize(
-                &id,
-                self.db
-                    .get_by_prefix(&DatabaseKey::TrieLog(&id.to_bytes()))?,
-            );
-            for (k, v) in changes.0 {
-                if let TrieKey::Flat(k) = k {
-                    leaf_changes.insert(
-                        bytes_to_bitvec(&k),
-                        ExternChange {
-                            // SAFETY: We are sure that the values are valid Felt because they can be saved only by our crate
-                            old_value: v.old_value.map(|x| Felt::decode(&mut x.as_ref()).unwrap()),
-                            new_value: v.new_value.map(|x| Felt::decode(&mut x.as_ref()).unwrap()),
-                        },
-                    );
-                }
-            }
-            Ok(leaf_changes)
-        } else {
-            Err(BonsaiStorageError::GoTo(
-                "ID asked isn't in our ID records".to_string(),
-            ))
-        }
+        // if self.changes_store.id_queue.contains(&id) {
+        //     let mut leaf_changes = HashMap::new();
+        //     let changes = ChangeBatch::deserialize(
+        //         &id,
+        //         self.db
+        //             .get_by_prefix(&DatabaseKey::TrieLog(&id.to_bytes()))?,
+        //     );
+        //     for (k, v) in changes.0 {
+        //         if let TrieKey::Flat(k) = k {
+        //             leaf_changes.insert(
+        //                 bytes_to_bitvec(&k),
+        //                 ExternChange {
+        //                     // SAFETY: We are sure that the values are valid Felt because they can be saved only by our crate
+        //                     old_value: v.old_value.map(|x| Felt::decode(&mut x.as_ref()).unwrap()),
+        //                     new_value: v.new_value.map(|x| Felt::decode(&mut x.as_ref()).unwrap()),
+        //                 },
+        //             );
+        //         }
+        //     }
+        //     Ok(leaf_changes)
+        // } else {
+        //     Err(BonsaiStorageError::GoTo(
+        //         "ID asked isn't in our ID records".to_string(),
+        //     ))
+        // }
+        todo!()
     }
 
     pub(crate) fn commit(&mut self, id: ID) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
-        if Some(&id) > self.changes_store.id_queue.back() {
-            self.changes_store.id_queue.push_back(id);
-        } else {
-            return Err(BonsaiStorageError::GoTo(format!(
-                "Commit id {:?} is not greater than the last recorded id",
-                id,
-            )));
-        }
-
         // Insert flat db changes
         let mut batch = self.db.create_batch();
         let current_changes = core::mem::take(&mut self.changes_store.current_changes);
-        for (key, change) in current_changes.serialize(&id).iter() {
-            self.db
-                .insert(&DatabaseKey::TrieLog(key), change, Some(&mut batch))?;
-        }
-        self.db.write_batch(batch)?;
+        log::debug!("Committing id {id:?}");
 
-        if let Some(max_saved_trie_logs) = self.config.max_saved_trie_logs {
-            while self.changes_store.id_queue.len() > max_saved_trie_logs {
-                // verified by previous conditional statement
-                let id = self.changes_store.id_queue.pop_front().unwrap();
+        if self.config.max_saved_trie_logs != Some(0) {
+            // optim when trie logs are disabled.
+            for (key, change) in current_changes.serialize(&id).iter() {
                 self.db
-                    .remove_by_prefix(&DatabaseKey::TrieLog(&id.to_bytes()))?;
+                    .insert(&DatabaseKey::TrieLog(key), change, Some(&mut batch))?;
+            }
+            self.db.write_batch(batch)?;
+
+            if let Some(id) = self
+                .config
+                .max_saved_trie_logs
+                .and_then(|max_saved_trie_logs| id.as_u64().checked_sub(max_saved_trie_logs as _))
+            {
+                log::debug!("Remove by prefix {id:?}");
+                self.db
+                    .remove_by_prefix(&DatabaseKey::TrieLog(&ID::from_u64(id).to_bytes()))?;
             }
         }
+
         Ok(())
     }
 
@@ -170,35 +162,11 @@ where
         key: &TrieKey,
         id: ID,
     ) -> Result<Option<ByteVec>, BonsaiStorageError<DB::DatabaseError>> {
-        trace!("Getting from KeyValueDB: {:?} at ID: {:?}", key, id);
-
-        // makes sure given id exists
-        let Ok(id_position) = self.changes_store.id_queue.binary_search(&id) else {
-            return Err(BonsaiStorageError::Transaction(format!(
-                "invalid id {:?}",
-                id
-            )));
-        };
-
-        // looking for the first storage insertion with given key
-        let iter = self
-            .changes_store
-            .id_queue
-            .iter()
-            .take(id_position + 1)
-            .rev();
-        for id in iter {
-            let key = key_new_value(id, key);
-            if let Some(value) = self.db.get(&DatabaseKey::TrieLog(&key))? {
-                return Ok(Some(value));
-            }
-        }
-
-        Ok(None)
+        todo!()
     }
 
     pub(crate) fn get_latest_id(&self) -> Option<ID> {
-        self.changes_store.id_queue.back().cloned()
+        todo!()
     }
 
     pub(crate) fn contains(
@@ -259,54 +227,42 @@ where
     DB: BonsaiDatabase + BonsaiPersistentDatabase<ID>,
 {
     pub(crate) fn create_snapshot(&mut self, id: ID) {
-        if self.snap_counter % self.config.snapshot_interval == 0 {
+        log::debug!(
+            "created tx {:?} ? /{}",
+            id.as_u64(),
+            self.config.snapshot_interval
+        );
+        if id.as_u64() % self.config.snapshot_interval == 0 {
+            log::debug!("creating snapshot fr fr");
             self.db.snapshot(id);
-            self.snap_holder.insert(id);
-            if let Some(max_saved_snapshots) = self.config.max_saved_snapshots {
-                if self.snap_holder.len() > max_saved_snapshots {
-                    self.snap_holder.pop_first();
-                }
-            }
         }
-        self.snap_counter += 1;
     }
 
     pub(crate) fn get_transaction(
         &self,
         id: ID,
     ) -> Result<
-        Option<DB::Transaction>,
-        BonsaiStorageError<<DB::Transaction as BonsaiDatabase>::DatabaseError>,
+        Option<DB::Transaction<'_>>,
+        BonsaiStorageError<<DB::Transaction<'_> as BonsaiDatabase>::DatabaseError>,
     > {
-        let Some(change_id) = self.snap_holder.range(..=id).last() else {
+        log::debug!("get_transaaction {id:?}");
+        let Some((snap_id, mut txn)) = self.db.transaction(id) else {
+            log::debug!("no db txn :/");
             return Ok(None);
         };
-        let Some(mut txn) = self.db.transaction(*change_id) else {
-            return Ok(None);
-        };
-        let Ok(snapshot_position) = self.changes_store.id_queue.binary_search(change_id) else {
-            return Err(BonsaiStorageError::Transaction(format!(
-                "id queue is missing {:?}",
-                change_id
-            )));
-        };
+        log::debug!("get_transaaction {snap_id:?} {id:?}");
 
         let mut batch = txn.create_batch();
-        let iter = self
-            .changes_store
-            .id_queue
-            .iter()
-            .skip(snapshot_position)
-            .take_while(|&&x| x <= id);
-        for id in iter {
+        for cur_id in snap_id.as_u64()..id.as_u64() {
+            let cur_id = ID::from_u64(cur_id);
             let changes = ChangeBatch::deserialize(
-                id,
+                &cur_id,
                 self.db
-                    .get_by_prefix(&DatabaseKey::TrieLog(&id.to_bytes()))
+                    .get_by_prefix(&DatabaseKey::TrieLog(&cur_id.to_bytes()))
                     .map_err(|_| {
                         BonsaiStorageError::Transaction(format!(
                             "database is missing trie logs for {:?}",
-                            id
+                            cur_id
                         ))
                     })?,
             );
@@ -332,27 +288,28 @@ where
 
     pub(crate) fn merge(
         &mut self,
-        transaction: KeyValueDB<DB::Transaction, ID>,
+        transaction: KeyValueDB<DB::Transaction<'_>, ID>,
     ) -> Result<(), BonsaiStorageError<<DB as BonsaiPersistentDatabase<ID>>::DatabaseError>> {
-        let Some(created_at) = transaction.created_at else {
-            return Err(BonsaiStorageError::Merge(
-                "Transaction has no created_at".to_string(),
-            ));
-        };
-        let Some(last_recorded_change_id) = self.changes_store.id_queue.back() else {
-            return Err(BonsaiStorageError::Merge(
-                "No recorded change id".to_string(),
-            ));
-        };
-        if &created_at >= last_recorded_change_id {
-            self.changes_store.id_queue = transaction.changes_store.id_queue;
-            self.db.merge(transaction.db)?;
-        } else {
-            return Err(BonsaiStorageError::Merge(format!(
-                "Transaction created_at {:?} is lower than the last recorded id",
-                created_at,
-            )));
-        }
-        Ok(())
+        // let Some(created_at) = transaction.created_at else {
+        //     return Err(BonsaiStorageError::Merge(
+        //         "Transaction has no created_at".to_string(),
+        //     ));
+        // };
+        // let Some(last_recorded_change_id) = self.changes_store.id_queue.back() else {
+        //     return Err(BonsaiStorageError::Merge(
+        //         "No recorded change id".to_string(),
+        //     ));
+        // };
+        // if &created_at >= last_recorded_change_id {
+        //     self.changes_store.id_queue = transaction.changes_store.id_queue;
+        //     self.db.merge(transaction.db)?;
+        // } else {
+        //     return Err(BonsaiStorageError::Merge(format!(
+        //         "Transaction created_at {:?} is lower than the last recorded id",
+        //         created_at,
+        //     )));
+        // }
+        // Ok(())
+        todo!()
     }
 }
