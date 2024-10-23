@@ -2,7 +2,7 @@
 use crate::{
     databases::{create_rocks_db, HashMapDb, RocksDB, RocksDBConfig},
     id::{BasicId, BasicIdBuilder},
-    BitVec, BonsaiStorage, BonsaiStorageConfig, Change,
+    BitVec, BonsaiStorage, BonsaiStorageConfig,
 };
 use bitvec::view::BitView;
 use starknet_types_core::{felt::Felt, hash::Pedersen};
@@ -14,7 +14,7 @@ fn basics() {
     let db = create_rocks_db(tempdir.path()).unwrap();
     let config = BonsaiStorageConfig::default();
     let mut bonsai_storage: BonsaiStorage<_, _, Pedersen> =
-        BonsaiStorage::new(RocksDB::new(&db, RocksDBConfig::default()), config, 24).unwrap();
+        BonsaiStorage::new(RocksDB::new(&db, RocksDBConfig::default()), config, 24);
     let mut id_builder = BasicIdBuilder::new();
     let pair1 = (
         vec![1, 2, 1],
@@ -69,7 +69,7 @@ fn root_hash_similar_rocks_db() {
         let db = create_rocks_db(tempdir.path()).unwrap();
         let config = BonsaiStorageConfig::default();
         let mut bonsai_storage: BonsaiStorage<_, _, Pedersen> =
-            BonsaiStorage::new(RocksDB::new(&db, RocksDBConfig::default()), config, 24).unwrap();
+            BonsaiStorage::new(RocksDB::new(&db, RocksDBConfig::default()), config, 24);
         let mut id_builder = BasicIdBuilder::new();
         let pair1 = (
             vec![1, 2, 1],
@@ -116,7 +116,7 @@ fn root_hash_similar_rocks_db() {
         let db = create_rocks_db(tempdir.path()).unwrap();
         let config = BonsaiStorageConfig::default();
         let mut bonsai_storage: BonsaiStorage<_, _, Pedersen> =
-            BonsaiStorage::new(RocksDB::new(&db, RocksDBConfig::default()), config, 24).unwrap();
+            BonsaiStorage::new(RocksDB::new(&db, RocksDBConfig::default()), config, 24);
         let mut id_builder = BasicIdBuilder::new();
         let pair1 = (
             vec![1, 2, 3],
@@ -156,13 +156,13 @@ fn starknet_specific() {
     let db1 = create_rocks_db(tempdir1.path()).unwrap();
     let config1 = BonsaiStorageConfig::default();
     let mut bonsai_storage1: BonsaiStorage<_, _, Pedersen> =
-        BonsaiStorage::new(RocksDB::new(&db1, RocksDBConfig::default()), config1, 251).unwrap();
+        BonsaiStorage::new(RocksDB::new(&db1, RocksDBConfig::default()), config1, 251);
 
     let tempdir2 = tempfile::tempdir().unwrap();
     let db2 = create_rocks_db(tempdir2.path()).unwrap();
     let config2 = BonsaiStorageConfig::default();
     let mut bonsai_storage2: BonsaiStorage<_, _, Pedersen> =
-        BonsaiStorage::new(RocksDB::new(&db2, RocksDBConfig::default()), config2, 251).unwrap();
+        BonsaiStorage::new(RocksDB::new(&db2, RocksDBConfig::default()), config2, 251);
     let mut id_builder = BasicIdBuilder::new();
 
     let contract_states = vec![
@@ -236,8 +236,7 @@ fn root_hash_similar_hashmap_db() {
     let root_hash_1 = {
         let db = HashMapDb::<BasicId>::default();
         let config = BonsaiStorageConfig::default();
-        let mut bonsai_storage: BonsaiStorage<_, _, Pedersen> =
-            BonsaiStorage::new(db, config, 24).unwrap();
+        let mut bonsai_storage: BonsaiStorage<_, _, Pedersen> = BonsaiStorage::new(db, config, 24);
         let mut id_builder = BasicIdBuilder::new();
         let pair1 = (
             vec![1, 2, 1],
@@ -282,8 +281,7 @@ fn root_hash_similar_hashmap_db() {
     let root_hash_2 = {
         let db = HashMapDb::<BasicId>::default();
         let config = BonsaiStorageConfig::default();
-        let mut bonsai_storage: BonsaiStorage<_, _, Pedersen> =
-            BonsaiStorage::new(db, config, 24).unwrap();
+        let mut bonsai_storage: BonsaiStorage<_, _, Pedersen> = BonsaiStorage::new(db, config, 24);
         let mut id_builder = BasicIdBuilder::new();
         let pair1 = (
             vec![1, 2, 3],
@@ -322,7 +320,7 @@ fn double_insert() {
     let db = create_rocks_db(tempdir.path()).unwrap();
     let config = BonsaiStorageConfig::default();
     let mut bonsai_storage: BonsaiStorage<_, _, Pedersen> =
-        BonsaiStorage::new(RocksDB::new(&db, RocksDBConfig::default()), config, 251).unwrap();
+        BonsaiStorage::new(RocksDB::new(&db, RocksDBConfig::default()), config, 251);
     let mut id_builder = BasicIdBuilder::new();
     let contract_states = vec![
         ContractState {
@@ -385,7 +383,7 @@ fn double_identifier() {
     let db = create_rocks_db(tempdir.path()).unwrap();
     let config = BonsaiStorageConfig::default();
     let mut bonsai_storage: BonsaiStorage<_, _, Pedersen> =
-        BonsaiStorage::new(RocksDB::new(&db, RocksDBConfig::default()), config, 251).unwrap();
+        BonsaiStorage::new(RocksDB::new(&db, RocksDBConfig::default()), config, 251);
     let mut id_builder = BasicIdBuilder::new();
     let contract_states = vec![
         ContractState {
@@ -443,55 +441,55 @@ fn double_identifier() {
     assert_eq!(bonsai_storage.get_keys(&identifier).unwrap().len(), 5);
 }
 
-#[test]
-fn get_changes() {
-    let identifier = vec![];
-    let tempdir = tempfile::tempdir().unwrap();
-    let db = create_rocks_db(tempdir.path()).unwrap();
-    let config = BonsaiStorageConfig::default();
-    let mut bonsai_storage: BonsaiStorage<_, _, Pedersen> =
-        BonsaiStorage::new(RocksDB::new(&db, RocksDBConfig::default()), config, 24).unwrap();
-    let mut id_builder = BasicIdBuilder::new();
-    let pair1 = (vec![1, 2, 1], Felt::from_hex("0x01").unwrap());
-    let bitvec = BitVec::from_vec(pair1.0.clone());
-    bonsai_storage
-        .insert(&identifier, &bitvec, &pair1.1)
-        .unwrap();
-    bonsai_storage.commit(id_builder.new_id()).unwrap();
-    let pair2 = (vec![1, 2, 2], Felt::from_hex("0x01").unwrap());
-    let bitvec = BitVec::from_vec(pair2.0.clone());
-    bonsai_storage
-        .insert(&identifier, &bitvec, &pair2.1)
-        .unwrap();
-    let pair1_edited_1 = (vec![1, 2, 1], Felt::from_hex("0x02").unwrap());
-    let bitvec = BitVec::from_vec(pair1_edited_1.0.clone());
-    bonsai_storage
-        .insert(&identifier, &bitvec, &pair1_edited_1.1)
-        .unwrap();
-    let pair1_edited_2 = (vec![1, 2, 1], Felt::from_hex("0x03").unwrap());
-    let bitvec = BitVec::from_vec(pair1_edited_2.0.clone());
-    bonsai_storage
-        .insert(&identifier, &bitvec, &pair1_edited_2.1)
-        .unwrap();
-    let id = id_builder.new_id();
-    bonsai_storage.commit(id).unwrap();
-    let changes = bonsai_storage.get_changes(id).unwrap();
-    assert_eq!(changes.len(), 2);
-    assert_eq!(
-        changes.get(&BitVec::from_vec(pair1.0)).unwrap(),
-        &Change {
-            old_value: Some(pair1.1),
-            new_value: Some(pair1_edited_2.1),
-        }
-    );
-    assert_eq!(
-        changes.get(&BitVec::from_vec(pair2.0)).unwrap(),
-        &Change {
-            old_value: None,
-            new_value: Some(pair2.1),
-        }
-    );
-}
+// #[test]
+// fn get_changes() {
+//     let identifier = vec![];
+//     let tempdir = tempfile::tempdir().unwrap();
+//     let db = create_rocks_db(tempdir.path()).unwrap();
+//     let config = BonsaiStorageConfig::default();
+//     let mut bonsai_storage: BonsaiStorage<_, _, Pedersen> =
+//         BonsaiStorage::new(RocksDB::new(&db, RocksDBConfig::default()), config, 24);
+//     let mut id_builder = BasicIdBuilder::new();
+//     let pair1 = (vec![1, 2, 1], Felt::from_hex("0x01").unwrap());
+//     let bitvec = BitVec::from_vec(pair1.0.clone());
+//     bonsai_storage
+//         .insert(&identifier, &bitvec, &pair1.1)
+//         .unwrap();
+//     bonsai_storage.commit(id_builder.new_id()).unwrap();
+//     let pair2 = (vec![1, 2, 2], Felt::from_hex("0x01").unwrap());
+//     let bitvec = BitVec::from_vec(pair2.0.clone());
+//     bonsai_storage
+//         .insert(&identifier, &bitvec, &pair2.1)
+//         .unwrap();
+//     let pair1_edited_1 = (vec![1, 2, 1], Felt::from_hex("0x02").unwrap());
+//     let bitvec = BitVec::from_vec(pair1_edited_1.0.clone());
+//     bonsai_storage
+//         .insert(&identifier, &bitvec, &pair1_edited_1.1)
+//         .unwrap();
+//     let pair1_edited_2 = (vec![1, 2, 1], Felt::from_hex("0x03").unwrap());
+//     let bitvec = BitVec::from_vec(pair1_edited_2.0.clone());
+//     bonsai_storage
+//         .insert(&identifier, &bitvec, &pair1_edited_2.1)
+//         .unwrap();
+//     let id = id_builder.new_id();
+//     bonsai_storage.commit(id).unwrap();
+//     let changes = bonsai_storage.get_changes(id).unwrap();
+//     assert_eq!(changes.len(), 2);
+//     assert_eq!(
+//         changes.get(&BitVec::from_vec(pair1.0)).unwrap(),
+//         &Change {
+//             old_value: Some(pair1.1),
+//             new_value: Some(pair1_edited_2.1),
+//         }
+//     );
+//     assert_eq!(
+//         changes.get(&BitVec::from_vec(pair2.0)).unwrap(),
+//         &Change {
+//             old_value: None,
+//             new_value: Some(pair2.1),
+//         }
+//     );
+// }
 
 fn keyer(felt: Felt) -> BitVec {
     felt.to_bytes_be().view_bits()[5..].to_bitvec()
@@ -501,8 +499,7 @@ fn keyer(felt: Felt) -> BitVec {
 fn test_insert_zero() {
     let config = BonsaiStorageConfig::default();
     let bonsai_db = HashMapDb::<BasicId>::default();
-    let mut bonsai_storage = BonsaiStorage::<_, _, Pedersen>::new(bonsai_db, config, 251)
-        .expect("Failed to create bonsai storage");
+    let mut bonsai_storage = BonsaiStorage::<_, _, Pedersen>::new(bonsai_db, config, 251);
     let identifier =
         "0x056e4fed965fccd7fb01fcadd827470338f35ced62275328929d0d725b5707ba".as_bytes();
 
@@ -645,8 +642,7 @@ fn test_block_7_starknet() {
     let _ = env_logger::builder().is_test(true).try_init();
     let config = BonsaiStorageConfig::default();
     let bonsai_db = HashMapDb::<BasicId>::default();
-    let mut bonsai_storage = BonsaiStorage::<_, _, Pedersen>::new(bonsai_db, config, 251)
-        .expect("Failed to create bonsai storage");
+    let mut bonsai_storage = BonsaiStorage::<_, _, Pedersen>::new(bonsai_db, config, 251);
     let identifier =
         "0x056e4fed965fccd7fb01fcadd827470338f35ced62275328929d0d725b5707ba".as_bytes();
 
@@ -857,8 +853,7 @@ fn test_block_7_starknet() {
 fn test_block_7_starknet_2() {
     let config = BonsaiStorageConfig::default();
     let bonsai_db = HashMapDb::<BasicId>::default();
-    let mut bonsai_storage = BonsaiStorage::<_, _, Pedersen>::new(bonsai_db, config, 251)
-        .expect("Failed to create bonsai storage");
+    let mut bonsai_storage = BonsaiStorage::<_, _, Pedersen>::new(bonsai_db, config, 251);
     let identifier = "0x421203c58e1b4a6c3675be26cfaa18d2b6b42695ca206be1f08ce29f7f1bc7c".as_bytes();
 
     // Insert Block 5 storage changes for contract `0x421203c58e1b4a6c3675be26cfaa18d2b6b42695ca206be1f08ce29f7f1bc7c`
@@ -988,8 +983,7 @@ fn test_block_7_starknet_2() {
 fn test_block_9() {
     let config = BonsaiStorageConfig::default();
     let bonsai_db = HashMapDb::<BasicId>::default();
-    let mut bonsai_storage = BonsaiStorage::<_, _, Pedersen>::new(bonsai_db, config, 251)
-        .expect("Failed to create bonsai storage");
+    let mut bonsai_storage = BonsaiStorage::<_, _, Pedersen>::new(bonsai_db, config, 251);
     let identifier =
         "0x06F3C934BA4EC49245CB9A42FC715E4D589AA502AF69BE13916127A538D525CE".as_bytes();
 

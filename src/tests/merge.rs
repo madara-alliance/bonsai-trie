@@ -61,8 +61,7 @@ fn init_test<'a>(
 
     let config = BonsaiStorageConfig::default();
     let mut bonsai_storage =
-        BonsaiStorage::new(RocksDB::new(db, RocksDBConfig::default()), config, 24)
-            .expect("Failed to create BonsaiStorage");
+        BonsaiStorage::new(RocksDB::new(db, RocksDBConfig::default()), config, 24);
 
     let mut id_builder = BasicIdBuilder::new();
 

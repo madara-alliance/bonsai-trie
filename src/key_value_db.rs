@@ -1,11 +1,6 @@
-use crate::{
-    changes::key_new_value, format, trie::tree::bytes_to_bitvec, BitVec, ByteVec,
-    Change as ExternChange, ToString,
-};
+use crate::{format, BitVec, ByteVec, Change as ExternChange};
 use hashbrown::HashMap;
 use log::trace;
-use parity_scale_codec::Decode;
-use starknet_types_core::felt::Felt;
 
 use crate::{
     bonsai_database::{BonsaiDatabase, BonsaiPersistentDatabase, DatabaseKey},
@@ -22,7 +17,7 @@ pub struct KeyValueDB<DB: BonsaiDatabase, ID: Id> {
     pub(crate) db: DB,
     pub(crate) changes_store: ChangeStore,
     pub(crate) config: KeyValueDBConfig,
-    pub(crate) created_at: Option<ID>,
+    pub(crate) _created_at: Option<ID>,
 }
 
 #[derive(Clone, Debug)]
@@ -76,14 +71,14 @@ where
             db: underline_db,
             changes_store,
             config,
-            created_at,
+            _created_at: created_at,
         }
     }
 
     #[allow(clippy::type_complexity)]
     pub(crate) fn get_changes(
         &self,
-        id: ID,
+        _id: ID,
     ) -> Result<HashMap<BitVec, ExternChange>, BonsaiStorageError<DB::DatabaseError>> {
         // if self.changes_store.id_queue.contains(&id) {
         //     let mut leaf_changes = HashMap::new();
@@ -159,8 +154,8 @@ where
 
     pub(crate) fn get_at(
         &self,
-        key: &TrieKey,
-        id: ID,
+        _key: &TrieKey,
+        _id: ID,
     ) -> Result<Option<ByteVec>, BonsaiStorageError<DB::DatabaseError>> {
         todo!()
     }
@@ -288,7 +283,7 @@ where
 
     pub(crate) fn merge(
         &mut self,
-        transaction: KeyValueDB<DB::Transaction<'_>, ID>,
+        _transaction: KeyValueDB<DB::Transaction<'_>, ID>,
     ) -> Result<(), BonsaiStorageError<<DB as BonsaiPersistentDatabase<ID>>::DatabaseError>> {
         // let Some(created_at) = transaction.created_at else {
         //     return Err(BonsaiStorageError::Merge(

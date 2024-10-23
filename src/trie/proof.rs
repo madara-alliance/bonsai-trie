@@ -229,6 +229,7 @@ mod tests {
     use bitvec::{bits, order::Msb0};
     use starknet_types_core::{felt::Felt, hash::Pedersen};
 
+    const ZERO: Felt = Felt::ZERO;
     const ONE: Felt = Felt::ONE;
     const TWO: Felt = Felt::TWO;
     const THREE: Felt = Felt::THREE;
@@ -246,18 +247,20 @@ mod tests {
             8,
         );
 
-        bonsai_storage
-            .insert(&[], bits![u8, Msb0; 0,0,0,1,0,0,0,0], &ONE)
-            .unwrap();
-        bonsai_storage
-            .insert(&[], bits![u8, Msb0; 0,0,0,1,0,0,0,1], &TWO)
-            .unwrap();
-        bonsai_storage
-            .insert(&[], bits![u8, Msb0; 0,0,0,1,0,0,1,0], &THREE)
-            .unwrap();
-        bonsai_storage
-            .insert(&[], bits![u8, Msb0; 0,1,0,0,0,0,0,0], &FOUR)
-            .unwrap();
+        let key_values = [
+            (bits![u8, Msb0; 0,0,0,1,0,0,0,0], ONE),
+            (bits![u8, Msb0; 0,0,0,1,0,0,0,1], TWO),
+            (bits![u8, Msb0; 0,0,0,1,1,1,0,1], ZERO),
+            (bits![u8, Msb0; 1,0,0,1,0,0,0,1], ZERO),
+            (bits![u8, Msb0; 0,1,1,1,1,1,0,1], THREE),
+            (bits![u8, Msb0; 0,0,0,1,0,0,1,0], ZERO),
+            (bits![u8, Msb0; 0,1,0,0,0,0,0,0], FOUR),
+            (bits![u8, Msb0; 1,0,0,1,0,1,0,1], ZERO),
+        ];
+
+        for (k, v) in key_values.iter() {
+            bonsai_storage.insert(&[], k, v).unwrap();
+        }
 
         bonsai_storage.dump();
 
@@ -268,13 +271,7 @@ mod tests {
             .unwrap();
 
         let proof = tree
-            .get_multi_proof(
-                &bonsai_storage.tries.db,
-                [
-                    bits![u8, Msb0; 0,0,0,1,0,0,0,1],
-                    bits![u8, Msb0; 0,1,0,0,0,0,0,0],
-                ],
-            )
+            .get_multi_proof(&bonsai_storage.tries.db, key_values.iter().map(|(k, _v)| k))
             .unwrap();
 
         log::trace!("proof: {proof:?}");
@@ -282,30 +279,12 @@ mod tests {
             proof
                 .verify_proof::<Pedersen>(
                     tree.root_hash(&bonsai_storage.tries.db).unwrap(),
-                    [
-                        bits![u8, Msb0; 0,0,0,1,0,0,0,0],
-                        bits![u8, Msb0; 0,0,0,1,0,0,0,1],
-                        bits![u8, Msb0; 0,0,0,1,1,1,0,1],
-                        bits![u8, Msb0; 1,0,0,1,0,0,0,1],
-                        bits![u8, Msb0; 0,1,1,1,1,1,0,1],
-                        bits![u8, Msb0; 0,0,0,1,0,0,1,0],
-                        bits![u8, Msb0; 0,1,0,0,0,0,0,0],
-                        bits![u8, Msb0; 1,0,0,1,0,1,0,1],
-                    ],
+                    key_values.iter().map(|(k, _v)| k),
                     8
                 )
                 .collect::<Result<Vec<_>, _>>()
                 .unwrap(),
-            vec![
-                ONE,
-                TWO,
-                Felt::ZERO,
-                Felt::ZERO,
-                Felt::ZERO,
-                THREE,
-                FOUR,
-                Felt::ZERO
-            ]
+            key_values.iter().map(|(_k, v)| *v).collect::<Vec<_>>()
         );
     }
 }

@@ -1,7 +1,7 @@
 #[cfg(feature = "std")]
 use std::{error::Error, fmt::Display};
 
-use crate::{bonsai_database::DBError, BitVec, String};
+use crate::{bonsai_database::DBError, String};
 
 /// All errors that can be returned by BonsaiStorage.
 #[derive(Debug)]

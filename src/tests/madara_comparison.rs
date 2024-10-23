@@ -15,7 +15,7 @@ fn trie_height_251() {
     let db = create_rocks_db(tempdir.path()).unwrap();
     let config = BonsaiStorageConfig::default();
     let mut bonsai_storage: BonsaiStorage<_, _, Pedersen> =
-        BonsaiStorage::new(RocksDB::new(&db, RocksDBConfig::default()), config, 251).unwrap();
+        BonsaiStorage::new(RocksDB::new(&db, RocksDBConfig::default()), config, 251);
     for i in 0..251 {
         let mut key: BitVec = bits![u8, Msb0; 0; 251].to_bitvec();
         key.set(i, true);

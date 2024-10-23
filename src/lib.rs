@@ -104,7 +104,7 @@ use core::fmt;
 use id::Id;
 #[cfg(feature = "std")]
 pub(crate) use std::{
-    collections::{BTreeMap, BTreeSet, VecDeque},
+    collections::BTreeMap,
     format,
     string::{String, ToString},
     vec,
@@ -150,7 +150,6 @@ pub(crate) trait EncodeExt: parity_scale_codec::Encode {
 }
 impl<T: parity_scale_codec::Encode> EncodeExt for T {}
 
-use changes::ChangeBatch;
 use key_value_db::KeyValueDB;
 use starknet_types_core::{felt::Felt, hash::StarkHash};
 use trie::{tree::bytes_to_bitvec, trees::MerkleTrees};
@@ -234,11 +233,7 @@ where
     H: StarkHash + Send + Sync,
 {
     /// Create a new bonsai storage instance
-    pub fn new(
-        db: DB,
-        config: BonsaiStorageConfig,
-        max_height: u8,
-    ) -> Self {
+    pub fn new(db: DB, config: BonsaiStorageConfig, max_height: u8) -> Self {
         let key_value_db = KeyValueDB::new(db, config.into(), None);
         Self {
             tries: MerkleTrees::new(key_value_db, max_height),
@@ -315,7 +310,7 @@ where
     /// the in-memory changes will be discarded.
     pub fn revert_to(
         &mut self,
-        requested_id: ChangeID,
+        _requested_id: ChangeID,
     ) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
         // self.tries.reset_to_last_commit()?;
 
@@ -517,9 +512,9 @@ where
     }
 
     /// Merge a transactional state into the main trie.
-    pub fn merge<'a>(
+    pub fn merge(
         &mut self,
-        transactional_bonsai_storage: BonsaiStorage<ChangeID, DB::Transaction<'a>, H>,
+        transactional_bonsai_storage: BonsaiStorage<ChangeID, DB::Transaction<'_>, H>,
     ) -> Result<(), BonsaiStorageError<<DB as BonsaiPersistentDatabase<ChangeID>>::DatabaseError>>
     where
         <DB as BonsaiDatabase>::DatabaseError: core::fmt::Debug,
