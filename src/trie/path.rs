@@ -1,16 +1,34 @@
-use bitvec::{order::Msb0, vec::BitVec};
-use core::fmt;
-use parity_scale_codec::{Decode, Encode, Error, Input, Output};
-
 use super::merkle_node::Direction;
-
-use crate::{ByteVec, EncodeExt};
+use crate::{BitVec, ByteVec, EncodeExt};
+use core::{
+    fmt,
+    ops::{Deref, DerefMut},
+};
+use parity_scale_codec::{Decode, Encode, Error, Input, Output};
 
 #[cfg(all(feature = "std", test))]
 use rstest::rstest;
 
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
-pub struct Path(pub BitVec<u8, Msb0>);
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Path(pub BitVec);
+
+impl Default for Path {
+    fn default() -> Self {
+        Self(BitVec::with_capacity(251))
+    }
+}
+
+impl Path {
+    pub(crate) fn new_with_direction(&self, direction: Direction) -> Path {
+        let mut path = self.0.clone();
+        path.push(direction.into());
+        Path(path)
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+}
 
 impl fmt::Debug for Path {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -66,7 +84,7 @@ impl Decode for Path {
         let mut remaining_bits = len as usize;
         let mut current_byte = None;
         let mut bit = 7;
-        let mut bits = BitVec::<u8, Msb0>::new();
+        let mut bits = BitVec::new();
         // No bits left to decode; we're done.
         while remaining_bits != 0 {
             // Get the next store entry to pull from:
@@ -102,24 +120,29 @@ impl Decode for Path {
     }
 }
 
-impl Path {
-    pub(crate) fn new_with_direction(&self, direction: Direction) -> Path {
-        let mut path = self.0.clone();
-        path.push(direction.into());
-        Path(path)
-    }
-}
-
 /// Convert Path to SByteVec can be used, for example, to create keys for the database
 impl From<Path> for ByteVec {
     fn from(path: Path) -> Self {
-        path.encode_sbytevec()
+        path.encode_bytevec()
     }
 }
 
 impl From<&Path> for ByteVec {
     fn from(path: &Path) -> Self {
-        path.encode_sbytevec()
+        path.encode_bytevec()
+    }
+}
+
+impl Deref for Path {
+    type Target = BitVec;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for Path {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
     }
 }
 
@@ -132,7 +155,7 @@ impl From<&Path> for ByteVec {
 #[case(&[0b11111111])]
 #[case(&[0b11111111, 0b00000000, 0b10101010, 0b10101010, 0b11111111, 0b00000000, 0b10101010, 0b10101010, 0b11111111, 0b00000000, 0b10101010, 0b10101010])]
 fn test_shared_path_encode_decode(#[case] input: &[u8]) {
-    let path = Path(BitVec::<u8, Msb0>::from_slice(input));
+    let path = Path(BitVec::from_slice(input));
     let mut encoded = Vec::new();
     path.encode_to(&mut encoded);
 

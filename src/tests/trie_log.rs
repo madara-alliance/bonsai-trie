@@ -2,9 +2,8 @@
 use crate::{
     databases::{create_rocks_db, RocksDB, RocksDBConfig},
     id::BasicIdBuilder,
-    BonsaiStorage, BonsaiStorageConfig, BonsaiTrieHash,
+    BitVec, BonsaiStorage, BonsaiStorageConfig, BonsaiTrieHash,
 };
-use bitvec::vec::BitVec;
 use starknet_types_core::{felt::Felt, hash::Pedersen};
 
 #[test]
@@ -14,7 +13,7 @@ fn basics() {
     let db = create_rocks_db(tempdir.path()).unwrap();
     let config = BonsaiStorageConfig::default();
     let mut bonsai_storage: BonsaiStorage<_, _, Pedersen> =
-        BonsaiStorage::new(RocksDB::new(&db, RocksDBConfig::default()), config).unwrap();
+        BonsaiStorage::new(RocksDB::new(&db, RocksDBConfig::default()), config, 24).unwrap();
     let mut id_builder = BasicIdBuilder::new();
 
     let pair1 = (
@@ -63,7 +62,7 @@ fn unrecorded_revert() {
     let db = create_rocks_db(tempdir.path()).unwrap();
     let config = BonsaiStorageConfig::default();
     let mut bonsai_storage: BonsaiStorage<_, _, Pedersen> =
-        BonsaiStorage::new(RocksDB::new(&db, RocksDBConfig::default()), config).unwrap();
+        BonsaiStorage::new(RocksDB::new(&db, RocksDBConfig::default()), config, 24).unwrap();
     let mut id_builder = BasicIdBuilder::new();
 
     let pair1 = (
@@ -88,7 +87,7 @@ fn in_place_revert() {
     let db = create_rocks_db(tempdir.path()).unwrap();
     let config = BonsaiStorageConfig::default();
     let mut bonsai_storage: BonsaiStorage<_, _, Pedersen> =
-        BonsaiStorage::new(RocksDB::new(&db, RocksDBConfig::default()), config).unwrap();
+        BonsaiStorage::new(RocksDB::new(&db, RocksDBConfig::default()), config, 24).unwrap();
     let mut id_builder = BasicIdBuilder::new();
 
     let pair1 = (vec![1, 2, 3], &BonsaiTrieHash::default());
@@ -111,7 +110,7 @@ fn truncated_revert() {
     let db = create_rocks_db(tempdir.path()).unwrap();
     let config = BonsaiStorageConfig::default();
     let mut bonsai_storage: BonsaiStorage<_, _, Pedersen> =
-        BonsaiStorage::new(RocksDB::new(&db, RocksDBConfig::default()), config).unwrap();
+        BonsaiStorage::new(RocksDB::new(&db, RocksDBConfig::default()), config, 24).unwrap();
     let mut id_builder = BasicIdBuilder::new();
 
     let pair1 = (
@@ -151,7 +150,7 @@ fn double_revert() {
     let db = create_rocks_db(tempdir.path()).unwrap();
     let config = BonsaiStorageConfig::default();
     let mut bonsai_storage: BonsaiStorage<_, _, Pedersen> =
-        BonsaiStorage::new(RocksDB::new(&db, RocksDBConfig::default()), config).unwrap();
+        BonsaiStorage::new(RocksDB::new(&db, RocksDBConfig::default()), config, 24).unwrap();
     let mut id_builder = BasicIdBuilder::new();
 
     let pair1 = (
@@ -193,7 +192,7 @@ fn remove_and_reinsert() {
     let db = create_rocks_db(tempdir.path()).unwrap();
     let config = BonsaiStorageConfig::default();
     let mut bonsai_storage: BonsaiStorage<_, _, Pedersen> =
-        BonsaiStorage::new(RocksDB::new(&db, RocksDBConfig::default()), config).unwrap();
+        BonsaiStorage::new(RocksDB::new(&db, RocksDBConfig::default()), config, 24).unwrap();
     let mut id_builder = BasicIdBuilder::new();
 
     let pair1 = (

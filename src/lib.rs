@@ -111,12 +111,30 @@ pub(crate) use std::{
     vec::Vec,
 };
 
-use crate::trie::merkle_tree::MerkleTree;
-
 pub type ByteVec = smallvec::SmallVec<[u8; 32]>;
+pub type BitVec = bitvec::vec::BitVec<u8, bitvec::order::Msb0>;
+pub type BitSlice = bitvec::slice::BitSlice<u8, bitvec::order::Msb0>;
+
+mod changes;
+mod key_value_db;
+mod trie;
+
+mod bonsai_database;
+/// All databases already implemented in this crate.
+pub mod databases;
+mod error;
+/// Definition and basic implementation of an CommitID
+pub mod id;
+
+pub use bonsai_database::{BonsaiDatabase, BonsaiPersistentDatabase, DBError, DatabaseKey};
+pub use error::BonsaiStorageError;
+pub use trie::proof::{Membership, MultiProof, ProofNode};
+
+#[cfg(test)]
+mod tests;
 
 pub(crate) trait EncodeExt: parity_scale_codec::Encode {
-    fn encode_sbytevec(&self) -> ByteVec {
+    fn encode_bytevec(&self) -> ByteVec {
         struct Out(ByteVec);
         impl parity_scale_codec::Output for Out {
             #[inline]
@@ -132,32 +150,10 @@ pub(crate) trait EncodeExt: parity_scale_codec::Encode {
 }
 impl<T: parity_scale_codec::Encode> EncodeExt for T {}
 
-use bitvec::{order::Msb0, slice::BitSlice, vec::BitVec};
 use changes::ChangeBatch;
 use key_value_db::KeyValueDB;
-use starknet_types_core::{
-    felt::Felt,
-    hash::{Pedersen, StarkHash},
-};
-
-mod changes;
-mod key_value_db;
-mod trie;
-
-mod bonsai_database;
-/// All databases already implemented in this crate.
-pub mod databases;
-mod error;
-/// Definition and basic implementation of an CommitID
-pub mod id;
-
-pub use bonsai_database::{BonsaiDatabase, BonsaiPersistentDatabase, DBError, DatabaseKey};
-pub use error::BonsaiStorageError;
-use trie::merkle_tree::{bytes_to_bitvec, MerkleTrees};
-pub use trie::merkle_tree::{Membership, ProofNode};
-
-#[cfg(test)]
-mod tests;
+use starknet_types_core::{felt::Felt, hash::StarkHash};
+use trie::{tree::bytes_to_bitvec, trees::MerkleTrees};
 
 /// Structure that contains the configuration for the BonsaiStorage.
 /// A default implementation is provided with coherent values.
@@ -241,21 +237,23 @@ where
     pub fn new(
         db: DB,
         config: BonsaiStorageConfig,
+        max_height: u8,
     ) -> Result<Self, BonsaiStorageError<DB::DatabaseError>> {
         let key_value_db = KeyValueDB::new(db, config.into(), None);
         Ok(Self {
-            tries: MerkleTrees::new(key_value_db),
+            tries: MerkleTrees::new(key_value_db, max_height),
         })
     }
 
     pub fn new_from_transactional_state(
         db: DB,
         config: BonsaiStorageConfig,
+        max_height: u8,
         created_at: ChangeID,
         _identifiers: impl IntoIterator<Item = impl Deref<Target = [u8]>>,
     ) -> Result<Self, BonsaiStorageError<DB::DatabaseError>> {
         let key_value_db = KeyValueDB::new(db, config.into(), Some(created_at));
-        let tries = MerkleTrees::<H, DB, ChangeID>::new(key_value_db);
+        let tries = MerkleTrees::<H, DB, ChangeID>::new(key_value_db, max_height);
         Ok(Self { tries })
     }
 
@@ -264,7 +262,7 @@ where
     pub fn insert(
         &mut self,
         identifier: &[u8],
-        key: &BitSlice<u8, Msb0>,
+        key: &BitSlice,
         value: &Felt,
     ) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
         self.tries.set(identifier, key, *value)?;
@@ -276,7 +274,7 @@ where
     pub fn remove(
         &mut self,
         identifier: &[u8],
-        key: &BitSlice<u8, Msb0>,
+        key: &BitSlice,
     ) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
         self.tries.set(identifier, key, Felt::ZERO)?;
         Ok(())
@@ -286,7 +284,7 @@ where
     pub fn get(
         &self,
         identifier: &[u8],
-        key: &BitSlice<u8, Msb0>,
+        key: &BitSlice,
     ) -> Result<Option<Felt>, BonsaiStorageError<DB::DatabaseError>> {
         self.tries.get(identifier, key)
     }
@@ -298,7 +296,7 @@ where
     pub fn get_at(
         &self,
         identifier: &[u8],
-        key: &BitSlice<u8, Msb0>,
+        key: &BitSlice,
         id: ChangeID,
     ) -> Result<Option<Felt>, BonsaiStorageError<DB::DatabaseError>> {
         self.tries.get_at(identifier, key, id)
@@ -308,7 +306,7 @@ where
     pub fn contains(
         &self,
         identifier: &[u8],
-        key: &BitSlice<u8, Msb0>,
+        key: &BitSlice,
     ) -> Result<bool, BonsaiStorageError<DB::DatabaseError>> {
         self.tries.contains(identifier, key)
     }
@@ -402,13 +400,18 @@ where
     pub fn get_changes(
         &self,
         id: ChangeID,
-    ) -> Result<HashMap<BitVec<u8, Msb0>, Change>, BonsaiStorageError<DB::DatabaseError>> {
+    ) -> Result<HashMap<BitVec, Change>, BonsaiStorageError<DB::DatabaseError>> {
         self.tries.db_ref().get_changes(id)
     }
 
     #[cfg(test)]
     pub fn dump_database(&self) {
         self.tries.db_ref().db.dump_database();
+    }
+
+    #[cfg(test)]
+    pub fn dump(&self) {
+        self.tries.dump();
     }
 
     /// Get trie root hash at the latest commit
@@ -430,24 +433,25 @@ where
         Ok(())
     }
 
-    /// Generates a merkle-proof for a given `key`.
-    ///
-    /// Returns vector of [`TrieNode`] which form a chain from the root to the key,
-    /// if it exists, or down to the node which proves that the key does not exist.
-    ///
-    /// The nodes are returned in order, root first.
-    ///
-    /// Verification is performed by confirming that:
-    ///   1. the chain follows the path of `key`, and
-    ///   2. the hashes are correct, and
-    ///   3. the root hash matches the known root
-    pub fn get_proof(
-        &self,
-        identifier: &[u8],
-        key: &BitSlice<u8, Msb0>,
-    ) -> Result<Vec<ProofNode>, BonsaiStorageError<DB::DatabaseError>> {
-        self.tries.get_proof(identifier, key)
-    }
+    // /// Generates a merkle-proof for a given `key`.
+    // ///
+    // /// Returns vector of [`TrieNode`] which form a chain from the root to the key,
+    // /// if it exists, or down to the node which proves that the key does not exist.
+    // ///
+    // /// The nodes are returned in order, root first.
+    // ///
+    // /// Verification is performed by confirming that:
+    // ///   1. the chain follows the path of `key`, and
+    // ///   2. the hashes are correct, and
+    // ///   3. the root hash matches the known root
+    // pub fn get_proof(
+    //     &self,
+    //     identifier: &[u8],
+    //     key: &BitSlice,
+    // ) -> Result<Vec<ProofNode>, BonsaiStorageError<DB::DatabaseError>> {
+    //     todo!()
+    //     // self.tries.get_proof(identifier, key)
+    // }
 
     /// Get all the keys in a specific trie.
     pub fn get_keys(
@@ -471,14 +475,12 @@ where
         self.tries.db_ref().get_latest_id()
     }
 
-    /// Verifies a merkle-proof for a given `key` and `value`.
-    pub fn verify_proof(
-        root: Felt,
-        key: &BitSlice<u8, Msb0>,
-        value: Felt,
-        proofs: &[ProofNode],
-    ) -> Option<Membership> {
-        MerkleTree::<Pedersen>::verify_proof(root, key, value, proofs)
+    pub fn get_multi_proof(
+        &mut self,
+        identifier: &[u8],
+        keys: impl IntoIterator<Item = impl AsRef<BitSlice>>,
+    ) -> Result<MultiProof, BonsaiStorageError<DB::DatabaseError>> {
+        self.tries.get_multi_proof(identifier, keys)
     }
 }
 
@@ -516,6 +518,7 @@ where
             Ok(Some(BonsaiStorage::new_from_transactional_state(
                 transaction,
                 config,
+                self.tries.max_height,
                 change_id,
                 self.tries.get_identifiers(),
             )?))
@@ -546,7 +549,7 @@ where
         for (identifier, tree) in trees {
             for (k, op) in tree.cache_leaf_modified() {
                 match op {
-                    crate::trie::merkle_tree::InsertOrRemove::Insert(v) => {
+                    crate::trie::tree::InsertOrRemove::Insert(v) => {
                         self.insert(&identifier, &bytes_to_bitvec(k), v)
                             .map_err(|e| {
                                 BonsaiStorageError::Merge(format!(
@@ -555,7 +558,7 @@ where
                                 ))
                             })?;
                     }
-                    crate::trie::merkle_tree::InsertOrRemove::Remove => {
+                    crate::trie::tree::InsertOrRemove::Remove => {
                         self.remove(&identifier, &bytes_to_bitvec(k)).map_err(|e| {
                             BonsaiStorageError::Merge(format!(
                                 "While merging remove({:?}) faced error: {:?}",

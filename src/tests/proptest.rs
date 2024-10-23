@@ -1,17 +1,12 @@
 #![cfg(feature = "std")]
-
-use crate::MerkleTree;
-
-use core::fmt::{self, Debug};
-
 use crate::databases::HashMapDb;
 use crate::id::BasicId;
 use crate::key_value_db::KeyValueDB;
-use crate::HashMap;
-
+use crate::trie::tree::MerkleTree;
+use crate::{BitVec, HashMap};
 use bitvec::bitvec;
 use bitvec::order::Msb0;
-use bitvec::vec::BitVec;
+use core::fmt::{self, Debug};
 use proptest::prelude::*;
 use proptest_derive::Arbitrary;
 use smallvec::smallvec;
@@ -19,7 +14,7 @@ use starknet_types_core::felt::Felt;
 use starknet_types_core::hash::Pedersen;
 
 #[derive(PartialEq, Eq, Hash)]
-struct Key(BitVec<u8, Msb0>);
+struct Key(BitVec);
 impl fmt::Debug for Key {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:b}", self.0)
@@ -31,7 +26,7 @@ impl Arbitrary for Key {
 
     fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
         <[bool; 5]>::arbitrary()
-            .prop_map(|arr| arr.into_iter().collect::<BitVec<u8, Msb0>>())
+            .prop_map(|arr| arr.into_iter().collect::<BitVec>())
             .prop_map(Self)
             .boxed()
     }
@@ -50,7 +45,7 @@ impl Arbitrary for Value {
 
     fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
         <[bool; 251]>::arbitrary()
-            .prop_map(|arr| arr.into_iter().collect::<BitVec<u8, Msb0>>())
+            .prop_map(|arr| arr.into_iter().collect::<BitVec>())
             .prop_map(|vec| Felt::from_bytes_be(vec.as_raw_slice().try_into().unwrap()))
             .prop_map(Self)
             .boxed()
@@ -78,7 +73,7 @@ impl MerkleTreeInsertProblem {
         let mut ckv = HashMap::new();
 
         // apply steps
-        let mut tree = MerkleTree::<Pedersen>::new(smallvec![]);
+        let mut tree = MerkleTree::<Pedersen>::new(smallvec![], 5);
         for step in &self.0 {
             match step {
                 Step::Insert(k, v) => {
@@ -97,7 +92,7 @@ impl MerkleTreeInsertProblem {
                 }
             }
             log::trace!("TREE");
-            tree.display();
+            tree.dump();
         }
 
         // check
@@ -126,7 +121,7 @@ impl MerkleTreeInsertProblem {
 }
 
 proptest::proptest! {
-    #![proptest_config(ProptestConfig::with_cases(5))] // comment this when developing, this is mostly for faster ci & whole workspace `cargo test`
+    // #![proptest_config(ProptestConfig::with_cases(5))] // comment this when developing, this is mostly for faster ci & whole workspace `cargo test`
     #[test]
     fn proptest_inserts(pb in any::<MerkleTreeInsertProblem>()) {
         let _ = env_logger::builder().is_test(true).try_init();
@@ -276,6 +271,30 @@ fn test_merkle_pb_6() {
         ),
         Remove(Key(bitvec![u8, Msb0; 1,0,0,0,0])),
         Remove(Key(bitvec![u8, Msb0; 1,0,0,0,0])),
+    ]);
+
+    pb.check();
+}
+
+#[test]
+fn test_merkle_pb_7() {
+    use Step::*;
+    let _ = env_logger::builder().is_test(true).try_init();
+    log::set_max_level(log::LevelFilter::Trace);
+    let pb = MerkleTreeInsertProblem(vec![
+        Insert(
+            Key(bitvec![u8, Msb0; 0,0,0,0,0]),
+            Value(Felt::from_hex("0x20").unwrap()),
+        ),
+        Insert(
+            Key(bitvec![u8, Msb0; 1,0,0,0,0]),
+            Value(Felt::from_hex("0x20").unwrap()),
+        ),
+        Commit,
+        Insert(
+            Key(bitvec![u8, Msb0; 0,0,0,0,0]),
+            Value(Felt::from_hex("0x40").unwrap()),
+        ),
     ]);
 
     pb.check();

@@ -27,7 +27,7 @@ pub trait DBError: Error + Send + Sync {}
 pub trait DBError: Send + Sync {}
 
 /// Trait to be implemented on any type that can be used as a database.
-pub trait BonsaiDatabase {
+pub trait BonsaiDatabase: core::fmt::Debug {
     type Batch: Default;
     #[cfg(feature = "std")]
     type DatabaseError: Error + DBError;
