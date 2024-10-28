@@ -222,13 +222,7 @@ where
     DB: BonsaiDatabase + BonsaiPersistentDatabase<ID>,
 {
     pub(crate) fn create_snapshot(&mut self, id: ID) {
-        log::debug!(
-            "created tx {:?} ? /{}",
-            id.as_u64(),
-            self.config.snapshot_interval
-        );
         if id.as_u64() % self.config.snapshot_interval == 0 {
-            log::debug!("creating snapshot fr fr");
             self.db.snapshot(id);
         }
     }
@@ -240,12 +234,11 @@ where
         Option<DB::Transaction<'_>>,
         BonsaiStorageError<<DB::Transaction<'_> as BonsaiDatabase>::DatabaseError>,
     > {
-        log::debug!("get_transaaction {id:?}");
+        log::debug!("get_transaction {id:?}");
         let Some((snap_id, mut txn)) = self.db.transaction(id) else {
-            log::debug!("no db txn :/");
             return Ok(None);
         };
-        log::debug!("get_transaaction {snap_id:?} {id:?}");
+        log::debug!("get_transaction {snap_id:?} {id:?}");
 
         let mut batch = txn.create_batch();
         for cur_id in snap_id.as_u64()..id.as_u64() {
@@ -285,26 +278,6 @@ where
         &mut self,
         _transaction: KeyValueDB<DB::Transaction<'_>, ID>,
     ) -> Result<(), BonsaiStorageError<<DB as BonsaiPersistentDatabase<ID>>::DatabaseError>> {
-        // let Some(created_at) = transaction.created_at else {
-        //     return Err(BonsaiStorageError::Merge(
-        //         "Transaction has no created_at".to_string(),
-        //     ));
-        // };
-        // let Some(last_recorded_change_id) = self.changes_store.id_queue.back() else {
-        //     return Err(BonsaiStorageError::Merge(
-        //         "No recorded change id".to_string(),
-        //     ));
-        // };
-        // if &created_at >= last_recorded_change_id {
-        //     self.changes_store.id_queue = transaction.changes_store.id_queue;
-        //     self.db.merge(transaction.db)?;
-        // } else {
-        //     return Err(BonsaiStorageError::Merge(format!(
-        //         "Transaction created_at {:?} is lower than the last recorded id",
-        //         created_at,
-        //     )));
-        // }
-        // Ok(())
-        todo!()
+        todo!("unused yet")
     }
 }
