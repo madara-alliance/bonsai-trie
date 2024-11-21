@@ -94,7 +94,7 @@ pub(crate) use hashbrown::hash_map;
 extern crate alloc;
 #[cfg(not(feature = "std"))]
 pub(crate) use alloc::{
-    collections::{BTreeMap, BTreeSet, VecDeque},
+    collections::BTreeMap,
     format,
     string::{String, ToString},
     vec,
