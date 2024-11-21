@@ -284,8 +284,7 @@ mod tests {
             RocksDB::<BasicId>::new(&db, RocksDBConfig::default()),
             BonsaiStorageConfig::default(),
             8,
-        )
-        .unwrap();
+        );
 
         bonsai_storage
             .insert(&[], bits![u8, Msb0; 0,0,0,1,0,0,0,0], &ONE)

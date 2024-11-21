@@ -100,7 +100,7 @@ impl<H: StarkHash + Send + Sync, DB: BonsaiDatabase, CommitID: Id> MerkleTrees<H
         &mut self.db
     }
 
-    pub(crate) fn reset_to_last_commit(
+    pub(crate) fn _reset_to_last_commit(
         &mut self,
     ) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
         self.trees.clear(); // just clear the map
@@ -227,10 +227,6 @@ impl<H: StarkHash + Send + Sync, DB: BonsaiDatabase, CommitID: Id> MerkleTrees<H
     //         MerkleTree::<H>::new(identifier.into()).get_proof(&self.db, key)
     //     }
     // }
-
-    pub(crate) fn get_identifiers(&self) -> Vec<Vec<u8>> {
-        self.trees.keys().cloned().map(ByteVec::into_vec).collect()
-    }
 
     pub fn get_multi_proof(
         &mut self,

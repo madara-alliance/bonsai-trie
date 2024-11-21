@@ -48,12 +48,12 @@ static PAIR3: Lazy<(BitVec, Felt)> = Lazy::new(|| {
 /// * `id_builder` - An instance of `BasicIdBuilder`.
 /// * `start_id` - A `BasicId` representing the commit ID of the changes made in
 ///   `bonsai_storage`.
-fn init_test(
-    db: &OptimisticTransactionDB,
+fn init_test<'a>(
+    db: &'a OptimisticTransactionDB,
 ) -> (
     Vec<u8>,
-    BonsaiStorage<BasicId, RocksDB<'_, BasicId>, Pedersen>,
-    BonsaiStorage<BasicId, RocksDBTransaction<'_>, Pedersen>,
+    BonsaiStorage<BasicId, RocksDB<'a, BasicId>, Pedersen>,
+    BonsaiStorage<BasicId, RocksDBTransaction<'a>, Pedersen>,
     BasicIdBuilder,
     BasicId,
 ) {
@@ -61,8 +61,7 @@ fn init_test(
 
     let config = BonsaiStorageConfig::default();
     let mut bonsai_storage =
-        BonsaiStorage::new(RocksDB::new(db, RocksDBConfig::default()), config, 24)
-            .expect("Failed to create BonsaiStorage");
+        BonsaiStorage::new(RocksDB::new(db, RocksDBConfig::default()), config, 24);
 
     let mut id_builder = BasicIdBuilder::new();
 

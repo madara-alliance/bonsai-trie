@@ -94,17 +94,17 @@ pub(crate) use hashbrown::hash_map;
 extern crate alloc;
 #[cfg(not(feature = "std"))]
 pub(crate) use alloc::{
-    collections::{BTreeMap, BTreeSet, VecDeque},
+    collections::BTreeMap,
     format,
     string::{String, ToString},
     vec,
     vec::Vec,
 };
-use core::{fmt, ops::Deref};
+use core::fmt;
 use id::Id;
 #[cfg(feature = "std")]
 pub(crate) use std::{
-    collections::{BTreeMap, BTreeSet, VecDeque},
+    collections::BTreeMap,
     format,
     string::{String, ToString},
     vec,
@@ -128,7 +128,7 @@ pub mod id;
 
 pub use bonsai_database::{BonsaiDatabase, BonsaiPersistentDatabase, DBError, DatabaseKey};
 pub use error::BonsaiStorageError;
-pub use trie::proof::{Membership, MultiProof, ProofNode};
+pub use trie::proof::{MultiProof, ProofNode};
 
 #[cfg(test)]
 mod tests;
@@ -150,7 +150,6 @@ pub(crate) trait EncodeExt: parity_scale_codec::Encode {
 }
 impl<T: parity_scale_codec::Encode> EncodeExt for T {}
 
-use changes::ChangeBatch;
 use key_value_db::KeyValueDB;
 use starknet_types_core::{felt::Felt, hash::StarkHash};
 use trie::{tree::bytes_to_bitvec, trees::MerkleTrees};
@@ -234,15 +233,11 @@ where
     H: StarkHash + Send + Sync,
 {
     /// Create a new bonsai storage instance
-    pub fn new(
-        db: DB,
-        config: BonsaiStorageConfig,
-        max_height: u8,
-    ) -> Result<Self, BonsaiStorageError<DB::DatabaseError>> {
+    pub fn new(db: DB, config: BonsaiStorageConfig, max_height: u8) -> Self {
         let key_value_db = KeyValueDB::new(db, config.into(), None);
-        Ok(Self {
+        Self {
             tries: MerkleTrees::new(key_value_db, max_height),
-        })
+        }
     }
 
     pub fn new_from_transactional_state(
@@ -250,7 +245,6 @@ where
         config: BonsaiStorageConfig,
         max_height: u8,
         created_at: ChangeID,
-        _identifiers: impl IntoIterator<Item = impl Deref<Target = [u8]>>,
     ) -> Result<Self, BonsaiStorageError<DB::DatabaseError>> {
         let key_value_db = KeyValueDB::new(db, config.into(), Some(created_at));
         let tries = MerkleTrees::<H, DB, ChangeID>::new(key_value_db, max_height);
@@ -316,83 +310,84 @@ where
     /// the in-memory changes will be discarded.
     pub fn revert_to(
         &mut self,
-        requested_id: ChangeID,
+        _requested_id: ChangeID,
     ) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
-        self.tries.reset_to_last_commit()?;
+        // self.tries.reset_to_last_commit()?;
 
-        let kv = self.tries.db_mut();
+        // let kv = self.tries.db_mut();
 
-        // Clear current changes
-        kv.changes_store.current_changes.0.clear();
+        // // Clear current changes
+        // kv.changes_store.current_changes.0.clear();
 
-        // If requested equals last recorded, do nothing
-        if Some(&requested_id) == kv.changes_store.id_queue.back() {
-            return Ok(());
-        }
+        // // If requested equals last recorded, do nothing
+        // if Some(&requested_id) == kv.changes_store.id_queue.back() {
+        //     return Ok(());
+        // }
 
-        // Make sure we are not trying to revert with an invalid id
-        let Some(id_position) = kv
-            .changes_store
-            .id_queue
-            .iter()
-            .position(|id| *id == requested_id)
-        else {
-            return Err(BonsaiStorageError::GoTo(format!(
-                "Requested id {:?} was removed or has not been recorded",
-                requested_id
-            )));
-        };
+        // // Make sure we are not trying to revert with an invalid id
+        // let Some(id_position) = kv
+        //     .changes_store
+        //     .id_queue
+        //     .iter()
+        //     .position(|id| *id == requested_id)
+        // else {
+        //     return Err(BonsaiStorageError::GoTo(format!(
+        //         "Requested id {:?} was removed or has not been recorded",
+        //         requested_id
+        //     )));
+        // };
 
-        // Accumulate changes from requested to last recorded
-        let mut full = Vec::new();
-        for id in kv
-            .changes_store
-            .id_queue
-            .iter()
-            .skip(id_position)
-            .rev()
-            .take_while(|id| *id != &requested_id)
-        {
-            full.extend(
-                ChangeBatch::deserialize(
-                    id,
-                    kv.db.get_by_prefix(&DatabaseKey::TrieLog(&id.to_bytes()))?,
-                )
-                .0,
-            );
-        }
+        // // Accumulate changes from requested to last recorded
+        // let mut full = Vec::new();
+        // for id in kv
+        //     .changes_store
+        //     .id_queue
+        //     .iter()
+        //     .skip(id_position)
+        //     .rev()
+        //     .take_while(|id| *id != &requested_id)
+        // {
+        //     full.extend(
+        //         ChangeBatch::deserialize(
+        //             id,
+        //             kv.db.get_by_prefix(&DatabaseKey::TrieLog(&id.to_bytes()))?,
+        //         )
+        //         .0,
+        //     );
+        // }
 
-        // Revert changes
-        let mut batch = kv.db.create_batch();
-        for (key, change) in full.iter().rev() {
-            let key = DatabaseKey::from(key);
-            match (&change.old_value, &change.new_value) {
-                (Some(old_value), Some(_)) => {
-                    kv.db.insert(&key, old_value, Some(&mut batch))?;
-                }
-                (Some(old_value), None) => {
-                    kv.db.insert(&key, old_value, Some(&mut batch))?;
-                }
-                (None, Some(_)) => {
-                    kv.db.remove(&key, Some(&mut batch))?;
-                }
-                (None, None) => unreachable!(),
-            };
-        }
+        // // Revert changes
+        // let mut batch = kv.db.create_batch();
+        // for (key, change) in full.iter().rev() {
+        //     let key = DatabaseKey::from(key);
+        //     match (&change.old_value, &change.new_value) {
+        //         (Some(old_value), Some(_)) => {
+        //             kv.db.insert(&key, old_value, Some(&mut batch))?;
+        //         }
+        //         (Some(old_value), None) => {
+        //             kv.db.insert(&key, old_value, Some(&mut batch))?;
+        //         }
+        //         (None, Some(_)) => {
+        //             kv.db.remove(&key, Some(&mut batch))?;
+        //         }
+        //         (None, None) => unreachable!(),
+        //     };
+        // }
 
-        // Truncate trie logs at the requested id
-        let mut truncated = kv.changes_store.id_queue.split_off(id_position);
-        if let Some(current) = truncated.pop_front() {
-            kv.changes_store.id_queue.push_back(current);
-        }
-        for id in truncated.iter() {
-            kv.db
-                .remove_by_prefix(&DatabaseKey::TrieLog(&id.to_bytes()))?;
-        }
+        // // Truncate trie logs at the requested id
+        // let mut truncated = kv.changes_store.id_queue.split_off(id_position);
+        // if let Some(current) = truncated.pop_front() {
+        //     kv.changes_store.id_queue.push_back(current);
+        // }
+        // for id in truncated.iter() {
+        //     kv.db
+        //         .remove_by_prefix(&DatabaseKey::TrieLog(&id.to_bytes()))?;
+        // }
 
-        // Write revert changes and trie logs truncation
-        kv.db.write_batch(batch)?;
-        Ok(())
+        // // Write revert changes and trie logs truncation
+        // kv.db.write_batch(batch)?;
+        // Ok(())
+        todo!()
     }
 
     /// Get all changes applied at a certain commit ID.
@@ -432,26 +427,6 @@ where
         self.tries.db_mut().commit(id)?;
         Ok(())
     }
-
-    // /// Generates a merkle-proof for a given `key`.
-    // ///
-    // /// Returns vector of [`TrieNode`] which form a chain from the root to the key,
-    // /// if it exists, or down to the node which proves that the key does not exist.
-    // ///
-    // /// The nodes are returned in order, root first.
-    // ///
-    // /// Verification is performed by confirming that:
-    // ///   1. the chain follows the path of `key`, and
-    // ///   2. the hashes are correct, and
-    // ///   3. the root hash matches the known root
-    // pub fn get_proof(
-    //     &self,
-    //     identifier: &[u8],
-    //     key: &BitSlice,
-    // ) -> Result<Vec<ProofNode>, BonsaiStorageError<DB::DatabaseError>> {
-    //     todo!()
-    //     // self.tries.get_proof(identifier, key)
-    // }
 
     /// Get all the keys in a specific trie.
     pub fn get_keys(
@@ -511,16 +486,20 @@ where
         change_id: ChangeID,
         config: BonsaiStorageConfig,
     ) -> Result<
-        Option<BonsaiStorage<ChangeID, DB::Transaction, H>>,
-        BonsaiStorageError<<DB::Transaction as BonsaiDatabase>::DatabaseError>,
+        Option<BonsaiStorage<ChangeID, DB::Transaction<'_>, H>>,
+        BonsaiStorageError<<DB::Transaction<'_> as BonsaiDatabase>::DatabaseError>,
     > {
+        // If requested equals last recorded, do nothing
+        // if Some(&change_id) == self.tries.db_ref().changes_store.id_queue.back() {
+        //     return Ok(());
+        // }
+
         if let Some(transaction) = self.tries.db_ref().get_transaction(change_id)? {
             Ok(Some(BonsaiStorage::new_from_transactional_state(
                 transaction,
                 config,
                 self.tries.max_height,
                 change_id,
-                self.tries.get_identifiers(),
             )?))
         } else {
             Ok(None)
@@ -535,7 +514,7 @@ where
     /// Merge a transactional state into the main trie.
     pub fn merge(
         &mut self,
-        transactional_bonsai_storage: BonsaiStorage<ChangeID, DB::Transaction, H>,
+        transactional_bonsai_storage: BonsaiStorage<ChangeID, DB::Transaction<'_>, H>,
     ) -> Result<(), BonsaiStorageError<<DB as BonsaiPersistentDatabase<ChangeID>>::DatabaseError>>
     where
         <DB as BonsaiDatabase>::DatabaseError: core::fmt::Debug,

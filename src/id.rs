@@ -4,6 +4,8 @@ use core::{fmt::Debug, hash};
 /// Trait to be implemented on any type that can be used as an ID.
 pub trait Id: hash::Hash + PartialEq + Eq + PartialOrd + Ord + Debug + Copy + Default {
     fn to_bytes(&self) -> ByteVec;
+    fn as_u64(self) -> u64;
+    fn from_u64(v: u64) -> Self;
 }
 
 /// A basic ID type that can be used for testing.
@@ -19,6 +21,12 @@ impl BasicId {
 impl Id for BasicId {
     fn to_bytes(&self) -> ByteVec {
         ByteVec::from(&self.0.to_be_bytes() as &[_])
+    }
+    fn as_u64(self) -> u64 {
+        self.0
+    }
+    fn from_u64(v: u64) -> Self {
+        Self(v)
     }
 }
 

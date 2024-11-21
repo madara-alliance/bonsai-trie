@@ -1,4 +1,4 @@
-use crate::{hash_map::Entry, id::Id, trie::TrieKey, ByteVec, HashMap, Vec, VecDeque};
+use crate::{hash_map::Entry, id::Id, trie::TrieKey, ByteVec, HashMap, Vec};
 use core::iter;
 use serde::{Deserialize, Serialize};
 
@@ -115,22 +115,13 @@ pub fn key_new_value<ID: Id>(id: &ID, key: &TrieKey) -> ByteVec {
 
 #[cfg_attr(feature = "bench", derive(Clone))]
 #[derive(Debug)]
-pub struct ChangeStore<ID>
-where
-    ID: Id,
-{
-    // Newest are inserted at the back
-    pub id_queue: VecDeque<ID>,
+pub struct ChangeStore {
     pub current_changes: ChangeBatch,
 }
 
-impl<ID> ChangeStore<ID>
-where
-    ID: Id,
-{
+impl ChangeStore {
     pub fn new() -> Self {
         Self {
-            id_queue: VecDeque::new(),
             current_changes: ChangeBatch(HashMap::new()),
         }
     }

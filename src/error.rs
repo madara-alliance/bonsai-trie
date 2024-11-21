@@ -1,7 +1,7 @@
 #[cfg(feature = "std")]
 use std::{error::Error, fmt::Display};
 
-use crate::{bonsai_database::DBError, BitVec, String};
+use crate::{bonsai_database::DBError, String};
 
 /// All errors that can be returned by BonsaiStorage.
 #[derive(Debug)]
@@ -21,8 +21,6 @@ where
     Database(DatabaseError),
     /// Error when decoding a node
     NodeDecodeError(parity_scale_codec::Error),
-    /// Error when creating a storage proof.
-    CreateProofKeyNotInTree { key: BitVec },
     /// Malformated trie key.
     KeyLength { expected: usize, got: usize },
 }
@@ -56,9 +54,6 @@ where
             BonsaiStorageError::Merge(e) => write!(f, "Merge error: {}", e),
             BonsaiStorageError::Database(e) => write!(f, "Database error: {}", e),
             BonsaiStorageError::NodeDecodeError(e) => write!(f, "Node decode error: {}", e),
-            BonsaiStorageError::CreateProofKeyNotInTree { key } => {
-                write!(f, "Key not in tree: {key:b}")
-            }
             BonsaiStorageError::KeyLength { expected, got } => {
                 write!(f, "Malformated key length: expected {expected}, got {got}")
             }

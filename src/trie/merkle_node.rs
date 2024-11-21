@@ -183,27 +183,6 @@ impl Node {
             _ => None,
         }
     }
-    /// Convert to node to binary node type (returns None if it's not a binary node).
-    pub fn as_binary_mut(&mut self) -> Option<&mut BinaryNode> {
-        match self {
-            Node::Binary(node) => Some(node),
-            _ => None,
-        }
-    }
-    /// Convert to node to edge node type (returns None if it's not an edge node).
-    pub fn as_edge(&self) -> Option<&EdgeNode> {
-        match self {
-            Node::Edge(node) => Some(node),
-            _ => None,
-        }
-    }
-    /// Convert to node to edge node type (returns None if it's not an edge node).
-    pub fn as_edge_mut(&mut self) -> Option<&mut EdgeNode> {
-        match self {
-            Node::Edge(node) => Some(node),
-            _ => None,
-        }
-    }
 
     pub fn get_hash(&self) -> Option<Felt> {
         match self {
