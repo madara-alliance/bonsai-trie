@@ -254,17 +254,18 @@ where
                         ))
                     })?,
             );
+            // Apply backwards
             for (key, change) in changes.0 {
                 let key = DatabaseKey::from(&key);
                 match (&change.old_value, &change.new_value) {
-                    (Some(_), Some(new_value)) => {
-                        txn.insert(&key, new_value, Some(&mut batch))?;
+                    (Some(old_value), Some(_)) => {
+                        txn.insert(&key, old_value, Some(&mut batch))?;
                     }
-                    (Some(_), None) => {
+                    (Some(old_value), None) => {
+                        txn.insert(&key, old_value, Some(&mut batch))?;
+                    }
+                    (None, Some(_)) => {
                         txn.remove(&key, Some(&mut batch))?;
-                    }
-                    (None, Some(new_value)) => {
-                        txn.insert(&key, new_value, Some(&mut batch))?;
                     }
                     (None, None) => unreachable!(),
                 };

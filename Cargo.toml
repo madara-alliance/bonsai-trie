@@ -43,7 +43,7 @@ starknet-types-core = { version = "0.1.7", default-features = false, features = 
 ] }
 
 # Optionals
-rocksdb = { optional = true, version = "0.21.0", features = [
+rocksdb = { optional = true, version = "0.22", features = [
   "multi-threaded-cf",
 ] }
 
