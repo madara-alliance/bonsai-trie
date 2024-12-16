@@ -1,6 +1,6 @@
 pub(crate) mod iterator;
 mod merkle_node;
-mod path;
+pub(crate) mod path;
 pub(crate) mod proof;
 pub mod tree;
 pub(crate) mod trees;
