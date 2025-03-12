@@ -1,6 +1,8 @@
-use crate::{format, BitVec, ByteVec, Change as ExternChange};
+use crate::{bytes_to_bitvec, format, BitVec, ByteVec, Change as ExternChange};
 use hashbrown::HashMap;
 use log::trace;
+use parity_scale_codec::Decode;
+use starknet_types_core::felt::Felt;
 
 use crate::{
     bonsai_database::{BonsaiDatabase, BonsaiPersistentDatabase, DatabaseKey},
@@ -78,34 +80,27 @@ where
     #[allow(clippy::type_complexity)]
     pub(crate) fn get_changes(
         &self,
-        _id: ID,
+        id: ID,
     ) -> Result<HashMap<BitVec, ExternChange>, BonsaiStorageError<DB::DatabaseError>> {
-        // if self.changes_store.id_queue.contains(&id) {
-        //     let mut leaf_changes = HashMap::new();
-        //     let changes = ChangeBatch::deserialize(
-        //         &id,
-        //         self.db
-        //             .get_by_prefix(&DatabaseKey::TrieLog(&id.to_bytes()))?,
-        //     );
-        //     for (k, v) in changes.0 {
-        //         if let TrieKey::Flat(k) = k {
-        //             leaf_changes.insert(
-        //                 bytes_to_bitvec(&k),
-        //                 ExternChange {
-        //                     // SAFETY: We are sure that the values are valid Felt because they can be saved only by our crate
-        //                     old_value: v.old_value.map(|x| Felt::decode(&mut x.as_ref()).unwrap()),
-        //                     new_value: v.new_value.map(|x| Felt::decode(&mut x.as_ref()).unwrap()),
-        //                 },
-        //             );
-        //         }
-        //     }
-        //     Ok(leaf_changes)
-        // } else {
-        //     Err(BonsaiStorageError::GoTo(
-        //         "ID asked isn't in our ID records".to_string(),
-        //     ))
-        // }
-        todo!()
+        let mut leaf_changes = HashMap::new();
+        let changes = ChangeBatch::deserialize(
+            &id,
+            self.db
+                .get_by_prefix(&DatabaseKey::TrieLog(&id.to_bytes()))?,
+        );
+        for (k, v) in changes.0 {
+            if let TrieKey::Flat(k) = k {
+                leaf_changes.insert(
+                    bytes_to_bitvec(&k),
+                    ExternChange {
+                        // SAFETY: We are sure that the values are valid Felt because they can be saved only by our crate
+                        old_value: v.old_value.map(|x| Felt::decode(&mut x.as_ref()).unwrap()),
+                        new_value: v.new_value.map(|x| Felt::decode(&mut x.as_ref()).unwrap()),
+                    },
+                );
+            }
+        }
+        Ok(leaf_changes)
     }
 
     pub(crate) fn commit(&mut self, id: ID) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {

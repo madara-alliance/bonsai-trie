@@ -100,7 +100,7 @@ impl<H: StarkHash + Send + Sync, DB: BonsaiDatabase, CommitID: Id> MerkleTrees<H
         &mut self.db
     }
 
-    pub(crate) fn _reset_to_last_commit(
+    pub(crate) fn reset_to_last_commit(
         &mut self,
     ) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
         self.trees.clear(); // just clear the map
