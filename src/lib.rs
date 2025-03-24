@@ -391,6 +391,8 @@ where
                 )
                 .0,
             );
+
+            kv.db.remove_by_prefix(&DatabaseKey::TrieLog(&id.to_bytes()))?;
         }
 
 
