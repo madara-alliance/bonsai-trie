@@ -342,6 +342,13 @@ where
         let latest_id = kv.changes_store.latest_id;
         let revert_to_id = requested_id.as_u64();
 
+        if latest_id < revert_to_id {
+            return Err(BonsaiStorageError::GoTo(format!(
+                "Requested id {:?} was removed or has not been recorded",
+                requested_id
+            )));
+        }
+
         /*
          * analysis of change store leading up to now:
          *     * it uses a VecDeque, basically a ring buffer
