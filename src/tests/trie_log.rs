@@ -143,7 +143,7 @@ fn truncated_revert() {
     let revert_root_hash1 = bonsai_storage.root_hash(&identifier).unwrap();
     bonsai_storage.revert_to(id2).unwrap_err();
 
-    assert_eq!(root_hash2, revert_root_hash1);
+    assert_eq!(root_hash1, revert_root_hash1);
 }
 
 #[test]

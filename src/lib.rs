@@ -320,11 +320,8 @@ where
         kv.changes_store.current_changes.0.clear();
 
         /*
-        // If requested equals last recorded, do nothing
-        if Some(&requested_id) == kv.changes_store.id_queue.back() {
-            return Ok(());
-        }
-
+         * TODO: this would cover logs that are too old, I think, which is not covered now
+         * 
         // Make sure we are not trying to revert with an invalid id
         let Some(id_position) = kv
             .changes_store
@@ -341,6 +338,11 @@ where
 
         let latest_id = kv.changes_store.latest_id;
         let revert_to_id = requested_id.as_u64();
+
+        // If requested equals last recorded, do nothing
+        if latest_id == revert_to_id {
+            return Ok(())
+        }
 
         if latest_id < revert_to_id {
             return Err(BonsaiStorageError::GoTo(format!(
@@ -388,7 +390,7 @@ where
         */
 
         let mut full = Vec::new();
-        for id in (revert_to_id..latest_id).rev() {
+        for id in (revert_to_id+1..=latest_id).rev() {
             let id = ChangeID::from_u64(id);
 
             full.extend(
@@ -434,6 +436,8 @@ where
                 .remove_by_prefix(&DatabaseKey::TrieLog(&id.to_bytes()))?;
         }
         */
+
+        kv.changes_store.latest_id = revert_to_id;
 
         // Write revert changes and trie logs truncation
         kv.db.write_batch(batch)?;
