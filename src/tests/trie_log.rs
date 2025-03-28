@@ -41,7 +41,7 @@ fn basics() {
     let _root_hash2 = bonsai_storage.root_hash(&identifier).unwrap();
 
     // TODO: uncomment and fix this or remove it
-    // 
+    //
     // let id3 = id_builder.new_id();
     // let bitvec = BitVec::from_vec(pair1.0);
     // bonsai_storage.remove(&identifier, &bitvec).unwrap();

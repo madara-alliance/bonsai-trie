@@ -321,7 +321,7 @@ where
 
         /*
          * TODO: this would cover logs that are too old, I think, which is not covered now
-         * 
+         *
         // Make sure we are not trying to revert with an invalid id
         let Some(id_position) = kv
             .changes_store
@@ -341,7 +341,7 @@ where
 
         // If requested equals last recorded, do nothing
         if latest_id == revert_to_id {
-            return Ok(())
+            return Ok(());
         }
 
         if latest_id < revert_to_id {
@@ -362,13 +362,13 @@ where
          *     * skip(id_position) causes us to move forward until desired block found
          *     * rev() causes us to go to the end (should be the head of the blockchain)
          *     * take_while() now works backwards until we hit `id_position` again
-         * 
+         *
          * conclusion, assuming we want to work with raw integers:
          *     * height of blockchain should be known, we start here
          *     * walk backwards until requested_id.as_u64() is encountered
          *     * (some sanity checks before this would be appropriate, e.g. make sure the underlying data lets us go back that far)
          *       (may relate to `self.config.max_saved_trie_logs`)
-         * 
+         *
         // Accumulate changes from requested to last recorded
         let mut full = Vec::new();
         for id in kv
@@ -390,7 +390,7 @@ where
         */
 
         let mut full = Vec::new();
-        for id in (revert_to_id+1..=latest_id).rev() {
+        for id in (revert_to_id + 1..=latest_id).rev() {
             let id = ChangeID::from_u64(id);
 
             full.extend(
@@ -401,9 +401,9 @@ where
                 .0,
             );
 
-            kv.db.remove_by_prefix(&DatabaseKey::TrieLog(&id.to_bytes()))?;
+            kv.db
+                .remove_by_prefix(&DatabaseKey::TrieLog(&id.to_bytes()))?;
         }
-
 
         // Revert changes
         let mut batch = kv.db.create_batch();
