@@ -334,38 +334,31 @@ where
             )));
         }
 
-        let mut full = Vec::new();
+        let mut batch = kv.db.create_batch();
         for id in (revert_to_id + 1..=latest_id).rev() {
             let id = ChangeID::from_u64(id);
 
-            full.extend(
-                changes::ChangeBatch::deserialize(
-                    &id,
-                    kv.db.get_by_prefix(&DatabaseKey::TrieLog(&id.to_bytes()))?,
-                )
-                .0,
-            );
+            let changes = changes::ChangeBatch::deserialize(
+                &id,
+                kv.db.get_by_prefix(&DatabaseKey::TrieLog(&id.to_bytes()))?,
+            ).0;
 
             kv.db
                 .remove_by_prefix(&DatabaseKey::TrieLog(&id.to_bytes()))?;
-        }
 
-        // Revert changes
-        let mut batch = kv.db.create_batch();
-        for (key, change) in full.iter().rev() {
-            let key = DatabaseKey::from(key);
-            match (&change.old_value, &change.new_value) {
-                (Some(old_value), Some(_)) => {
-                    kv.db.insert(&key, old_value, Some(&mut batch))?;
-                }
-                (Some(old_value), None) => {
-                    kv.db.insert(&key, old_value, Some(&mut batch))?;
-                }
-                (None, Some(_)) => {
-                    kv.db.remove(&key, Some(&mut batch))?;
-                }
-                (None, None) => unreachable!(),
-            };
+            // Add revert changes to batch
+            for (key, change) in changes {
+                let key = DatabaseKey::from(&key);
+                match (&change.old_value, &change.new_value) {
+                    (Some(old_value), _) => {
+                        kv.db.insert(&key, old_value, Some(&mut batch))?;
+                    }
+                    (None, Some(_)) => {
+                        kv.db.remove(&key, Some(&mut batch))?;
+                    }
+                    (None, None) => unreachable!(),
+                };
+            }
         }
 
         kv.changes_store.latest_id = revert_to_id;
