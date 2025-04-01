@@ -319,23 +319,6 @@ where
         // Clear current changes
         kv.changes_store.current_changes.0.clear();
 
-        /*
-         * TODO: this would cover logs that are too old, I think, which is not covered now
-         *
-        // Make sure we are not trying to revert with an invalid id
-        let Some(id_position) = kv
-            .changes_store
-            .id_queue
-            .iter()
-            .position(|id| *id == requested_id)
-        else {
-            return Err(BonsaiStorageError::GoTo(format!(
-                "Requested id {:?} was removed or has not been recorded",
-                requested_id
-            )));
-        };
-        */
-
         let latest_id = kv.changes_store.latest_id;
         let revert_to_id = requested_id.as_u64();
 
@@ -350,44 +333,6 @@ where
                 requested_id
             )));
         }
-
-        /*
-         * analysis of change store leading up to now:
-         *     * it uses a VecDeque, basically a ring buffer
-         *     * `ChangeId`s are inserted as blocks fill, potentially causing the VecDeque to wrap
-         *     * now we want to revert to a particular id (`requested_id`, now converted to `id_position` via lookup above)
-         *
-         * analysis following algorithm:
-         *     * iter() starts from beginning (potentially with discarded blocks if VecDeque wrapped around)
-         *     * skip(id_position) causes us to move forward until desired block found
-         *     * rev() causes us to go to the end (should be the head of the blockchain)
-         *     * take_while() now works backwards until we hit `id_position` again
-         *
-         * conclusion, assuming we want to work with raw integers:
-         *     * height of blockchain should be known, we start here
-         *     * walk backwards until requested_id.as_u64() is encountered
-         *     * (some sanity checks before this would be appropriate, e.g. make sure the underlying data lets us go back that far)
-         *       (may relate to `self.config.max_saved_trie_logs`)
-         *
-        // Accumulate changes from requested to last recorded
-        let mut full = Vec::new();
-        for id in kv
-            .changes_store
-            .id_queue
-            .iter()
-            .skip(id_position)
-            .rev()
-            .take_while(|id| *id != &requested_id)
-        {
-            full.extend(
-                ChangeBatch::deserialize(
-                    id,
-                    kv.db.get_by_prefix(&DatabaseKey::TrieLog(&id.to_bytes()))?,
-                )
-                .0,
-            );
-        }
-        */
 
         let mut full = Vec::new();
         for id in (revert_to_id + 1..=latest_id).rev() {
@@ -422,20 +367,6 @@ where
                 (None, None) => unreachable!(),
             };
         }
-
-        /*
-         * TODO:
-         *
-        // Truncate trie logs at the requested id
-        let mut truncated = kv.changes_store.id_queue.split_off(id_position);
-        if let Some(current) = truncated.pop_front() {
-            kv.changes_store.id_queue.push_back(current);
-        }
-        for id in truncated.iter() {
-            kv.db
-                .remove_by_prefix(&DatabaseKey::TrieLog(&id.to_bytes()))?;
-        }
-        */
 
         kv.changes_store.latest_id = revert_to_id;
 
