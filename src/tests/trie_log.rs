@@ -58,6 +58,45 @@ fn basics() {
 }
 
 #[test]
+fn revert_across_value_change() {
+    let identifier = vec![];
+    let tempdir = tempfile::tempdir().unwrap();
+    let db = create_rocks_db(tempdir.path()).unwrap();
+    let config = BonsaiStorageConfig::default();
+    let mut bonsai_storage: BonsaiStorage<_, _, Pedersen> =
+        BonsaiStorage::new(RocksDB::new(&db, RocksDBConfig::default()), config, 24);
+    let mut id_builder = BasicIdBuilder::new();
+
+    let key = vec![1, 2, 1];
+
+    let pair1 = (
+        key.clone(),
+        &Felt::from_hex("0x00000000000000000000000000000000000001").unwrap(),
+    );
+    let id1 = id_builder.new_id();
+    let bitvec = BitVec::from_vec(pair1.0.clone());
+    bonsai_storage
+        .insert(&identifier, &bitvec, pair1.1)
+        .unwrap();
+    bonsai_storage.commit(id1).unwrap();
+    let root_hash1 = bonsai_storage.root_hash(&identifier).unwrap();
+
+    let id2 = id_builder.new_id();
+    let pair2 = (
+        key,
+        &Felt::from_hex("0x000000000000000000000000000000000011").unwrap(),
+    );
+    let bitvec = BitVec::from_vec(pair2.0.clone());
+    bonsai_storage
+        .insert(&identifier, &bitvec, pair2.1)
+        .unwrap();
+    bonsai_storage.commit(id2).unwrap();
+
+    bonsai_storage.revert_to(id1).unwrap();
+    assert_eq!(root_hash1, bonsai_storage.root_hash(&identifier).unwrap());
+}
+
+#[test]
 fn unrecorded_revert() {
     let identifier = vec![];
     let tempdir = tempfile::tempdir().unwrap();
