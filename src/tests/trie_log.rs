@@ -137,7 +137,6 @@ fn truncated_revert() {
         .insert(&identifier, &bitvec, pair2.1)
         .unwrap();
     bonsai_storage.commit(id2).unwrap();
-    let root_hash2 = bonsai_storage.root_hash(&identifier).unwrap();
 
     bonsai_storage.revert_to(id1).unwrap();
     let revert_root_hash1 = bonsai_storage.root_hash(&identifier).unwrap();
