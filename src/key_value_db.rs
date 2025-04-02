@@ -104,8 +104,6 @@ where
     }
 
     pub(crate) fn commit(&mut self, id: ID) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
-        self.changes_store.latest_id = id.as_u64();
-
         // Insert flat db changes
         let mut batch = self.db.create_batch();
         let current_changes = core::mem::take(&mut self.changes_store.current_changes);

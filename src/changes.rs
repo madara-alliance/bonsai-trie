@@ -117,14 +117,12 @@ pub fn key_new_value<ID: Id>(id: &ID, key: &TrieKey) -> ByteVec {
 #[derive(Debug)]
 pub struct ChangeStore {
     pub current_changes: ChangeBatch,
-    pub latest_id: u64, // TODO: make consistent with ID, derive from somewhere else?
 }
 
 impl ChangeStore {
     pub fn new() -> Self {
         Self {
             current_changes: ChangeBatch(HashMap::new()),
-            latest_id: 0u64,
         }
     }
 }

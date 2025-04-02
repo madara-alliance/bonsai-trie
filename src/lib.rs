@@ -364,8 +364,6 @@ where
             }
         }
 
-        kv.changes_store.latest_id = revert_to_id;
-
         // Write revert changes and trie logs truncation
         kv.db.write_batch(batch)?;
         Ok(())
