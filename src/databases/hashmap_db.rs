@@ -126,7 +126,10 @@ impl<ID: Id> BonsaiDatabase for HashMapDb<ID> {
 
 impl<ID: Id> BonsaiPersistentDatabase<ID> for HashMapDb<ID> {
     type DatabaseError = HashMapDbError;
-    type Transaction<'a> = HashMapDb<ID> where ID: 'a;
+    type Transaction<'a>
+        = HashMapDb<ID>
+    where
+        ID: 'a;
     fn snapshot(&mut self, id: ID) {
         self.snapshots.insert(id, self.clone());
     }

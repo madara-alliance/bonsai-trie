@@ -451,7 +451,10 @@ impl<'db, ID> BonsaiPersistentDatabase<ID> for RocksDB<'db, ID>
 where
     ID: Id,
 {
-    type Transaction<'a> = RocksDBTransaction<'a> where Self: 'a;
+    type Transaction<'a>
+        = RocksDBTransaction<'a>
+    where
+        Self: 'a;
     type DatabaseError = RocksDBError;
 
     fn snapshot(&mut self, id: ID) {

@@ -321,15 +321,21 @@ where
         kv.changes_store.current_changes.0.clear();
 
         let revert_to_id = requested_id.as_u64();
-        let latest_id= current_id.as_u64();
+        let latest_id = current_id.as_u64();
         let next_id = latest_id.saturating_add(1);
 
         // ensure that the id is the latest by checking for an id one higher
         // note that we don't use contains() because we have a prefix, not the full key
         let next_id = ChangeID::from_u64(next_id);
-        if let Ok(matches) = kv.db.get_by_prefix(&DatabaseKey::TrieLog(&next_id.to_bytes())) {
+        if let Ok(matches) = kv
+            .db
+            .get_by_prefix(&DatabaseKey::TrieLog(&next_id.to_bytes()))
+        {
             if matches.len() > 0 {
-                return Err(BonsaiStorageError::GoTo(format!("current_id ({}) is not the latest", latest_id)))
+                return Err(BonsaiStorageError::GoTo(format!(
+                    "current_id ({}) is not the latest",
+                    latest_id
+                )));
             }
         }
 
@@ -337,7 +343,9 @@ where
         if latest_id == revert_to_id {
             return Ok(());
         } else if latest_id < revert_to_id {
-            return Err(BonsaiStorageError::GoTo("current_id must be >= revert_to".to_string()));
+            return Err(BonsaiStorageError::GoTo(
+                "current_id must be >= revert_to".to_string(),
+            ));
         }
 
         let mut batch = kv.db.create_batch();
@@ -347,7 +355,8 @@ where
             let changes = changes::ChangeBatch::deserialize(
                 &id,
                 kv.db.get_by_prefix(&DatabaseKey::TrieLog(&id.to_bytes()))?,
-            ).0;
+            )
+            .0;
 
             kv.db
                 .remove_by_prefix(&DatabaseKey::TrieLog(&id.to_bytes()))?;
