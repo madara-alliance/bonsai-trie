@@ -311,6 +311,7 @@ where
     pub fn revert_to(
         &mut self,
         requested_id: ChangeID,
+        current_id: ChangeID,
     ) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
         self.tries.reset_to_last_commit()?;
 
@@ -319,19 +320,21 @@ where
         // Clear current changes
         kv.changes_store.current_changes.0.clear();
 
-        let latest_id = kv.changes_store.latest_id;
         let revert_to_id = requested_id.as_u64();
+        let latest_id= current_id.as_u64();
+
+        // ensure that the id is the latest by checking for an id one higher
+        // note that we don't use contains() because we have a prefix, not the full key
+        let next_id = ChangeID::from_u64(latest_id.saturating_add(1));
+        if let Ok(_) = kv.db.get_by_prefix(&DatabaseKey::TrieLog(&next_id.to_bytes())) {
+            return Err(BonsaiStorageError::GoTo(format!("current_id ({}) is not the latest", latest_id)))
+        }
 
         // If requested equals last recorded, do nothing
         if latest_id == revert_to_id {
             return Ok(());
-        }
-
-        if latest_id < revert_to_id {
-            return Err(BonsaiStorageError::GoTo(format!(
-                "Requested id {:?} was removed or has not been recorded",
-                requested_id
-            )));
+        } else if latest_id < revert_to_id {
+            return Err(BonsaiStorageError::GoTo("current_id must be >= revert_to".to_string()));
         }
 
         let mut batch = kv.db.create_batch();
