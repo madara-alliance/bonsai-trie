@@ -322,12 +322,15 @@ where
 
         let revert_to_id = requested_id.as_u64();
         let latest_id= current_id.as_u64();
+        let next_id = latest_id.saturating_add(1);
 
         // ensure that the id is the latest by checking for an id one higher
         // note that we don't use contains() because we have a prefix, not the full key
-        let next_id = ChangeID::from_u64(latest_id.saturating_add(1));
-        if let Ok(_) = kv.db.get_by_prefix(&DatabaseKey::TrieLog(&next_id.to_bytes())) {
-            return Err(BonsaiStorageError::GoTo(format!("current_id ({}) is not the latest", latest_id)))
+        let next_id = ChangeID::from_u64(next_id);
+        if let Ok(matches) = kv.db.get_by_prefix(&DatabaseKey::TrieLog(&next_id.to_bytes())) {
+            if matches.len() > 0 {
+                return Err(BonsaiStorageError::GoTo(format!("current_id ({}) is not the latest", latest_id)))
+            }
         }
 
         // If requested equals last recorded, do nothing
