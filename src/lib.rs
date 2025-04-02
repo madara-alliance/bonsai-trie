@@ -331,7 +331,7 @@ where
             .db
             .get_by_prefix(&DatabaseKey::TrieLog(&next_id.to_bytes()))
         {
-            if matches.len() > 0 {
+            if !matches.is_empty() {
                 return Err(BonsaiStorageError::GoTo(format!(
                     "current_id ({}) is not the latest",
                     latest_id
