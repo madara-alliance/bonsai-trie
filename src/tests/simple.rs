@@ -450,43 +450,55 @@ fn get_changes() {
     let mut bonsai_storage: BonsaiStorage<_, _, Pedersen> =
         BonsaiStorage::new(RocksDB::new(&db, RocksDBConfig::default()), config, 24);
     let mut id_builder = BasicIdBuilder::new();
-    let pair1 = (vec![1, 2, 1], Felt::from_hex("0x01").unwrap());
-    let bitvec = BitVec::from_vec(pair1.0.clone());
+
+    let key1 = vec![1, 2, 1];
+    let key2 = vec![1, 2, 2];
+
+    // insert a value at key1 and commit it
+    let bitvec = BitVec::from_vec(key1.clone());
     bonsai_storage
-        .insert(&identifier, &bitvec, &pair1.1)
+        .insert(&identifier, &bitvec, &Felt::ONE)
         .unwrap();
     bonsai_storage.commit(id_builder.new_id()).unwrap();
-    let pair2 = (vec![1, 2, 2], Felt::from_hex("0x01").unwrap());
-    let bitvec = BitVec::from_vec(pair2.0.clone());
+
+    // insert a value at key2
+    let bitvec = BitVec::from_vec(key2.clone());
     bonsai_storage
-        .insert(&identifier, &bitvec, &pair2.1)
+        .insert(&identifier, &bitvec, &Felt::ONE)
         .unwrap();
-    let pair1_edited_1 = (vec![1, 2, 1], Felt::from_hex("0x02").unwrap());
-    let bitvec = BitVec::from_vec(pair1_edited_1.0.clone());
+
+    // edit key1 twice and then commit it
+    let bitvec = BitVec::from_vec(key1.clone());
     bonsai_storage
-        .insert(&identifier, &bitvec, &pair1_edited_1.1)
+        .insert(&identifier, &bitvec, &Felt::TWO)
         .unwrap();
-    let pair1_edited_2 = (vec![1, 2, 1], Felt::from_hex("0x03").unwrap());
+
+    // edit a second time (with the same values)
+    let pair1_edited_2 = (key1.clone(), Felt::TWO);
     let bitvec = BitVec::from_vec(pair1_edited_2.0.clone());
     bonsai_storage
         .insert(&identifier, &bitvec, &pair1_edited_2.1)
         .unwrap();
     let id = id_builder.new_id();
     bonsai_storage.commit(id).unwrap();
+
+    // ensure that we have the two changes:
+    //     * a single one for the twe edits of key1
+    //     * a single one for the insert of key2
     let changes = bonsai_storage.get_changes(id).unwrap();
     assert_eq!(changes.len(), 2);
     assert_eq!(
-        changes.get(&BitVec::from_vec(pair1.0)).unwrap(),
+        changes.get(&BitVec::from_vec(key1.clone())).unwrap(),
         &Change {
-            old_value: Some(pair1.1),
+            old_value: Some(Felt::ONE),
             new_value: Some(pair1_edited_2.1),
         }
     );
     assert_eq!(
-        changes.get(&BitVec::from_vec(pair2.0)).unwrap(),
+        changes.get(&BitVec::from_vec(key2)).unwrap(),
         &Change {
             old_value: None,
-            new_value: Some(pair2.1),
+            new_value: Some(Felt::ONE),
         }
     );
 }
