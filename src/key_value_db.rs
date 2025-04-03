@@ -90,12 +90,23 @@ where
         );
         for (k, v) in changes.0 {
             if let TrieKey::Flat(k) = k {
+                // Note on safety of expect():
+                // We are sure that the values are valid Felt because they can be saved only by our crate
+                let old_value = v.old_value.map(|x| {
+                    Felt::decode(&mut x.as_ref()).expect(
+                        "We saved this Felt ('old_value') so we should be able to decode it",
+                    )
+                });
+                let new_value = v.new_value.map(|x| {
+                    Felt::decode(&mut x.as_ref()).expect(
+                        "We saved this Felt ('new_value') so we should be able to decode it",
+                    )
+                });
                 leaf_changes.insert(
                     bytes_to_bitvec(&k),
                     ExternChange {
-                        // SAFETY: We are sure that the values are valid Felt because they can be saved only by our crate
-                        old_value: v.old_value.map(|x| Felt::decode(&mut x.as_ref()).unwrap()),
-                        new_value: v.new_value.map(|x| Felt::decode(&mut x.as_ref()).unwrap()),
+                        old_value,
+                        new_value,
                     },
                 );
             }
