@@ -317,15 +317,42 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
 
         self.root_node = None; // unloaded
 
-        for (key, value) in mem::take(&mut self.cache_leaf_modified) {
-            updates.insert(
-                TrieKey::new(&self.identifier, TrieKeyType::Flat, &key),
-                match value {
-                    InsertOrRemove::Insert(value) => InsertOrRemove::Insert(value.encode_bytevec()),
-                    InsertOrRemove::Remove => InsertOrRemove::Remove,
-                },
-            );
+        // Process leaf cache - parallel when std feature is enabled
+        #[cfg(feature = "std")]
+        {
+            use rayon::prelude::*;
+            let leaf_updates: Vec<_> = mem::take(&mut self.cache_leaf_modified)
+                .into_par_iter()
+                .map(|(key, value)| {
+                    (
+                        TrieKey::new(&self.identifier, TrieKeyType::Flat, &key),
+                        match value {
+                            InsertOrRemove::Insert(value) => {
+                                InsertOrRemove::Insert(value.encode_bytevec())
+                            }
+                            InsertOrRemove::Remove => InsertOrRemove::Remove,
+                        },
+                    )
+                })
+                .collect();
+            updates.extend(leaf_updates);
         }
+
+        #[cfg(not(feature = "std"))]
+        {
+            for (key, value) in mem::take(&mut self.cache_leaf_modified) {
+                updates.insert(
+                    TrieKey::new(&self.identifier, TrieKeyType::Flat, &key),
+                    match value {
+                        InsertOrRemove::Insert(value) => {
+                            InsertOrRemove::Insert(value.encode_bytevec())
+                        }
+                        InsertOrRemove::Remove => InsertOrRemove::Remove,
+                    },
+                );
+            }
+        }
+
         #[cfg(test)]
         self.assert_empty(); // we should have visited the whole tree
 
@@ -497,6 +524,102 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
     /// # Panics
     ///
     /// Panics if the precomputed `hashes` do not match the length of the modified subtree.
+    #[cfg(feature = "std")]
+    fn commit_subtree<DB: BonsaiDatabase>(
+        &mut self,
+        updates: &mut HashMap<TrieKey, InsertOrRemove<ByteVec>>,
+        node_id: NodeKey,
+        path: Path,
+        hashes: &mut impl Iterator<Item = Felt>,
+    ) -> Result<Felt, BonsaiStorageError<DB::DatabaseError>> {
+        use rayon::prelude::*;
+
+        // Phase 1: Collect all nodes with their paths and hashes (sequential traversal)
+        let mut nodes_to_serialize: Vec<(ByteVec, Node)> = Vec::new();
+        let root_hash =
+            self.collect_nodes_for_commit::<DB>(node_id, path, hashes, &mut nodes_to_serialize)?;
+
+        // Phase 2: Serialize nodes in parallel
+        let serialized: Vec<_> = nodes_to_serialize
+            .into_par_iter()
+            .map(|(key_bytes, node)| {
+                let trie_key = TrieKey::new(&self.identifier, TrieKeyType::Trie, &key_bytes);
+                (trie_key, InsertOrRemove::Insert(node.encode_bytevec()))
+            })
+            .collect();
+
+        updates.extend(serialized);
+        Ok(root_hash)
+    }
+
+    /// Helper function to collect nodes during tree traversal.
+    /// This separates the sequential traversal from the parallel serialization.
+    #[cfg(feature = "std")]
+    fn collect_nodes_for_commit<DB: BonsaiDatabase>(
+        &mut self,
+        node_id: NodeKey,
+        path: Path,
+        hashes: &mut impl Iterator<Item = Felt>,
+        nodes_to_serialize: &mut Vec<(ByteVec, Node)>,
+    ) -> Result<Felt, BonsaiStorageError<DB::DatabaseError>> {
+        match self.nodes.remove(node_id).ok_or(BonsaiStorageError::Trie(
+            "Couldn't fetch node in the temporary storage".to_string(),
+        ))? {
+            Node::Binary(mut binary) => {
+                let left_path = path.new_with_direction(Direction::Left);
+                let left_hash = match binary.left {
+                    NodeHandle::Hash(left_hash) => left_hash,
+                    NodeHandle::InMemory(node_id) => self.collect_nodes_for_commit::<DB>(
+                        node_id,
+                        left_path,
+                        hashes,
+                        nodes_to_serialize,
+                    )?,
+                };
+                let right_path = path.new_with_direction(Direction::Right);
+                let right_hash = match binary.right {
+                    NodeHandle::Hash(right_hash) => right_hash,
+                    NodeHandle::InMemory(node_id) => self.collect_nodes_for_commit::<DB>(
+                        node_id,
+                        right_path,
+                        hashes,
+                        nodes_to_serialize,
+                    )?,
+                };
+
+                let hash = hashes.next().expect("mismatched hash state");
+
+                binary.hash = Some(hash);
+                binary.left = NodeHandle::Hash(left_hash);
+                binary.right = NodeHandle::Hash(right_hash);
+                let key_bytes: ByteVec = path.into();
+                nodes_to_serialize.push((key_bytes, Node::Binary(binary)));
+                Ok(hash)
+            }
+            Node::Edge(mut edge) => {
+                let mut child_path = path.clone();
+                child_path.0.extend(&edge.path.0);
+                let child_hash = match edge.child {
+                    NodeHandle::Hash(right_hash) => right_hash,
+                    NodeHandle::InMemory(node_id) => self.collect_nodes_for_commit::<DB>(
+                        node_id,
+                        child_path,
+                        hashes,
+                        nodes_to_serialize,
+                    )?,
+                };
+                let hash = hashes.next().expect("mismatched hash state");
+                edge.hash = Some(hash);
+                edge.child = NodeHandle::Hash(child_hash);
+                let key_bytes: ByteVec = path.into();
+                nodes_to_serialize.push((key_bytes, Node::Edge(edge)));
+                Ok(hash)
+            }
+        }
+    }
+
+    /// Non-std version: sequential commit_subtree
+    #[cfg(not(feature = "std"))]
     fn commit_subtree<DB: BonsaiDatabase>(
         &mut self,
         updates: &mut HashMap<TrieKey, InsertOrRemove<ByteVec>>,
