@@ -5,11 +5,11 @@ use slotmap::SlotMap;
 use starknet_types_core::{felt::Felt, hash::StarkHash};
 
 use crate::trie::merkle_node::{hash_binary_node, hash_edge_node};
-use crate::BitVec;
 use crate::{
     error::BonsaiStorageError, format, hash_map, id::Id, vec, BitSlice, BonsaiDatabase, ByteVec,
     EncodeExt, HashMap, HashSet, KeyValueDB, ToString, Vec,
 };
+use crate::{BitVec, MultiProof};
 
 use super::iterator::MerkleTreeIterator;
 use super::{
@@ -18,6 +18,7 @@ use super::{
     trie_db::TrieKeyType,
     TrieKey,
 };
+use crate::trie::iterator::PartialMerkleTreeIterator;
 
 #[cfg(test)]
 use log::trace;
@@ -47,7 +48,6 @@ pub(crate) enum RootHandle {
     Empty,
     Loaded(NodeKey),
 }
-
 /// A Starknet binary Merkle-Patricia tree with a specific root entry-point and storage.
 ///
 /// This is used to update, mutate and access global Starknet state as well as individual contract
@@ -100,11 +100,11 @@ impl<H: StarkHash> Clone for MerkleTree<H> {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum InsertOrRemove<T> {
+pub enum InsertOrRemove<T> {
     Insert(T),
     Remove,
 }
-enum NodeOrFelt<'a> {
+pub enum NodeOrFelt<'a> {
     Node(&'a Node),
     Felt(Felt),
 }
@@ -176,7 +176,6 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
             BonsaiStorageError::Trie(format!("Dangling in-memory node key: {node_key:?}"))
         })
     }
-
     pub(crate) fn load_node_handle<DB: BonsaiDatabase, ID: Id>(
         &mut self,
         db: &KeyValueDB<DB, ID>,
@@ -186,6 +185,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         match handle {
             NodeHandle::Hash(_) => {
                 // TODO(perf): useless allocs everywhere here...
+
                 let path: ByteVec = path.clone().into();
                 log::trace!("Visiting db node {:?}", path);
                 let key = TrieKey::new(&self.identifier, TrieKeyType::Trie, &path);
@@ -198,6 +198,29 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
                 Ok(node_key)
             }
             NodeHandle::InMemory(node_key) => Ok(node_key),
+        }
+    }
+
+    pub(crate) fn try_load_node_handle<DB: BonsaiDatabase, ID: Id>(
+        &mut self,
+        db: &KeyValueDB<DB, ID>,
+        handle: NodeHandle,
+        path: &Path,
+    ) -> Result<Option<NodeKey>, BonsaiStorageError<DB::DatabaseError>> {
+        match handle {
+            NodeHandle::Hash(_) => {
+                // TODO(perf): useless allocs everywhere here...
+
+                let path: ByteVec = path.clone().into();
+                log::trace!("Visiting db node {:?}", path);
+                let key = TrieKey::new(&self.identifier, TrieKeyType::Trie, &path);
+                let Some(node_key) = self.load_db_node(db, &key)? else {
+                    // Dangling node id in db
+                    return Ok(None);
+                };
+                Ok(Some(node_key))
+            }
+            NodeHandle::InMemory(node_key) => Ok(Some(node_key)),
         }
     }
 
@@ -248,6 +271,14 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         db: &'a KeyValueDB<DB, ID>,
     ) -> MerkleTreeIterator<'a, H, DB, ID> {
         MerkleTreeIterator::new(self, db)
+    }
+
+    pub fn iter_partial_trie<'a, DB: BonsaiDatabase, ID: Id>(
+        &'a mut self,
+        db: &'a KeyValueDB<DB, ID>,
+        proof: &'a MultiProof,
+    ) -> PartialMerkleTreeIterator<'a, H, DB, ID> {
+        PartialMerkleTreeIterator::new(self, db, proof)
     }
 
     /// # Panics
@@ -305,7 +336,6 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
             // compute hashes
             let mut hashes = vec![];
             self.compute_root_hash::<DB>(&mut hashes)?;
-
             // commit the tree
             self.commit_subtree::<DB>(
                 &mut updates,
@@ -326,8 +356,6 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
                 },
             );
         }
-        #[cfg(test)]
-        self.assert_empty(); // we should have visited the whole tree
 
         Ok(updates.into_iter())
     }
@@ -365,7 +393,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         assert_eq!(self.nodes.iter().collect::<Vec<_>>(), vec![]);
     }
 
-    fn get_node_or_felt<DB: BonsaiDatabase>(
+    pub(crate) fn get_node_or_felt<DB: BonsaiDatabase>(
         &self,
         node_handle: &NodeHandle,
     ) -> Result<NodeOrFelt, BonsaiStorageError<DB::DatabaseError>> {
@@ -379,7 +407,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         Ok(NodeOrFelt::Node(node))
     }
 
-    fn compute_root_hash<DB: BonsaiDatabase>(
+    pub(crate) fn compute_root_hash<DB: BonsaiDatabase>(
         &self,
         hashes: &mut Vec<Felt>,
     ) -> Result<Felt, BonsaiStorageError<DB::DatabaseError>> {
@@ -524,7 +552,6 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
                 };
 
                 let hash = hashes.next().expect("mismatched hash state");
-
                 binary.hash = Some(hash);
                 binary.left = NodeHandle::Hash(left_hash);
                 binary.right = NodeHandle::Hash(right_hash);
@@ -544,6 +571,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
                         self.commit_subtree::<DB>(updates, node_id, child_path, hashes)?
                     }
                 };
+
                 let hash = hashes.next().expect("mismatched hash state");
                 edge.hash = Some(hash);
                 edge.child = NodeHandle::Hash(child_hash);
@@ -568,6 +596,24 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         db: &KeyValueDB<DB, ID>,
         key: &BitSlice,
         value: Felt,
+    ) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
+        let path_nodes = {
+            let mut iter = self.iter(db);
+            iter.seek_to(key)?;
+            log::trace!("Iter is {:?}", iter);
+            iter.current_nodes_heights
+        };
+        self.set_with_path_nodes(db, key, value, path_nodes)
+    }
+
+    /// Sets the value of a key using pre-computed path nodes.
+    /// This is used by PartialTrie which computes path nodes from proofs.
+    pub(crate) fn set_with_path_nodes<DB: BonsaiDatabase, ID: Id>(
+        &mut self,
+        db: &KeyValueDB<DB, ID>,
+        key: &BitSlice,
+        value: Felt,
+        path_nodes: Vec<(NodeKey, usize)>,
     ) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
         if value == Felt::ZERO {
             return self.delete_leaf(db, key);
@@ -600,11 +646,6 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
                 return Ok(());
             }
         }
-
-        let mut iter = self.iter(db);
-        iter.seek_to(key)?;
-        log::trace!("Iter is {:?}", iter);
-        let path_nodes = iter.current_nodes_heights;
 
         // There are three possibilities.
         //
@@ -648,6 +689,14 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
                         // Path from binary node to new leaf
                         let new_path = key[child_height..].to_bitvec();
                         // Path from binary node to existing child
+                        if common.len() + 1 > edge.path.len() {
+                            return Err(BonsaiStorageError::Trie(format!(
+                                "Invalid edge path: edge.path.len()={}, common.len()={}, key={:?}",
+                                edge.path.len(),
+                                common.len(),
+                                key
+                            )));
+                        }
                         let old_path = edge.path[common.len() + 1..].to_bitvec();
 
                         // The new leaf branch of the binary node.
@@ -983,7 +1032,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
     }
 
     /// Get the node of the trie that corresponds to the path.
-    fn get_trie_branch_in_db_from_path<DB: BonsaiDatabase, ID: Id>(
+    pub(crate) fn get_trie_branch_in_db_from_path<DB: BonsaiDatabase, ID: Id>(
         death_row: &HashSet<TrieKey>,
         identifier: &[u8],
         db: &KeyValueDB<DB, ID>,

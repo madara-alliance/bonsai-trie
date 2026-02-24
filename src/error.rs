@@ -11,6 +11,8 @@ where
 {
     /// Error from the underlying trie.
     Trie(String),
+    /// Error from the underlying partial trie.
+    PartialTrie(String),
     /// Error when trying to go to a specific commit ID.
     GoTo(String),
     /// Error when working with a transactional state.
@@ -49,6 +51,7 @@ where
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             BonsaiStorageError::Trie(e) => write!(f, "Trie error: {}", e),
+            BonsaiStorageError::PartialTrie(e) => write!(f, "PartialTrie error: {}", e),
             BonsaiStorageError::GoTo(e) => write!(f, "GoTo error: {}", e),
             BonsaiStorageError::Transaction(e) => write!(f, "Transaction error: {}", e),
             BonsaiStorageError::Merge(e) => write!(f, "Merge error: {}", e),

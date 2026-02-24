@@ -3,7 +3,7 @@ use crate::{bonsai_database::DatabaseKey, ByteVec};
 /// Key in the database of the different elements that are used in the storage of the trie data.
 /// Use `new` function to create a new key.
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub(crate) enum TrieKey {
+pub enum TrieKey {
     Trie(ByteVec),
     Flat(ByteVec),
 }
