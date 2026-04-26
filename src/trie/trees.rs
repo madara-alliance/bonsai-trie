@@ -131,6 +131,19 @@ impl<H: StarkHash + Send + Sync, DB: BonsaiDatabase, CommitID: Id> MerkleTrees<H
         }
     }
 
+    /// Compute root hash from staged (uncommitted) changes. Falls back to the
+    /// committed root when the identified tree has no pending modifications.
+    pub(crate) fn root_hash_staged(
+        &self,
+        identifier: &[u8],
+    ) -> Result<Felt, BonsaiStorageError<DB::DatabaseError>> {
+        if let Some(tree) = self.trees.get(identifier) {
+            tree.root_hash_staged(&self.db)
+        } else {
+            MerkleTree::<H>::new(identifier.into(), self.max_height).root_hash(&self.db)
+        }
+    }
+
     pub(crate) fn get_keys(
         &self,
         identifier: &[u8],

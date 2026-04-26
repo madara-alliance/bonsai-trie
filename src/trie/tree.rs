@@ -379,6 +379,23 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         Ok(NodeOrFelt::Node(node))
     }
 
+    /// Compute the root hash from staged (uncommitted) in-memory changes without
+    /// persisting anything. If no staged changes exist, falls back to reading the
+    /// committed root from the database.
+    pub(crate) fn root_hash_staged<DB: BonsaiDatabase, ID: Id>(
+        &self,
+        db: &KeyValueDB<DB, ID>,
+    ) -> Result<Felt, BonsaiStorageError<DB::DatabaseError>> {
+        match &self.root_node {
+            Some(RootHandle::Loaded(_)) => {
+                let mut hashes = vec![];
+                self.compute_root_hash::<DB>(&mut hashes)
+            }
+            Some(RootHandle::Empty) => Ok(Felt::ZERO),
+            None => self.root_hash(db),
+        }
+    }
+
     fn compute_root_hash<DB: BonsaiDatabase>(
         &self,
         hashes: &mut Vec<Felt>,

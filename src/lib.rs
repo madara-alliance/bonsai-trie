@@ -409,6 +409,15 @@ where
         self.tries.root_hash(identifier)
     }
 
+    /// Compute trie root hash from staged (uncommitted) changes without persisting.
+    /// Falls back to the committed root when there are no pending modifications.
+    pub fn root_hash_staged(
+        &self,
+        identifier: &[u8],
+    ) -> Result<BonsaiTrieHash, BonsaiStorageError<DB::DatabaseError>> {
+        self.tries.root_hash_staged(identifier)
+    }
+
     /// This function must be used with transactional state only.
     /// Similar to `commit` but without optimizations.
     pub fn transactional_commit(
