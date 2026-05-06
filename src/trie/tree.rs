@@ -11,7 +11,7 @@ use crate::{
     EncodeExt, HashMap, HashSet, KeyValueDB, ToString, Vec,
 };
 
-use super::iterator::MerkleTreeIterator;
+use super::iterator::{MerkleTreeIterator, NodeVisitor};
 use super::{
     merkle_node::{BinaryNode, Direction, EdgeNode, Node, NodeHandle},
     path::Path,
@@ -48,6 +48,84 @@ pub(crate) enum RootHandle {
     Loaded(NodeKey),
 }
 
+#[derive(Debug, Default, Clone, Copy)]
+struct TreePerfStats {
+    db_node_loads: usize,
+    in_memory_node_hits: usize,
+}
+
+#[derive(Debug)]
+struct StagedHashComputation {
+    root_hash: Felt,
+    hashes: Vec<Felt>,
+}
+
+#[cfg(feature = "std")]
+#[derive(Default)]
+struct StagedHashCacheCell(std::sync::Mutex<Option<StagedHashComputation>>);
+
+#[cfg(feature = "std")]
+impl fmt::Debug for StagedHashCacheCell {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let has_cached_hashes = self.0.lock().map(|cache| cache.is_some()).unwrap_or(false);
+        f.debug_struct("StagedHashCacheCell")
+            .field("has_cached_hashes", &has_cached_hashes)
+            .finish()
+    }
+}
+
+#[cfg(feature = "std")]
+impl Clone for StagedHashCacheCell {
+    fn clone(&self) -> Self {
+        Self::default()
+    }
+}
+
+#[cfg(feature = "std")]
+impl StagedHashCacheCell {
+    fn clear(&self) {
+        if let Ok(mut cache) = self.0.lock() {
+            *cache = None;
+        }
+    }
+
+    fn cached_root_hash(&self) -> Option<Felt> {
+        self.0
+            .lock()
+            .ok()
+            .and_then(|cache| cache.as_ref().map(|cached| cached.root_hash))
+    }
+
+    fn store(&self, computation: StagedHashComputation) {
+        if let Ok(mut cache) = self.0.lock() {
+            *cache = Some(computation);
+        }
+    }
+
+    fn take(&self) -> Option<StagedHashComputation> {
+        self.0.lock().ok().and_then(|mut cache| cache.take())
+    }
+}
+
+#[cfg(not(feature = "std"))]
+#[derive(Default, Debug, Clone)]
+struct StagedHashCacheCell;
+
+#[cfg(not(feature = "std"))]
+impl StagedHashCacheCell {
+    fn clear(&self) {}
+
+    fn cached_root_hash(&self) -> Option<Felt> {
+        None
+    }
+
+    fn store(&self, _computation: StagedHashComputation) {}
+
+    fn take(&self) -> Option<StagedHashComputation> {
+        None
+    }
+}
+
 /// A Starknet binary Merkle-Patricia tree with a specific root entry-point and storage.
 ///
 /// This is used to update, mutate and access global Starknet state as well as individual contract
@@ -65,6 +143,12 @@ pub struct MerkleTree<H: StarkHash> {
     pub(crate) death_row: HashSet<TrieKey>,
     /// The list of leaves that have been modified during the current commit.
     pub(crate) cache_leaf_modified: HashMap<ByteVec, InsertOrRemove<Felt>>,
+    /// Whether this tree has staged mutations that are not yet committed.
+    dirty: bool,
+    /// Cached staged root computation so commit can reuse the exact same hash walk.
+    staged_hashes: StagedHashCacheCell,
+    /// Per-block load counters to show whether the frontier stayed hot.
+    perf_stats: TreePerfStats,
     /// The maximum height of the tree. This is an u8 because we may rely on the fact that it's less than 256 in the future for optimizations.
     pub(crate) max_height: u8,
     /// The hasher used to hash the nodes.
@@ -79,6 +163,9 @@ impl<H: StarkHash> fmt::Debug for MerkleTree<H> {
             .field("identifier", &self.identifier)
             .field("death_row", &self.death_row)
             .field("cache_leaf_modified", &self.cache_leaf_modified)
+            .field("dirty", &self.dirty)
+            .field("staged_hashes", &self.staged_hashes)
+            .field("perf_stats", &self.perf_stats)
             .finish()
     }
 }
@@ -94,6 +181,9 @@ impl<H: StarkHash> Clone for MerkleTree<H> {
             identifier: self.identifier.clone(),
             death_row: self.death_row.clone(),
             cache_leaf_modified: self.cache_leaf_modified.clone(),
+            dirty: self.dirty,
+            staged_hashes: self.staged_hashes.clone(),
+            perf_stats: self.perf_stats,
             _hasher: PhantomData,
         }
     }
@@ -109,6 +199,23 @@ enum NodeOrFelt<'a> {
     Felt(Felt),
 }
 
+struct InvalidateHashesVisitor<H>(PhantomData<H>);
+
+impl<H: StarkHash + Send + Sync> NodeVisitor<H> for InvalidateHashesVisitor<H> {
+    fn visit_node<DB: BonsaiDatabase>(
+        &mut self,
+        tree: &mut MerkleTree<H>,
+        node_id: NodeKey,
+        _prev_height: usize,
+    ) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
+        match tree.get_node_mut::<DB>(node_id)? {
+            Node::Binary(binary_node) => binary_node.hash = None,
+            Node::Edge(edge_node) => edge_node.hash = None,
+        }
+        Ok(())
+    }
+}
+
 impl<H: StarkHash + Send + Sync> MerkleTree<H> {
     pub fn new(identifier: ByteVec, max_height: u8) -> Self {
         Self {
@@ -117,9 +224,17 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
             identifier,
             death_row: HashSet::new(),
             cache_leaf_modified: HashMap::new(),
+            dirty: false,
+            staged_hashes: Default::default(),
+            perf_stats: Default::default(),
             max_height,
             _hasher: PhantomData,
         }
+    }
+
+    fn mark_dirty(&mut self) {
+        self.dirty = true;
+        self.staged_hashes.clear();
     }
 
     /// Loads the root node or returns None if the tree is empty.
@@ -161,6 +276,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         }
         let node = db.get(key)?;
         let Some(node) = node else { return Ok(None) };
+        self.perf_stats.db_node_loads += 1;
 
         let node = Node::decode(&mut node.as_slice())?;
         let key = self.nodes.insert(node);
@@ -197,7 +313,10 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
                 };
                 Ok(node_key)
             }
-            NodeHandle::InMemory(node_key) => Ok(node_key),
+            NodeHandle::InMemory(node_key) => {
+                self.perf_stats.in_memory_node_hits += 1;
+                Ok(node_key)
+            }
         }
     }
 
@@ -292,30 +411,37 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
     #[allow(clippy::type_complexity)]
     pub(crate) fn get_updates<DB: BonsaiDatabase>(
         &mut self,
-    ) -> Result<
-        impl Iterator<Item = (TrieKey, InsertOrRemove<ByteVec>)>,
-        BonsaiStorageError<DB::DatabaseError>,
-    > {
+    ) -> Result<HashMap<TrieKey, InsertOrRemove<ByteVec>>, BonsaiStorageError<DB::DatabaseError>> {
+        let dirty_before_commit = self.dirty;
         let mut updates = HashMap::new();
         for node_key in mem::take(&mut self.death_row) {
             updates.insert(node_key, InsertOrRemove::Remove);
         }
 
-        if let Some(RootHandle::Loaded(node_id)) = &self.root_node {
-            // compute hashes
-            let mut hashes = vec![];
-            self.compute_root_hash::<DB>(&mut hashes)?;
+        let mut used_staged_hash_cache = false;
+        let mut precomputed_hashes = 0usize;
+        if self.dirty {
+            if let Some(RootHandle::Loaded(node_id)) = self.root_node {
+                let hashes = if let Some(staged) = self.staged_hashes.take() {
+                    used_staged_hash_cache = true;
+                    precomputed_hashes = staged.hashes.len();
+                    staged.hashes
+                } else {
+                    let mut hashes = vec![];
+                    self.compute_root_hash::<DB>(&mut hashes)?;
+                    precomputed_hashes = hashes.len();
+                    hashes
+                };
 
-            // commit the tree
-            self.commit_subtree::<DB>(
-                &mut updates,
-                *node_id,
-                Path::default(),
-                &mut hashes.into_iter(),
-            )?;
+                self.commit_subtree_cached::<DB>(
+                    &mut updates,
+                    node_id,
+                    Path::default(),
+                    &mut hashes.into_iter(),
+                )?;
+            }
+            self.dirty = false;
         }
-
-        self.root_node = None; // unloaded
 
         for (key, value) in mem::take(&mut self.cache_leaf_modified) {
             updates.insert(
@@ -326,10 +452,22 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
                 },
             );
         }
-        #[cfg(test)]
-        self.assert_empty(); // we should have visited the whole tree
+        log::debug!(
+            "bonsai commit identifier={:?} dirty_before_commit={} used_staged_hash_cache={} precomputed_hashes={} db_node_loads={} in_memory_node_hits={} retained_nodes={} root_loaded={} flat_changes={} trie_updates={}",
+            self.identifier,
+            dirty_before_commit,
+            used_staged_hash_cache,
+            precomputed_hashes,
+            self.perf_stats.db_node_loads,
+            self.perf_stats.in_memory_node_hits,
+            self.nodes.len(),
+            matches!(self.root_node, Some(RootHandle::Loaded(_))),
+            updates.keys().filter(|key| matches!(key, TrieKey::Flat(_))).count(),
+            updates.keys().filter(|key| matches!(key, TrieKey::Trie(_))).count(),
+        );
+        self.perf_stats = Default::default();
 
-        Ok(updates.into_iter())
+        Ok(updates)
     }
 
     // Commit a single merkle tree
@@ -386,10 +524,33 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         &self,
         db: &KeyValueDB<DB, ID>,
     ) -> Result<Felt, BonsaiStorageError<DB::DatabaseError>> {
+        if !self.dirty {
+            return self.root_hash(db);
+        }
+
+        if let Some(root_hash) = self.staged_hashes.cached_root_hash() {
+            log::debug!(
+                "bonsai staged root cache hit identifier={:?} retained_nodes={}",
+                self.identifier,
+                self.nodes.len(),
+            );
+            return Ok(root_hash);
+        }
+
         match &self.root_node {
             Some(RootHandle::Loaded(_)) => {
                 let mut hashes = vec![];
-                self.compute_root_hash::<DB>(&mut hashes)
+                let root_hash = self.compute_root_hash::<DB>(&mut hashes)?;
+                log::debug!(
+                    "bonsai staged root computed identifier={:?} precomputed_hashes={} retained_nodes={} db_node_loads={} in_memory_node_hits={}",
+                    self.identifier,
+                    hashes.len(),
+                    self.nodes.len(),
+                    self.perf_stats.db_node_loads,
+                    self.perf_stats.in_memory_node_hits,
+                );
+                self.staged_hashes.store(StagedHashComputation { root_hash, hashes });
+                Ok(root_hash)
             }
             Some(RootHandle::Empty) => Ok(Felt::ZERO),
             None => self.root_hash(db),
@@ -514,60 +675,73 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
     /// # Panics
     ///
     /// Panics if the precomputed `hashes` do not match the length of the modified subtree.
-    fn commit_subtree<DB: BonsaiDatabase>(
+    fn commit_subtree_cached<DB: BonsaiDatabase>(
         &mut self,
         updates: &mut HashMap<TrieKey, InsertOrRemove<ByteVec>>,
         node_id: NodeKey,
         path: Path,
         hashes: &mut impl Iterator<Item = Felt>,
     ) -> Result<Felt, BonsaiStorageError<DB::DatabaseError>> {
-        match self.nodes.remove(node_id).ok_or(BonsaiStorageError::Trie(
+        match self.nodes.get(node_id).cloned().ok_or(BonsaiStorageError::Trie(
             "Couldn't fetch node in the temporary storage".to_string(),
         ))? {
-            Node::Binary(mut binary) => {
+            Node::Binary(binary) => {
                 let left_path = path.new_with_direction(Direction::Left);
                 let left_hash = match binary.left {
                     NodeHandle::Hash(left_hash) => left_hash,
                     NodeHandle::InMemory(node_id) => {
-                        self.commit_subtree::<DB>(updates, node_id, left_path, hashes)?
+                        self.commit_subtree_cached::<DB>(updates, node_id, left_path, hashes)?
                     }
                 };
                 let right_path = path.new_with_direction(Direction::Right);
                 let right_hash = match binary.right {
                     NodeHandle::Hash(right_hash) => right_hash,
                     NodeHandle::InMemory(node_id) => {
-                        self.commit_subtree::<DB>(updates, node_id, right_path, hashes)?
+                        self.commit_subtree_cached::<DB>(updates, node_id, right_path, hashes)?
                     }
                 };
 
                 let hash = hashes.next().expect("mismatched hash state");
 
-                binary.hash = Some(hash);
-                binary.left = NodeHandle::Hash(left_hash);
-                binary.right = NodeHandle::Hash(right_hash);
+                match self.get_node_mut::<DB>(node_id)? {
+                    Node::Binary(binary_node) => binary_node.hash = Some(hash),
+                    Node::Edge(_) => unreachable!("node changed type while committing"),
+                }
+
+                let mut persisted_binary = binary;
+                persisted_binary.hash = Some(hash);
+                persisted_binary.left = NodeHandle::Hash(left_hash);
+                persisted_binary.right = NodeHandle::Hash(right_hash);
                 let key_bytes: ByteVec = path.into();
                 updates.insert(
                     TrieKey::new(&self.identifier, TrieKeyType::Trie, &key_bytes),
-                    InsertOrRemove::Insert(Node::Binary(binary).encode_bytevec()),
+                    InsertOrRemove::Insert(Node::Binary(persisted_binary).encode_bytevec()),
                 );
                 Ok(hash)
             }
-            Node::Edge(mut edge) => {
+            Node::Edge(edge) => {
                 let mut child_path = path.clone();
                 child_path.0.extend(&edge.path.0);
                 let child_hash = match edge.child {
                     NodeHandle::Hash(right_hash) => right_hash,
                     NodeHandle::InMemory(node_id) => {
-                        self.commit_subtree::<DB>(updates, node_id, child_path, hashes)?
+                        self.commit_subtree_cached::<DB>(updates, node_id, child_path, hashes)?
                     }
                 };
                 let hash = hashes.next().expect("mismatched hash state");
-                edge.hash = Some(hash);
-                edge.child = NodeHandle::Hash(child_hash);
+
+                match self.get_node_mut::<DB>(node_id)? {
+                    Node::Edge(edge_node) => edge_node.hash = Some(hash),
+                    Node::Binary(_) => unreachable!("node changed type while committing"),
+                }
+
+                let mut persisted_edge = edge;
+                persisted_edge.hash = Some(hash);
+                persisted_edge.child = NodeHandle::Hash(child_hash);
                 let key_bytes: ByteVec = path.into();
                 updates.insert(
                     TrieKey::new(&self.identifier, TrieKeyType::Trie, &key_bytes),
-                    InsertOrRemove::Insert(Node::Edge(edge).encode_bytevec()),
+                    InsertOrRemove::Insert(Node::Edge(persisted_edge).encode_bytevec()),
                 );
                 Ok(hash)
             }
@@ -618,8 +792,9 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
             }
         }
 
+        self.mark_dirty();
         let mut iter = self.iter(db);
-        iter.seek_to(key)?;
+        iter.traverse_to(&mut InvalidateHashesVisitor(PhantomData), key)?;
         log::trace!("Iter is {:?}", iter);
         let path_nodes = iter.current_nodes_heights;
 
@@ -825,8 +1000,9 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         }
         leaf_entry.insert(InsertOrRemove::Remove);
 
+        self.mark_dirty();
         let mut iter = self.iter(db);
-        iter.seek_to(key)?;
+        iter.traverse_to(&mut InvalidateHashesVisitor(PhantomData), key)?;
         log::trace!("Iter is {:?}", iter);
         let mut path_nodes = iter.current_nodes_heights;
 
