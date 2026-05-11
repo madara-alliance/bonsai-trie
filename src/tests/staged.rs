@@ -11,8 +11,11 @@ fn staged_root_matches_committed_root() {
     let identifier = vec![];
     let tempdir = tempfile::tempdir().unwrap();
     let db = create_rocks_db(tempdir.path()).unwrap();
-    let mut bonsai_storage: BonsaiStorage<_, _, Pedersen> =
-        BonsaiStorage::new(RocksDB::new(&db, RocksDBConfig::default()), BonsaiStorageConfig::default(), 24);
+    let mut bonsai_storage: BonsaiStorage<_, _, Pedersen> = BonsaiStorage::new(
+        RocksDB::new(&db, RocksDBConfig::default()),
+        BonsaiStorageConfig::default(),
+        24,
+    );
     let mut id_builder = BasicIdBuilder::new();
 
     let pair1 = (
@@ -251,19 +254,34 @@ fn staged_root_after_multiple_incremental_commits() {
     ];
 
     bonsai_storage
-        .insert(&identifier, &BitVec::from_vec(pairs[0].0.clone()), &pairs[0].1)
+        .insert(
+            &identifier,
+            &BitVec::from_vec(pairs[0].0.clone()),
+            &pairs[0].1,
+        )
         .unwrap();
     bonsai_storage.commit(id_builder.new_id()).unwrap();
 
     bonsai_storage
-        .insert(&identifier, &BitVec::from_vec(pairs[1].0.clone()), &pairs[1].1)
+        .insert(
+            &identifier,
+            &BitVec::from_vec(pairs[1].0.clone()),
+            &pairs[1].1,
+        )
         .unwrap();
     let staged_round_two = bonsai_storage.root_hash_staged(&identifier).unwrap();
     bonsai_storage.commit(id_builder.new_id()).unwrap();
-    assert_eq!(staged_round_two, bonsai_storage.root_hash(&identifier).unwrap());
+    assert_eq!(
+        staged_round_two,
+        bonsai_storage.root_hash(&identifier).unwrap()
+    );
 
     bonsai_storage
-        .insert(&identifier, &BitVec::from_vec(pairs[2].0.clone()), &pairs[2].1)
+        .insert(
+            &identifier,
+            &BitVec::from_vec(pairs[2].0.clone()),
+            &pairs[2].1,
+        )
         .unwrap();
     let staged_round_three = bonsai_storage.root_hash_staged(&identifier).unwrap();
     bonsai_storage.commit(id_builder.new_id()).unwrap();
@@ -272,12 +290,11 @@ fn staged_root_after_multiple_incremental_commits() {
 
     let comparison_tempdir = tempfile::tempdir().unwrap();
     let comparison_db = create_rocks_db(comparison_tempdir.path()).unwrap();
-    let mut comparison_storage: BonsaiStorage<_, _, Pedersen> =
-        BonsaiStorage::new(
-            RocksDB::new(&comparison_db, RocksDBConfig::default()),
-            BonsaiStorageConfig::default(),
-            24,
-        );
+    let mut comparison_storage: BonsaiStorage<_, _, Pedersen> = BonsaiStorage::new(
+        RocksDB::new(&comparison_db, RocksDBConfig::default()),
+        BonsaiStorageConfig::default(),
+        24,
+    );
     let mut comparison_ids = BasicIdBuilder::new();
     for (key, value) in pairs {
         comparison_storage
@@ -286,7 +303,10 @@ fn staged_root_after_multiple_incremental_commits() {
     }
     comparison_storage.commit(comparison_ids.new_id()).unwrap();
 
-    assert_eq!(final_root, comparison_storage.root_hash(&identifier).unwrap());
+    assert_eq!(
+        final_root,
+        comparison_storage.root_hash(&identifier).unwrap()
+    );
 }
 
 #[test]
@@ -294,8 +314,11 @@ fn clean_commit_with_retained_frontier_is_noop() {
     let identifier = vec![];
     let tempdir = tempfile::tempdir().unwrap();
     let db = create_rocks_db(tempdir.path()).unwrap();
-    let mut bonsai_storage: BonsaiStorage<_, _, Pedersen> =
-        BonsaiStorage::new(RocksDB::new(&db, RocksDBConfig::default()), BonsaiStorageConfig::default(), 24);
+    let mut bonsai_storage: BonsaiStorage<_, _, Pedersen> = BonsaiStorage::new(
+        RocksDB::new(&db, RocksDBConfig::default()),
+        BonsaiStorageConfig::default(),
+        24,
+    );
     let mut id_builder = BasicIdBuilder::new();
 
     let pair = (
@@ -313,5 +336,8 @@ fn clean_commit_with_retained_frontier_is_noop() {
     // Second commit has no new mutations and should keep the already-loaded frontier stable.
     bonsai_storage.commit(id_builder.new_id()).unwrap();
     assert_eq!(staged_root, bonsai_storage.root_hash(&identifier).unwrap());
-    assert_eq!(staged_root, bonsai_storage.root_hash_staged(&identifier).unwrap());
+    assert_eq!(
+        staged_root,
+        bonsai_storage.root_hash_staged(&identifier).unwrap()
+    );
 }

@@ -411,7 +411,8 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
     #[allow(clippy::type_complexity)]
     pub(crate) fn get_updates<DB: BonsaiDatabase>(
         &mut self,
-    ) -> Result<HashMap<TrieKey, InsertOrRemove<ByteVec>>, BonsaiStorageError<DB::DatabaseError>> {
+    ) -> Result<HashMap<TrieKey, InsertOrRemove<ByteVec>>, BonsaiStorageError<DB::DatabaseError>>
+    {
         let dirty_before_commit = self.dirty;
         let mut updates = HashMap::new();
         for node_key in mem::take(&mut self.death_row) {
@@ -549,7 +550,8 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
                     self.perf_stats.db_node_loads,
                     self.perf_stats.in_memory_node_hits,
                 );
-                self.staged_hashes.store(StagedHashComputation { root_hash, hashes });
+                self.staged_hashes
+                    .store(StagedHashComputation { root_hash, hashes });
                 Ok(root_hash)
             }
             Some(RootHandle::Empty) => Ok(Felt::ZERO),
@@ -682,9 +684,13 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         path: Path,
         hashes: &mut impl Iterator<Item = Felt>,
     ) -> Result<Felt, BonsaiStorageError<DB::DatabaseError>> {
-        match self.nodes.get(node_id).cloned().ok_or(BonsaiStorageError::Trie(
-            "Couldn't fetch node in the temporary storage".to_string(),
-        ))? {
+        match self
+            .nodes
+            .get(node_id)
+            .cloned()
+            .ok_or(BonsaiStorageError::Trie(
+                "Couldn't fetch node in the temporary storage".to_string(),
+            ))? {
             Node::Binary(binary) => {
                 let left_path = path.new_with_direction(Direction::Left);
                 let left_hash = match binary.left {
