@@ -228,7 +228,7 @@ impl<'a, H: StarkHash + Send + Sync, DB: BonsaiDatabase, ID: Id> MerkleTreeItera
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "std", feature = "rocksdb"))]
 mod tests {
     //! The tree used in this series of tests looks like this:
     //! ```

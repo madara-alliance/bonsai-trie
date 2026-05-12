@@ -219,7 +219,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "std", feature = "rocksdb"))]
 mod tests {
     use crate::{
         databases::{create_rocks_db, RocksDB, RocksDBConfig},

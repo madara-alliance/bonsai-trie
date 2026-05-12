@@ -67,7 +67,7 @@ struct StagedHashCacheCell(std::sync::Mutex<Option<StagedHashComputation>>);
 #[cfg(feature = "std")]
 impl fmt::Debug for StagedHashCacheCell {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let has_cached_hashes = self.0.lock().map(|cache| cache.is_some()).unwrap_or(false);
+        let has_cached_hashes = self.lock_cache().is_some();
         f.debug_struct("StagedHashCacheCell")
             .field("has_cached_hashes", &has_cached_hashes)
             .finish()
@@ -83,27 +83,27 @@ impl Clone for StagedHashCacheCell {
 
 #[cfg(feature = "std")]
 impl StagedHashCacheCell {
+    fn lock_cache(&self) -> std::sync::MutexGuard<'_, Option<StagedHashComputation>> {
+        self.0.lock().unwrap_or_else(|poisoned| {
+            log::warn!("recovering poisoned staged hash cache lock");
+            poisoned.into_inner()
+        })
+    }
+
     fn clear(&self) {
-        if let Ok(mut cache) = self.0.lock() {
-            *cache = None;
-        }
+        *self.lock_cache() = None;
     }
 
     fn cached_root_hash(&self) -> Option<Felt> {
-        self.0
-            .lock()
-            .ok()
-            .and_then(|cache| cache.as_ref().map(|cached| cached.root_hash))
+        self.lock_cache().as_ref().map(|cached| cached.root_hash)
     }
 
     fn store(&self, computation: StagedHashComputation) {
-        if let Ok(mut cache) = self.0.lock() {
-            *cache = Some(computation);
-        }
+        *self.lock_cache() = Some(computation);
     }
 
     fn take(&self) -> Option<StagedHashComputation> {
-        self.0.lock().ok().and_then(|mut cache| cache.take())
+        self.lock_cache().take()
     }
 }
 
@@ -235,6 +235,179 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
     fn mark_dirty(&mut self) {
         self.dirty = true;
         self.staged_hashes.clear();
+    }
+
+    fn in_memory_node_hash<DB: BonsaiDatabase>(
+        &self,
+        node_id: NodeKey,
+    ) -> Result<Felt, BonsaiStorageError<DB::DatabaseError>> {
+        self.nodes
+            .get(node_id)
+            .and_then(Node::get_hash)
+            .ok_or_else(|| {
+                BonsaiStorageError::Trie(format!(
+                    "missing committed hash for retained node {node_id:?}"
+                ))
+            })
+    }
+
+    fn mark_recent_frontier_nodes<DB: BonsaiDatabase>(
+        &self,
+        retained_nodes: &mut HashSet<NodeKey>,
+        node_id: NodeKey,
+        key: &BitSlice,
+    ) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
+        let node = self.nodes.get(node_id).ok_or_else(|| {
+            BonsaiStorageError::Trie(format!("Dangling in-memory node key: {node_id:?}"))
+        })?;
+        retained_nodes.insert(node_id);
+
+        match node {
+            Node::Binary(binary) => {
+                let height = binary.height as usize;
+                if height >= key.len() {
+                    return Ok(());
+                }
+
+                if let NodeHandle::InMemory(child_id) =
+                    binary.get_child(Direction::from(key[height]))
+                {
+                    self.mark_recent_frontier_nodes::<DB>(retained_nodes, child_id, key)?;
+                }
+            }
+            Node::Edge(edge) => {
+                let height = edge.height as usize;
+                if height >= key.len() {
+                    return Ok(());
+                }
+
+                let key_suffix = &key[height..];
+                let common_len = key_suffix
+                    .iter()
+                    .zip(edge.path.0.iter())
+                    .take_while(|(lhs, rhs)| lhs == rhs)
+                    .count();
+                if common_len != edge.path.len() {
+                    return Ok(());
+                }
+
+                if let NodeHandle::InMemory(child_id) = edge.child {
+                    self.mark_recent_frontier_nodes::<DB>(retained_nodes, child_id, key)?;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    fn retain_child_handle<DB: BonsaiDatabase>(
+        &self,
+        handle: NodeHandle,
+        retained_nodes: &HashSet<NodeKey>,
+        remapped_nodes: &mut HashMap<NodeKey, NodeKey>,
+        new_nodes: &mut SlotMap<NodeKey, Node>,
+    ) -> Result<NodeHandle, BonsaiStorageError<DB::DatabaseError>> {
+        match handle {
+            NodeHandle::Hash(hash) => Ok(NodeHandle::Hash(hash)),
+            NodeHandle::InMemory(node_id) if retained_nodes.contains(&node_id) => {
+                Ok(NodeHandle::InMemory(self.rebuild_retained_frontier::<DB>(
+                    node_id,
+                    retained_nodes,
+                    remapped_nodes,
+                    new_nodes,
+                )?))
+            }
+            NodeHandle::InMemory(node_id) => {
+                Ok(NodeHandle::Hash(self.in_memory_node_hash::<DB>(node_id)?))
+            }
+        }
+    }
+
+    fn rebuild_retained_frontier<DB: BonsaiDatabase>(
+        &self,
+        node_id: NodeKey,
+        retained_nodes: &HashSet<NodeKey>,
+        remapped_nodes: &mut HashMap<NodeKey, NodeKey>,
+        new_nodes: &mut SlotMap<NodeKey, Node>,
+    ) -> Result<NodeKey, BonsaiStorageError<DB::DatabaseError>> {
+        if let Some(remapped_id) = remapped_nodes.get(&node_id).copied() {
+            return Ok(remapped_id);
+        }
+
+        let mut node = self.nodes.get(node_id).cloned().ok_or_else(|| {
+            BonsaiStorageError::Trie(format!("Dangling in-memory node key: {node_id:?}"))
+        })?;
+
+        match &mut node {
+            Node::Binary(binary) => {
+                binary.left = self.retain_child_handle::<DB>(
+                    binary.left,
+                    retained_nodes,
+                    remapped_nodes,
+                    new_nodes,
+                )?;
+                binary.right = self.retain_child_handle::<DB>(
+                    binary.right,
+                    retained_nodes,
+                    remapped_nodes,
+                    new_nodes,
+                )?;
+            }
+            Node::Edge(edge) => {
+                edge.child = self.retain_child_handle::<DB>(
+                    edge.child,
+                    retained_nodes,
+                    remapped_nodes,
+                    new_nodes,
+                )?;
+            }
+        }
+
+        let remapped_id = new_nodes.insert(node);
+        remapped_nodes.insert(node_id, remapped_id);
+        Ok(remapped_id)
+    }
+
+    fn retain_recent_frontier<DB: BonsaiDatabase>(
+        &mut self,
+        hot_keys: &[ByteVec],
+    ) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
+        let Some(root_handle) = self.root_node else {
+            self.nodes.clear();
+            return Ok(());
+        };
+        let RootHandle::Loaded(root_id) = root_handle else {
+            self.nodes.clear();
+            return Ok(());
+        };
+
+        let retained_before = self.nodes.len();
+        let mut retained_nodes = HashSet::default();
+        retained_nodes.insert(root_id);
+        for key in hot_keys {
+            self.mark_recent_frontier_nodes::<DB>(&mut retained_nodes, root_id, hot_key_bits(key))?;
+        }
+
+        let mut remapped_nodes = HashMap::default();
+        let mut new_nodes = SlotMap::default();
+        let new_root = self.rebuild_retained_frontier::<DB>(
+            root_id,
+            &retained_nodes,
+            &mut remapped_nodes,
+            &mut new_nodes,
+        )?;
+
+        self.nodes = new_nodes;
+        self.root_node = Some(RootHandle::Loaded(new_root));
+        log::debug!(
+            "bonsai retained frontier compacted identifier={:?} hot_keys={} retained_before={} retained_after={}",
+            self.identifier,
+            hot_keys.len(),
+            retained_before,
+            self.nodes.len(),
+        );
+
+        Ok(())
     }
 
     /// Loads the root node or returns None if the tree is empty.
@@ -414,6 +587,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
     ) -> Result<HashMap<TrieKey, InsertOrRemove<ByteVec>>, BonsaiStorageError<DB::DatabaseError>>
     {
         let dirty_before_commit = self.dirty;
+        let hot_keys = self.cache_leaf_modified.keys().cloned().collect::<Vec<_>>();
         let mut updates = HashMap::new();
         for node_key in mem::take(&mut self.death_row) {
             updates.insert(node_key, InsertOrRemove::Remove);
@@ -442,6 +616,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
                 )?;
             }
             self.dirty = false;
+            self.retain_recent_frontier::<DB>(&hot_keys)?;
         }
 
         for (key, value) in mem::take(&mut self.cache_leaf_modified) {
@@ -769,9 +944,9 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         if value == Felt::ZERO {
             return self.delete_leaf(db, key);
         }
-        if key.len() != self.max_height as _ {
+        if key.len() != usize::from(self.max_height) {
             return Err(BonsaiStorageError::KeyLength {
-                expected: self.max_height as _,
+                expected: usize::from(self.max_height),
                 got: key.len(),
             });
         }
@@ -967,9 +1142,9 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         db: &KeyValueDB<DB, ID>,
         key: &BitSlice,
     ) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
-        if key.len() != self.max_height as _ {
+        if key.len() != usize::from(self.max_height) {
             return Err(BonsaiStorageError::KeyLength {
-                expected: self.max_height as _,
+                expected: usize::from(self.max_height),
                 got: key.len(),
             });
         }
@@ -1329,4 +1504,123 @@ pub(crate) fn bitslice_to_bytes(bitslice: &BitSlice) -> ByteVec {
 
 pub(crate) fn bytes_to_bitvec(bytes: &[u8]) -> BitVec {
     BitSlice::from_slice(&bytes[1..]).to_bitvec()
+}
+
+fn hot_key_bits(key: &[u8]) -> &BitSlice {
+    let Some((&bit_len, raw_bits)) = key.split_first() else {
+        return BitSlice::empty();
+    };
+    let bits = BitSlice::from_slice(raw_bits);
+    &bits[..usize::from(bit_len).min(bits.len())]
+}
+
+#[cfg(all(test, feature = "std"))]
+mod staged_hash_cache_tests {
+    use super::{Node, NodeHandle, RootHandle, StagedHashCacheCell, StagedHashComputation};
+    use crate::{
+        databases::HashMapDb,
+        id::{BasicId, BasicIdBuilder},
+        BitVec, BonsaiStorage, BonsaiStorageConfig,
+    };
+    use starknet_types_core::felt::Felt;
+    use starknet_types_core::hash::Pedersen;
+
+    fn retained_tree<'a>(
+        storage: &'a BonsaiStorage<BasicId, HashMapDb<BasicId>, Pedersen>,
+        identifier: &'a [u8],
+    ) -> &'a super::MerkleTree<Pedersen> {
+        storage.tries.trees.get(identifier).unwrap()
+    }
+
+    #[test]
+    fn staged_hash_cache_recovers_from_poison() {
+        let cache = StagedHashCacheCell::default();
+
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _guard = cache.0.lock().unwrap();
+            panic!("poison staged hash cache");
+        }));
+
+        cache.store(StagedHashComputation {
+            root_hash: Felt::ONE,
+            hashes: vec![Felt::TWO],
+        });
+        assert_eq!(cache.cached_root_hash(), Some(Felt::ONE));
+        assert_eq!(
+            cache.take().map(|cached| cached.hashes),
+            Some(vec![Felt::TWO])
+        );
+    }
+
+    #[test]
+    fn retained_frontier_prunes_unmodified_branch_after_commit() {
+        let identifier = vec![];
+        let mut bonsai_storage: BonsaiStorage<_, _, Pedersen> = BonsaiStorage::new(
+            HashMapDb::<BasicId>::default(),
+            BonsaiStorageConfig::default(),
+            8,
+        );
+        let mut id_builder = BasicIdBuilder::new();
+
+        bonsai_storage
+            .insert(
+                &identifier,
+                &BitVec::from_vec(vec![0b0000_0000]),
+                &Felt::from_hex("0x11").unwrap(),
+            )
+            .unwrap();
+        bonsai_storage.commit(id_builder.new_id()).unwrap();
+
+        bonsai_storage
+            .insert(
+                &identifier,
+                &BitVec::from_vec(vec![0b1000_0000]),
+                &Felt::from_hex("0x22").unwrap(),
+            )
+            .unwrap();
+        bonsai_storage.commit(id_builder.new_id()).unwrap();
+
+        let tree = retained_tree(&bonsai_storage, &identifier);
+        let root_id = match tree.root_node {
+            Some(RootHandle::Loaded(root_id)) => root_id,
+            other => panic!("expected loaded root, got {other:?}"),
+        };
+        let root = tree.nodes.get(root_id).unwrap();
+        let Node::Binary(root) = root else {
+            panic!("expected binary root after inserting divergent keys");
+        };
+
+        assert_eq!(tree.nodes.len(), 2);
+        assert!(matches!(root.left, NodeHandle::Hash(_)));
+        assert!(matches!(root.right, NodeHandle::InMemory(_)));
+    }
+
+    #[test]
+    fn retained_frontier_stays_bounded_across_disjoint_commits() {
+        let identifier = vec![];
+        let mut bonsai_storage: BonsaiStorage<_, _, Pedersen> = BonsaiStorage::new(
+            HashMapDb::<BasicId>::default(),
+            BonsaiStorageConfig::default(),
+            8,
+        );
+        let mut id_builder = BasicIdBuilder::new();
+
+        for (key, value) in [
+            (vec![0b0000_0000], Felt::from_hex("0x11").unwrap()),
+            (vec![0b1000_0000], Felt::from_hex("0x22").unwrap()),
+            (vec![0b1100_0000], Felt::from_hex("0x33").unwrap()),
+        ] {
+            bonsai_storage
+                .insert(&identifier, &BitVec::from_vec(key), &value)
+                .unwrap();
+            bonsai_storage.commit(id_builder.new_id()).unwrap();
+        }
+
+        let tree = retained_tree(&bonsai_storage, &identifier);
+        assert!(
+            tree.nodes.len() <= 4,
+            "retained frontier should stay small for a single recently touched branch, got {} nodes",
+            tree.nodes.len()
+        );
+    }
 }
