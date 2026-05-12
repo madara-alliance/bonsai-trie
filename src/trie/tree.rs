@@ -953,16 +953,6 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         let key_bytes = bitslice_to_bytes(key);
         log::trace!("key_bytes: {:?}", key_bytes);
 
-        // TODO(perf): do not double lookup when changing the value later (borrow needs to be split for preload_nodes though)
-        let mut cache_leaf_entry = self.cache_leaf_modified.entry_ref(&key_bytes[..]);
-
-        if let hash_map::EntryRef::Occupied(entry) = &mut cache_leaf_entry {
-            if matches!(entry.get(), InsertOrRemove::Insert(_)) {
-                entry.insert(InsertOrRemove::Insert(value));
-                return Ok(());
-            }
-        }
-
         if let Some(value_db) = db.get(&TrieKey::new(
             &self.identifier,
             TrieKeyType::Flat,
@@ -1622,5 +1612,46 @@ mod staged_hash_cache_tests {
             "retained frontier should stay small for a single recently touched branch, got {} nodes",
             tree.nodes.len()
         );
+    }
+
+    #[test]
+    fn duplicate_staged_insert_invalidates_cached_root() {
+        let identifier = vec![];
+        let key = BitVec::from_vec(vec![0b1000_0000]);
+        let value_one = Felt::from_hex("0x11").unwrap();
+        let value_two = Felt::from_hex("0x22").unwrap();
+
+        let mut bonsai_storage: BonsaiStorage<_, _, Pedersen> = BonsaiStorage::new(
+            HashMapDb::<BasicId>::default(),
+            BonsaiStorageConfig::default(),
+            8,
+        );
+        let mut id_builder = BasicIdBuilder::new();
+
+        bonsai_storage
+            .insert(&identifier, &key, &value_one)
+            .unwrap();
+        let staged_root = bonsai_storage.root_hash_staged(&identifier).unwrap();
+
+        bonsai_storage
+            .insert(&identifier, &key, &value_two)
+            .unwrap();
+        bonsai_storage.commit(id_builder.new_id()).unwrap();
+        let committed_root = bonsai_storage.root_hash(&identifier).unwrap();
+
+        let mut comparison_storage: BonsaiStorage<_, _, Pedersen> = BonsaiStorage::new(
+            HashMapDb::<BasicId>::default(),
+            BonsaiStorageConfig::default(),
+            8,
+        );
+        let mut comparison_ids = BasicIdBuilder::new();
+        comparison_storage
+            .insert(&identifier, &key, &value_two)
+            .unwrap();
+        comparison_storage.commit(comparison_ids.new_id()).unwrap();
+        let expected_root = comparison_storage.root_hash(&identifier).unwrap();
+
+        assert_ne!(staged_root, expected_root);
+        assert_eq!(committed_root, expected_root);
     }
 }
