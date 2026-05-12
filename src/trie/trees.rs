@@ -208,13 +208,11 @@ impl<H: StarkHash + Send + Sync, DB: BonsaiDatabase, CommitID: Id> MerkleTrees<H
             .trees
             .par_iter_mut()
             .map(|(_, tree)| tree.get_updates::<DB>())
-            .collect_vec_list()
-            .into_iter()
-            .flatten();
+            .collect::<Vec<_>>();
 
         let mut batch = self.db.create_batch();
         for changes in db_changes {
-            for (key, value) in changes? {
+            for (key, value) in changes?.into_iter() {
                 match value {
                     InsertOrRemove::Insert(value) => {
                         self.db.insert(&key, &value, Some(&mut batch))?;
