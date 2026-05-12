@@ -952,14 +952,21 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         }
         let key_bytes = bitslice_to_bytes(key);
         log::trace!("key_bytes: {:?}", key_bytes);
+        let has_staged_override = match self.cache_leaf_modified.get(&key_bytes) {
+            Some(InsertOrRemove::Insert(staged_value)) if *staged_value == value => return Ok(()),
+            Some(_) => true,
+            None => false,
+        };
 
-        if let Some(value_db) = db.get(&TrieKey::new(
-            &self.identifier,
-            TrieKeyType::Flat,
-            &key_bytes,
-        ))? {
-            if value == Felt::decode(&mut value_db.as_slice()).unwrap() {
-                return Ok(());
+        if !has_staged_override {
+            if let Some(value_db) = db.get(&TrieKey::new(
+                &self.identifier,
+                TrieKeyType::Flat,
+                &key_bytes,
+            ))? {
+                if value == Felt::decode(&mut value_db.as_slice()).unwrap() {
+                    return Ok(());
+                }
             }
         }
 
@@ -1653,5 +1660,39 @@ mod staged_hash_cache_tests {
 
         assert_ne!(staged_root, expected_root);
         assert_eq!(committed_root, expected_root);
+    }
+
+    #[test]
+    fn restoring_committed_value_overrides_staged_mutation() {
+        let identifier = vec![];
+        let key = BitVec::from_vec(vec![0b1000_0000]);
+        let committed_value = Felt::from_hex("0x11").unwrap();
+        let transient_value = Felt::from_hex("0x22").unwrap();
+
+        let mut bonsai_storage: BonsaiStorage<_, _, Pedersen> = BonsaiStorage::new(
+            HashMapDb::<BasicId>::default(),
+            BonsaiStorageConfig::default(),
+            8,
+        );
+        let mut id_builder = BasicIdBuilder::new();
+
+        bonsai_storage
+            .insert(&identifier, &key, &committed_value)
+            .unwrap();
+        bonsai_storage.commit(id_builder.new_id()).unwrap();
+        let original_root = bonsai_storage.root_hash(&identifier).unwrap();
+
+        bonsai_storage
+            .insert(&identifier, &key, &transient_value)
+            .unwrap();
+        bonsai_storage
+            .insert(&identifier, &key, &committed_value)
+            .unwrap();
+        bonsai_storage.commit(id_builder.new_id()).unwrap();
+
+        assert_eq!(
+            bonsai_storage.root_hash(&identifier).unwrap(),
+            original_root
+        );
     }
 }
