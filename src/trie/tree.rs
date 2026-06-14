@@ -781,6 +781,10 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         path: Path,
         hashes: &mut Vec<Felt>,
     ) -> Result<Felt, BonsaiStorageError<DB::DatabaseError>> {
+        if let Some(hash) = node.get_hash() {
+            return Ok(hash);
+        }
+
         use Node::*;
 
         match node {
@@ -876,6 +880,10 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         path: Path,
         hashes: &mut impl Iterator<Item = Felt>,
     ) -> Result<Felt, BonsaiStorageError<DB::DatabaseError>> {
+        if let Some(hash) = self.nodes.get(node_id).and_then(Node::get_hash) {
+            return Ok(hash);
+        }
+
         match self
             .nodes
             .get(node_id)
