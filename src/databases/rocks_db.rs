@@ -212,6 +212,18 @@ where
         Ok(old_value.map(Into::into))
     }
 
+    fn insert_untracked(
+        &mut self,
+        key: &DatabaseKey,
+        value: &[u8],
+        batch: &mut Self::Batch,
+    ) -> Result<(), Self::DatabaseError> {
+        trace!("Inserting untracked into RocksDB: {:?} {:?}", key, value);
+        let handle_cf = self.db.cf_handle(key.get_cf()).expect(CF_ERROR);
+        batch.put_cf(&handle_cf, key.as_slice(), value);
+        Ok(())
+    }
+
     fn get(&self, key: &DatabaseKey) -> Result<Option<ByteVec>, Self::DatabaseError> {
         trace!("Getting from RocksDB: {:?}", key);
         let handle = self.db.cf_handle(key.get_cf()).expect(CF_ERROR);
@@ -266,6 +278,17 @@ where
             self.db.delete_cf(&handle, key.as_slice())?;
         }
         Ok(old_value.map(Into::into))
+    }
+
+    fn remove_untracked(
+        &mut self,
+        key: &DatabaseKey,
+        batch: &mut Self::Batch,
+    ) -> Result<(), Self::DatabaseError> {
+        trace!("Removing untracked from RocksDB: {:?}", key);
+        let handle = self.db.cf_handle(key.get_cf()).expect(CF_ERROR);
+        batch.delete_cf(&handle, key.as_slice());
+        Ok(())
     }
 
     fn remove_by_prefix(&mut self, prefix: &DatabaseKey) -> Result<(), Self::DatabaseError> {
@@ -356,6 +379,18 @@ impl<'db> BonsaiDatabase for RocksDBTransaction<'db> {
         Ok(old_value.map(Into::into))
     }
 
+    fn insert_untracked(
+        &mut self,
+        key: &DatabaseKey,
+        value: &[u8],
+        batch: &mut Self::Batch,
+    ) -> Result<(), Self::DatabaseError> {
+        trace!("Inserting untracked into RocksDB: {:?} {:?}", key, value);
+        let handle_cf = self.column_families.get(key.get_cf()).expect(CF_ERROR);
+        batch.put_cf(handle_cf, key.as_slice(), value);
+        Ok(())
+    }
+
     fn get(&self, key: &DatabaseKey) -> Result<Option<ByteVec>, Self::DatabaseError> {
         trace!("Getting from RocksDB: {:?}", key);
         let handle = self.column_families.get(key.get_cf()).expect(CF_ERROR);
@@ -415,6 +450,17 @@ impl<'db> BonsaiDatabase for RocksDBTransaction<'db> {
             self.txn.delete_cf(handle, key.as_slice())?;
         }
         Ok(old_value.map(Into::into))
+    }
+
+    fn remove_untracked(
+        &mut self,
+        key: &DatabaseKey,
+        batch: &mut Self::Batch,
+    ) -> Result<(), Self::DatabaseError> {
+        trace!("Removing untracked from RocksDB: {:?}", key);
+        let handle = self.column_families.get(key.get_cf()).expect(CF_ERROR);
+        batch.delete_cf(handle, key.as_slice());
+        Ok(())
     }
 
     fn remove_by_prefix(&mut self, prefix: &DatabaseKey) -> Result<(), Self::DatabaseError> {

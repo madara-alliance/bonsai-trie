@@ -196,6 +196,16 @@ where
         Ok(())
     }
 
+    pub(crate) fn insert_untracked(
+        &mut self,
+        key: &TrieKey,
+        value: &[u8],
+        batch: &mut DB::Batch,
+    ) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
+        trace!("Inserting untracked into KeyValueDB: {:?} {:?}", key, value);
+        Ok(self.db.insert_untracked(&key.into(), value, batch)?)
+    }
+
     pub(crate) fn remove(
         &mut self,
         key: &TrieKey,
@@ -211,6 +221,15 @@ where
             },
         );
         Ok(())
+    }
+
+    pub(crate) fn remove_untracked(
+        &mut self,
+        key: &TrieKey,
+        batch: &mut DB::Batch,
+    ) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
+        trace!("Removing untracked from KeyValueDB: {:?}", key);
+        Ok(self.db.remove_untracked(&key.into(), batch)?)
     }
 
     pub(crate) fn write_batch(
