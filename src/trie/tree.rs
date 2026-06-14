@@ -60,6 +60,9 @@ struct StagedHashComputation {
     hashes: Vec<Felt>,
 }
 
+const RETAIN_FULL_FRONTIER_MIN_HOT_KEYS: usize = 512;
+const RETAIN_FULL_FRONTIER_MAX_NODES: usize = 50_000;
+
 #[cfg(feature = "std")]
 #[derive(Default)]
 struct StagedHashCacheCell(std::sync::Mutex<Option<StagedHashComputation>>);
@@ -382,6 +385,20 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         };
 
         let retained_before = self.nodes.len();
+        if hot_keys.len() >= RETAIN_FULL_FRONTIER_MIN_HOT_KEYS
+            && retained_before <= RETAIN_FULL_FRONTIER_MAX_NODES
+        {
+            log::debug!(
+                "bonsai retained frontier kept_full identifier={:?} hot_keys={} retained_nodes={} min_hot_keys={} max_nodes={}",
+                self.identifier,
+                hot_keys.len(),
+                retained_before,
+                RETAIN_FULL_FRONTIER_MIN_HOT_KEYS,
+                RETAIN_FULL_FRONTIER_MAX_NODES,
+            );
+            return Ok(());
+        }
+
         let mut retained_nodes = HashSet::default();
         retained_nodes.insert(root_id);
         for key in hot_keys {
