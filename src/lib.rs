@@ -131,6 +131,55 @@ pub use error::BonsaiStorageError;
 pub use trie::path::Path;
 pub use trie::proof::{MultiProof, ProofNode};
 
+/// Decode a persisted trie node and return its stored hash.
+///
+/// This is intended for database layers that need to copy finalized Bonsai trie
+/// nodes into an auxiliary immutable/archive store without depending on Bonsai's
+/// private node encoding details.
+pub fn persisted_trie_node_hash(
+    mut encoded: &[u8],
+) -> Result<Option<Felt>, parity_scale_codec::Error> {
+    use parity_scale_codec::Decode;
+
+    let node = trie::PersistedNode::decode(&mut encoded)?;
+    Ok(node.get_hash())
+}
+
+/// Decode a persisted trie node into its hash and public proof-node shape.
+pub fn persisted_trie_node_to_proof_node(
+    mut encoded: &[u8],
+) -> Result<Option<(Felt, ProofNode)>, parity_scale_codec::Error> {
+    use parity_scale_codec::Decode;
+
+    let node = trie::PersistedNode::decode(&mut encoded)?;
+    let Some(hash) = node.get_hash() else {
+        return Ok(None);
+    };
+
+    let proof_node = match node {
+        trie::PersistedNode::Binary(binary) => {
+            let Some(left) = binary.left.as_hash() else {
+                return Ok(None);
+            };
+            let Some(right) = binary.right.as_hash() else {
+                return Ok(None);
+            };
+            ProofNode::Binary { left, right }
+        }
+        trie::PersistedNode::Edge(edge) => {
+            let Some(child) = edge.child.as_hash() else {
+                return Ok(None);
+            };
+            ProofNode::Edge {
+                child,
+                path: edge.path,
+            }
+        }
+    };
+
+    Ok(Some((hash, proof_node)))
+}
+
 #[cfg(test)]
 mod tests;
 

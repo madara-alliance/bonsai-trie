@@ -100,6 +100,17 @@ impl<ID: Id> BonsaiDatabase for HashMapDb<ID> {
         Ok(db.insert(key.as_slice().into(), value.into()))
     }
 
+    fn insert_untracked(
+        &mut self,
+        key: &DatabaseKey,
+        value: &[u8],
+        _batch: &mut Self::Batch,
+    ) -> Result<(), Self::DatabaseError> {
+        let db = self.get_map_mut(key);
+        db.insert(key.as_slice().into(), value.into());
+        Ok(())
+    }
+
     fn remove(
         &mut self,
         key: &DatabaseKey,
@@ -107,6 +118,16 @@ impl<ID: Id> BonsaiDatabase for HashMapDb<ID> {
     ) -> Result<Option<ByteVec>, Self::DatabaseError> {
         let db = self.get_map_mut(key);
         Ok(db.remove(key.as_slice()))
+    }
+
+    fn remove_untracked(
+        &mut self,
+        key: &DatabaseKey,
+        _batch: &mut Self::Batch,
+    ) -> Result<(), Self::DatabaseError> {
+        let db = self.get_map_mut(key);
+        db.remove(key.as_slice());
+        Ok(())
     }
 
     fn contains(&self, key: &DatabaseKey) -> Result<bool, Self::DatabaseError> {

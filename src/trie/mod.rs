@@ -6,4 +6,5 @@ pub mod tree;
 pub(crate) mod trees;
 pub(crate) mod trie_db;
 
+pub(crate) use merkle_node::Node as PersistedNode;
 pub(crate) use trie_db::TrieKey;
