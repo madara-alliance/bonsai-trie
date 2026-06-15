@@ -38,7 +38,7 @@ impl parity_scale_codec::Decode for NodeKey {
     fn decode<I: parity_scale_codec::Input>(
         _input: &mut I,
     ) -> Result<Self, parity_scale_codec::Error> {
-        unreachable!("Cannot decode NodeKey")
+        Err("Cannot decode NodeKey".into())
     }
 }
 
