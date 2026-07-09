@@ -198,6 +198,9 @@ impl<H: StarkHash + Send + Sync, DB: BonsaiDatabase, CommitID: Id> MerkleTrees<H
         #[cfg(feature = "std")]
         use rayon::prelude::*;
 
+        #[cfg(feature = "std")]
+        let get_updates_start = std::time::Instant::now();
+
         #[cfg(not(feature = "std"))]
         let db_changes = self
             .trees
@@ -210,12 +213,24 @@ impl<H: StarkHash + Send + Sync, DB: BonsaiDatabase, CommitID: Id> MerkleTrees<H
             .map(|(_, tree)| tree.get_updates::<DB>())
             .collect::<Vec<_>>();
 
+        #[cfg(feature = "std")]
+        let get_updates_duration = get_updates_start.elapsed();
+
         let track_changes = self.db.get_config().max_saved_trie_logs != Some(0);
+        #[cfg(feature = "std")]
+        let batch_prepare_start = std::time::Instant::now();
+
         let mut batch = self.db.create_batch();
+        let mut total_updates = 0usize;
+        let mut insert_updates = 0usize;
+        let mut remove_updates = 0usize;
         for changes in db_changes {
-            for (key, value) in changes?.into_iter() {
+            let changes = changes?;
+            total_updates += changes.len();
+            for (key, value) in changes.into_iter() {
                 match value {
                     InsertOrRemove::Insert(value) => {
+                        insert_updates += 1;
                         if track_changes {
                             self.db.insert(&key, &value, Some(&mut batch))?;
                         } else {
@@ -223,6 +238,7 @@ impl<H: StarkHash + Send + Sync, DB: BonsaiDatabase, CommitID: Id> MerkleTrees<H
                         }
                     }
                     InsertOrRemove::Remove => {
+                        remove_updates += 1;
                         if track_changes {
                             self.db.remove(&key, Some(&mut batch))?;
                         } else {
@@ -232,7 +248,26 @@ impl<H: StarkHash + Send + Sync, DB: BonsaiDatabase, CommitID: Id> MerkleTrees<H
                 }
             }
         }
+
+        #[cfg(feature = "std")]
+        let batch_prepare_duration = batch_prepare_start.elapsed();
+        #[cfg(feature = "std")]
+        let write_batch_start = std::time::Instant::now();
+
         self.db.write_batch(batch)?;
+
+        #[cfg(feature = "std")]
+        log::info!(
+            "bonsai merkle_trees commit timings trees={} updates={} inserts={} removes={} track_changes={} get_updates_ms={:.3} batch_prepare_ms={:.3} write_batch_ms={:.3}",
+            self.trees.len(),
+            total_updates,
+            insert_updates,
+            remove_updates,
+            track_changes,
+            get_updates_duration.as_secs_f64() * 1000.0,
+            batch_prepare_duration.as_secs_f64() * 1000.0,
+            write_batch_start.elapsed().as_secs_f64() * 1000.0,
+        );
         Ok(())
     }
 
