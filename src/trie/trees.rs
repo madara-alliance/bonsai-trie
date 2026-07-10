@@ -105,6 +105,61 @@ impl<H: StarkHash + Send + Sync, DB: BonsaiDatabase, CommitID: Id> MerkleTrees<H
         tree.set_many_owned_assume_changed(&self.db, entries)
     }
 
+    pub(crate) fn set_many_by_identifier_owned_assume_changed<I, E>(
+        &mut self,
+        updates: I,
+    ) -> Result<(), BonsaiStorageError<DB::DatabaseError>>
+    where
+        DB: Sync,
+        CommitID: Sync,
+        I: IntoIterator<Item = (ByteVec, E)>,
+        E: IntoIterator<Item = (BitVec, Felt)>,
+    {
+        let mut updates_by_identifier: HashMap<ByteVec, Vec<(BitVec, Felt)>> = HashMap::new();
+        for (identifier, entries) in updates {
+            updates_by_identifier
+                .entry(identifier)
+                .or_default()
+                .extend(entries);
+        }
+
+        for identifier in updates_by_identifier.keys() {
+            self.trees
+                .entry_ref(identifier.as_slice())
+                .or_insert_with(|| MerkleTree::new(identifier.clone(), self.max_height));
+        }
+
+        #[cfg(feature = "std")]
+        {
+            use rayon::prelude::*;
+
+            self.trees
+                .par_iter_mut()
+                .filter_map(|(identifier, tree)| {
+                    updates_by_identifier
+                        .get(identifier)
+                        .map(|entries| (tree, entries))
+                })
+                .map(|(tree, entries)| {
+                    tree.set_many_owned_assume_changed(&self.db, entries.iter().cloned())
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+        }
+
+        #[cfg(not(feature = "std"))]
+        {
+            for (identifier, entries) in updates_by_identifier {
+                let tree = self
+                    .trees
+                    .get_mut(identifier.as_slice())
+                    .expect("tree was inserted before applying updates");
+                tree.set_many_owned_assume_changed(&self.db, entries)?;
+            }
+        }
+
+        Ok(())
+    }
+
     pub(crate) fn get(
         &self,
         identifier: &[u8],

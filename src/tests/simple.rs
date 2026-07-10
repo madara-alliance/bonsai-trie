@@ -2,7 +2,7 @@
 use crate::{
     databases::{create_rocks_db, HashMapDb, RocksDB, RocksDBConfig},
     id::{BasicId, BasicIdBuilder},
-    BitVec, BonsaiStorage, BonsaiStorageConfig, Change,
+    BitVec, BonsaiStorage, BonsaiStorageConfig, ByteVec, Change,
 };
 use bitvec::view::BitView;
 use starknet_types_core::{felt::Felt, hash::Pedersen};
@@ -388,6 +388,76 @@ fn insert_many_owned_assume_changed_matches_repeated_insert_for_starknet_keys() 
         repeated_storage.root_hash(&identifier).unwrap(),
         unchecked_storage.root_hash(&identifier).unwrap()
     );
+}
+
+#[test]
+fn insert_many_by_identifier_owned_assume_changed_matches_repeated_insert() {
+    let tempdir1 = tempfile::tempdir().unwrap();
+    let db1 = create_rocks_db(tempdir1.path()).unwrap();
+    let mut repeated_storage: BonsaiStorage<_, _, Pedersen> = BonsaiStorage::new(
+        RocksDB::new(&db1, RocksDBConfig::default()),
+        BonsaiStorageConfig::default(),
+        251,
+    );
+
+    let tempdir2 = tempfile::tempdir().unwrap();
+    let db2 = create_rocks_db(tempdir2.path()).unwrap();
+    let mut bulk_storage: BonsaiStorage<_, _, Pedersen> = BonsaiStorage::new(
+        RocksDB::new(&db2, RocksDBConfig::default()),
+        BonsaiStorageConfig::default(),
+        251,
+    );
+
+    let updates = [
+        (
+            ByteVec::from_slice(&[1]),
+            vec![
+                ("0x123456789abcdef0123456789abcdef", "0x2"),
+                ("0x100000000000000000000000000000000000000", "0x3"),
+            ],
+        ),
+        (
+            ByteVec::from_slice(&[2]),
+            vec![
+                ("0x200000000000000000000000000000000000000", "0x4"),
+                ("0x300000000000000000000000000000000000000", "0x5"),
+            ],
+        ),
+    ];
+
+    let mut bulk_updates = Vec::new();
+    for (identifier, entries) in updates {
+        let mut bulk_entries = Vec::new();
+        for (key, value) in entries {
+            let key = Felt::from_hex(key).unwrap().to_bytes_be().view_bits()[5..].to_bitvec();
+            let value = Felt::from_hex(value).unwrap();
+            repeated_storage.insert(&identifier, &key, &value).unwrap();
+            bulk_entries.push((key, value));
+        }
+        bulk_updates.push((identifier, bulk_entries));
+    }
+
+    bulk_storage
+        .insert_many_by_identifier_owned_assume_changed(bulk_updates)
+        .unwrap();
+
+    for identifier in [ByteVec::from_slice(&[1]), ByteVec::from_slice(&[2])] {
+        assert_eq!(
+            repeated_storage.root_hash_staged(&identifier).unwrap(),
+            bulk_storage.root_hash_staged(&identifier).unwrap()
+        );
+    }
+
+    let id = BasicIdBuilder::new().new_id();
+    repeated_storage.commit(id).unwrap();
+    bulk_storage.commit(id).unwrap();
+
+    for identifier in [ByteVec::from_slice(&[1]), ByteVec::from_slice(&[2])] {
+        assert_eq!(
+            repeated_storage.root_hash(&identifier).unwrap(),
+            bulk_storage.root_hash(&identifier).unwrap()
+        );
+    }
 }
 
 #[test]
