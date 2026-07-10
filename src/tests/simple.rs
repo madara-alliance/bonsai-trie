@@ -231,6 +231,59 @@ fn starknet_specific() {
 }
 
 #[test]
+fn insert_owned_matches_regular_insert_for_starknet_keys() {
+    let identifier = vec![42];
+    let tempdir1 = tempfile::tempdir().unwrap();
+    let db1 = create_rocks_db(tempdir1.path()).unwrap();
+    let mut regular_storage: BonsaiStorage<_, _, Pedersen> = BonsaiStorage::new(
+        RocksDB::new(&db1, RocksDBConfig::default()),
+        BonsaiStorageConfig::default(),
+        251,
+    );
+
+    let tempdir2 = tempfile::tempdir().unwrap();
+    let db2 = create_rocks_db(tempdir2.path()).unwrap();
+    let mut owned_storage: BonsaiStorage<_, _, Pedersen> = BonsaiStorage::new(
+        RocksDB::new(&db2, RocksDBConfig::default()),
+        BonsaiStorageConfig::default(),
+        251,
+    );
+
+    let updates = [
+        (
+            "0x0000000000000000000000000000000000000000000000000000000000000001",
+            "0x1",
+        ),
+        ("0x123456789abcdef0123456789abcdef", "0x2"),
+        ("0x100000000000000000000000000000000000000", "0x3"),
+        ("0x200000000000000000000000000000000000000", "0x4"),
+    ];
+
+    for (key, value) in updates {
+        let key = Felt::from_hex(key).unwrap().to_bytes_be().view_bits()[5..].to_bitvec();
+        let value = Felt::from_hex(value).unwrap();
+        regular_storage.insert(&identifier, &key, &value).unwrap();
+        owned_storage
+            .insert_owned(&identifier, key, &value)
+            .unwrap();
+    }
+
+    assert_eq!(
+        regular_storage.root_hash_staged(&identifier).unwrap(),
+        owned_storage.root_hash_staged(&identifier).unwrap()
+    );
+
+    let id = BasicIdBuilder::new().new_id();
+    regular_storage.commit(id).unwrap();
+    owned_storage.commit(id).unwrap();
+
+    assert_eq!(
+        regular_storage.root_hash(&identifier).unwrap(),
+        owned_storage.root_hash(&identifier).unwrap()
+    );
+}
+
+#[test]
 fn root_hash_similar_hashmap_db() {
     let identifier = vec![];
     let root_hash_1 = {

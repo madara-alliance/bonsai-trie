@@ -264,6 +264,20 @@ where
         Ok(())
     }
 
+    /// Insert a new key/value using an owned bit-vector key.
+    ///
+    /// This preserves the existing trie traversal semantics while avoiding the
+    /// extra bit-vector allocation otherwise needed to encode the flat key.
+    pub fn insert_owned(
+        &mut self,
+        identifier: &[u8],
+        key: BitVec,
+        value: &Felt,
+    ) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
+        self.tries.set_owned(identifier, key, *value)?;
+        Ok(())
+    }
+
     /// Remove a key/value in the trie
     /// If the value doesn't exist it will do nothing
     pub fn remove(

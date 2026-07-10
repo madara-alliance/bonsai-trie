@@ -1,6 +1,6 @@
 use super::{proof::MultiProof, tree::MerkleTree};
 use crate::{
-    id::Id, key_value_db::KeyValueDB, trie::tree::InsertOrRemove, BitSlice, BonsaiDatabase,
+    id::Id, key_value_db::KeyValueDB, trie::tree::InsertOrRemove, BitSlice, BitVec, BonsaiDatabase,
     BonsaiStorageError, ByteVec, HashMap, Vec,
 };
 use core::fmt;
@@ -57,6 +57,20 @@ impl<H: StarkHash + Send + Sync, DB: BonsaiDatabase, CommitID: Id> MerkleTrees<H
             .or_insert_with(|| MerkleTree::new(identifier.into(), self.max_height));
 
         tree.set(&self.db, key, value)
+    }
+
+    pub(crate) fn set_owned(
+        &mut self,
+        identifier: &[u8],
+        key: BitVec,
+        value: Felt,
+    ) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
+        let tree = self
+            .trees
+            .entry_ref(identifier)
+            .or_insert_with(|| MerkleTree::new(identifier.into(), self.max_height));
+
+        tree.set_owned(&self.db, key, value)
     }
 
     pub(crate) fn get(

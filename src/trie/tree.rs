@@ -1039,6 +1039,27 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         key: &BitSlice,
         value: Felt,
     ) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
+        let key_bytes = bitslice_to_bytes(key);
+        self.set_with_key_bytes(db, key, key_bytes, value)
+    }
+
+    pub fn set_owned<DB: BonsaiDatabase, ID: Id>(
+        &mut self,
+        db: &KeyValueDB<DB, ID>,
+        key: BitVec,
+        value: Felt,
+    ) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
+        let key_bytes = bitvec_to_bytes(&key);
+        self.set_with_key_bytes(db, &key, key_bytes, value)
+    }
+
+    fn set_with_key_bytes<DB: BonsaiDatabase, ID: Id>(
+        &mut self,
+        db: &KeyValueDB<DB, ID>,
+        key: &BitSlice,
+        key_bytes: ByteVec,
+        value: Felt,
+    ) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
         if value == Felt::ZERO {
             return self.delete_leaf(db, key);
         }
@@ -1048,7 +1069,6 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
                 got: key.len(),
             });
         }
-        let key_bytes = bitslice_to_bytes(key);
         log::trace!("key_bytes: {:?}", key_bytes);
         let has_staged_override = match self.cache_leaf_modified.get(&key_bytes) {
             Some(InsertOrRemove::Insert(staged_value)) if *staged_value == value => return Ok(()),
@@ -1594,6 +1614,15 @@ pub(crate) fn bitslice_to_bytes(bitslice: &BitSlice) -> ByteVec {
     } // special case: tree root
     iter::once(bitslice.len() as u8)
         .chain(bitslice.to_bitvec().as_raw_slice().iter().copied())
+        .collect()
+}
+
+fn bitvec_to_bytes(bitvec: &BitVec) -> ByteVec {
+    if bitvec.is_empty() {
+        return Default::default();
+    }
+    iter::once(bitvec.len() as u8)
+        .chain(bitvec.as_raw_slice().iter().copied())
         .collect()
 }
 
