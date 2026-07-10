@@ -315,27 +315,6 @@ where
         Ok(())
     }
 
-    /// Insert multiple groups of key/value pairs into independent tries when
-    /// the caller already knows every entry is a real state change.
-    ///
-    /// Each identifier is updated with the same semantics as
-    /// [`Self::insert_many_owned_assume_changed`]. With the `std` feature,
-    /// independent tries can be mutated in parallel.
-    pub fn insert_many_by_identifier_owned_assume_changed<I, E>(
-        &mut self,
-        updates: I,
-    ) -> Result<(), BonsaiStorageError<DB::DatabaseError>>
-    where
-        DB: Sync,
-        ChangeID: Sync,
-        I: IntoIterator<Item = (ByteVec, E)>,
-        E: IntoIterator<Item = (BitVec, Felt)>,
-    {
-        self.tries
-            .set_many_by_identifier_owned_assume_changed(updates)?;
-        Ok(())
-    }
-
     /// Remove a key/value in the trie
     /// If the value doesn't exist it will do nothing
     pub fn remove(
