@@ -73,6 +73,22 @@ impl<H: StarkHash + Send + Sync, DB: BonsaiDatabase, CommitID: Id> MerkleTrees<H
         tree.set_owned(&self.db, key, value)
     }
 
+    pub(crate) fn set_many_owned<I>(
+        &mut self,
+        identifier: &[u8],
+        entries: I,
+    ) -> Result<(), BonsaiStorageError<DB::DatabaseError>>
+    where
+        I: IntoIterator<Item = (BitVec, Felt)>,
+    {
+        let tree = self
+            .trees
+            .entry_ref(identifier)
+            .or_insert_with(|| MerkleTree::new(identifier.into(), self.max_height));
+
+        tree.set_many_owned(&self.db, entries)
+    }
+
     pub(crate) fn get(
         &self,
         identifier: &[u8],

@@ -1053,6 +1053,23 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         self.set_with_key_bytes(db, &key, key_bytes, value)
     }
 
+    pub fn set_many_owned<DB, ID, I>(
+        &mut self,
+        db: &KeyValueDB<DB, ID>,
+        entries: I,
+    ) -> Result<(), BonsaiStorageError<DB::DatabaseError>>
+    where
+        DB: BonsaiDatabase,
+        ID: Id,
+        I: IntoIterator<Item = (BitVec, Felt)>,
+    {
+        for (key, value) in entries {
+            let key_bytes = bitvec_to_bytes(&key);
+            self.set_with_key_bytes(db, &key, key_bytes, value)?;
+        }
+        Ok(())
+    }
+
     fn set_with_key_bytes<DB: BonsaiDatabase, ID: Id>(
         &mut self,
         db: &KeyValueDB<DB, ID>,

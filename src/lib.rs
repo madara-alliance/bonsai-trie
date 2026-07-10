@@ -278,6 +278,24 @@ where
         Ok(())
     }
 
+    /// Insert multiple key/value pairs into the same trie using owned bit-vector
+    /// keys.
+    ///
+    /// This preserves the same semantics as repeated [`Self::insert_owned`]
+    /// calls while letting callers group updates by identifier and avoid
+    /// repeatedly resolving the same inner trie.
+    pub fn insert_many_owned<I>(
+        &mut self,
+        identifier: &[u8],
+        entries: I,
+    ) -> Result<(), BonsaiStorageError<DB::DatabaseError>>
+    where
+        I: IntoIterator<Item = (BitVec, Felt)>,
+    {
+        self.tries.set_many_owned(identifier, entries)?;
+        Ok(())
+    }
+
     /// Remove a key/value in the trie
     /// If the value doesn't exist it will do nothing
     pub fn remove(

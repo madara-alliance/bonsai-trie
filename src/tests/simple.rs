@@ -284,6 +284,62 @@ fn insert_owned_matches_regular_insert_for_starknet_keys() {
 }
 
 #[test]
+fn insert_many_owned_matches_repeated_insert_for_starknet_keys() {
+    let identifier = vec![43];
+    let tempdir1 = tempfile::tempdir().unwrap();
+    let db1 = create_rocks_db(tempdir1.path()).unwrap();
+    let mut repeated_storage: BonsaiStorage<_, _, Pedersen> = BonsaiStorage::new(
+        RocksDB::new(&db1, RocksDBConfig::default()),
+        BonsaiStorageConfig::default(),
+        251,
+    );
+
+    let tempdir2 = tempfile::tempdir().unwrap();
+    let db2 = create_rocks_db(tempdir2.path()).unwrap();
+    let mut batched_storage: BonsaiStorage<_, _, Pedersen> = BonsaiStorage::new(
+        RocksDB::new(&db2, RocksDBConfig::default()),
+        BonsaiStorageConfig::default(),
+        251,
+    );
+
+    let updates = [
+        (
+            "0x0000000000000000000000000000000000000000000000000000000000000001",
+            "0x1",
+        ),
+        ("0x123456789abcdef0123456789abcdef", "0x2"),
+        ("0x123456789abcdef0123456789abcdef", "0x5"),
+        ("0x100000000000000000000000000000000000000", "0x3"),
+        ("0x200000000000000000000000000000000000000", "0x4"),
+    ];
+
+    let mut batched_updates = Vec::new();
+    for (key, value) in updates {
+        let key = Felt::from_hex(key).unwrap().to_bytes_be().view_bits()[5..].to_bitvec();
+        let value = Felt::from_hex(value).unwrap();
+        repeated_storage.insert(&identifier, &key, &value).unwrap();
+        batched_updates.push((key, value));
+    }
+    batched_storage
+        .insert_many_owned(&identifier, batched_updates)
+        .unwrap();
+
+    assert_eq!(
+        repeated_storage.root_hash_staged(&identifier).unwrap(),
+        batched_storage.root_hash_staged(&identifier).unwrap()
+    );
+
+    let id = BasicIdBuilder::new().new_id();
+    repeated_storage.commit(id).unwrap();
+    batched_storage.commit(id).unwrap();
+
+    assert_eq!(
+        repeated_storage.root_hash(&identifier).unwrap(),
+        batched_storage.root_hash(&identifier).unwrap()
+    );
+}
+
+#[test]
 fn root_hash_similar_hashmap_db() {
     let identifier = vec![];
     let root_hash_1 = {
