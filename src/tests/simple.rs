@@ -340,6 +340,57 @@ fn insert_many_owned_matches_repeated_insert_for_starknet_keys() {
 }
 
 #[test]
+fn insert_many_owned_assume_changed_matches_repeated_insert_for_starknet_keys() {
+    let identifier = vec![44];
+    let tempdir1 = tempfile::tempdir().unwrap();
+    let db1 = create_rocks_db(tempdir1.path()).unwrap();
+    let mut repeated_storage: BonsaiStorage<_, _, Pedersen> = BonsaiStorage::new(
+        RocksDB::new(&db1, RocksDBConfig::default()),
+        BonsaiStorageConfig::default(),
+        251,
+    );
+
+    let tempdir2 = tempfile::tempdir().unwrap();
+    let db2 = create_rocks_db(tempdir2.path()).unwrap();
+    let mut unchecked_storage: BonsaiStorage<_, _, Pedersen> = BonsaiStorage::new(
+        RocksDB::new(&db2, RocksDBConfig::default()),
+        BonsaiStorageConfig::default(),
+        251,
+    );
+
+    let updates = [
+        ("0x123456789abcdef0123456789abcdef", "0x2"),
+        ("0x100000000000000000000000000000000000000", "0x3"),
+        ("0x200000000000000000000000000000000000000", "0x4"),
+    ];
+
+    let mut unchecked_updates = Vec::new();
+    for (key, value) in updates {
+        let key = Felt::from_hex(key).unwrap().to_bytes_be().view_bits()[5..].to_bitvec();
+        let value = Felt::from_hex(value).unwrap();
+        repeated_storage.insert(&identifier, &key, &value).unwrap();
+        unchecked_updates.push((key, value));
+    }
+    unchecked_storage
+        .insert_many_owned_assume_changed(&identifier, unchecked_updates)
+        .unwrap();
+
+    assert_eq!(
+        repeated_storage.root_hash_staged(&identifier).unwrap(),
+        unchecked_storage.root_hash_staged(&identifier).unwrap()
+    );
+
+    let id = BasicIdBuilder::new().new_id();
+    repeated_storage.commit(id).unwrap();
+    unchecked_storage.commit(id).unwrap();
+
+    assert_eq!(
+        repeated_storage.root_hash(&identifier).unwrap(),
+        unchecked_storage.root_hash(&identifier).unwrap()
+    );
+}
+
+#[test]
 fn root_hash_similar_hashmap_db() {
     let identifier = vec![];
     let root_hash_1 = {

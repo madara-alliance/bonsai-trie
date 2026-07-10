@@ -296,6 +296,25 @@ where
         Ok(())
     }
 
+    /// Insert multiple key/value pairs into the same trie when the caller
+    /// already knows every entry is a real state change.
+    ///
+    /// This skips the committed flat-value lookup used by [`Self::insert`] to
+    /// detect no-op writes. It is intended for state-diff application paths,
+    /// not for arbitrary user writes.
+    pub fn insert_many_owned_assume_changed<I>(
+        &mut self,
+        identifier: &[u8],
+        entries: I,
+    ) -> Result<(), BonsaiStorageError<DB::DatabaseError>>
+    where
+        I: IntoIterator<Item = (BitVec, Felt)>,
+    {
+        self.tries
+            .set_many_owned_assume_changed(identifier, entries)?;
+        Ok(())
+    }
+
     /// Remove a key/value in the trie
     /// If the value doesn't exist it will do nothing
     pub fn remove(

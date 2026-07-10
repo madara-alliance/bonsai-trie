@@ -1040,7 +1040,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         value: Felt,
     ) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
         let key_bytes = bitslice_to_bytes(key);
-        self.set_with_key_bytes(db, key, key_bytes, value)
+        self.set_with_key_bytes(db, key, key_bytes, value, true)
     }
 
     pub fn set_owned<DB: BonsaiDatabase, ID: Id>(
@@ -1050,7 +1050,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         value: Felt,
     ) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
         let key_bytes = bitvec_to_bytes(&key);
-        self.set_with_key_bytes(db, &key, key_bytes, value)
+        self.set_with_key_bytes(db, &key, key_bytes, value, true)
     }
 
     pub fn set_many_owned<DB, ID, I>(
@@ -1065,7 +1065,24 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
     {
         for (key, value) in entries {
             let key_bytes = bitvec_to_bytes(&key);
-            self.set_with_key_bytes(db, &key, key_bytes, value)?;
+            self.set_with_key_bytes(db, &key, key_bytes, value, true)?;
+        }
+        Ok(())
+    }
+
+    pub fn set_many_owned_assume_changed<DB, ID, I>(
+        &mut self,
+        db: &KeyValueDB<DB, ID>,
+        entries: I,
+    ) -> Result<(), BonsaiStorageError<DB::DatabaseError>>
+    where
+        DB: BonsaiDatabase,
+        ID: Id,
+        I: IntoIterator<Item = (BitVec, Felt)>,
+    {
+        for (key, value) in entries {
+            let key_bytes = bitvec_to_bytes(&key);
+            self.set_with_key_bytes(db, &key, key_bytes, value, false)?;
         }
         Ok(())
     }
@@ -1076,6 +1093,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         key: &BitSlice,
         key_bytes: ByteVec,
         value: Felt,
+        check_committed_value: bool,
     ) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
         if value == Felt::ZERO {
             return self.delete_leaf(db, key);
@@ -1093,7 +1111,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
             None => false,
         };
 
-        if !has_staged_override {
+        if check_committed_value && !has_staged_override {
             if let Some(value_db) = db.get(&TrieKey::new(
                 &self.identifier,
                 TrieKeyType::Flat,
