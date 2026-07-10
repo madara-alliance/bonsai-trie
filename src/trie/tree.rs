@@ -1063,9 +1063,19 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         ID: Id,
         I: IntoIterator<Item = (BitVec, Felt)>,
     {
+        let entries = entries.into_iter().collect::<Vec<_>>();
+        if entries.iter().any(|(_, value)| *value == Felt::ZERO) {
+            for (key, value) in entries {
+                let key_bytes = bitvec_to_bytes(&key);
+                self.set_with_key_bytes(db, &key, key_bytes, value, true)?;
+            }
+            return Ok(());
+        }
+
+        let mut iter = self.iter(db);
         for (key, value) in entries {
             let key_bytes = bitvec_to_bytes(&key);
-            self.set_with_key_bytes(db, &key, key_bytes, value, true)?;
+            Self::set_nonzero_with_key_bytes_using_iter(&mut iter, &key, key_bytes, value, true)?;
         }
         Ok(())
     }
@@ -1080,11 +1090,182 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         ID: Id,
         I: IntoIterator<Item = (BitVec, Felt)>,
     {
+        let entries = entries.into_iter().collect::<Vec<_>>();
+        if entries.iter().any(|(_, value)| *value == Felt::ZERO) {
+            for (key, value) in entries {
+                let key_bytes = bitvec_to_bytes(&key);
+                self.set_with_key_bytes(db, &key, key_bytes, value, false)?;
+            }
+            return Ok(());
+        }
+
+        let mut iter = self.iter(db);
         for (key, value) in entries {
             let key_bytes = bitvec_to_bytes(&key);
-            self.set_with_key_bytes(db, &key, key_bytes, value, false)?;
+            Self::set_nonzero_with_key_bytes_using_iter(&mut iter, &key, key_bytes, value, false)?;
         }
         Ok(())
+    }
+
+    fn set_nonzero_with_key_bytes_using_iter<DB: BonsaiDatabase, ID: Id>(
+        iter: &mut MerkleTreeIterator<'_, H, DB, ID>,
+        key: &BitSlice,
+        key_bytes: ByteVec,
+        value: Felt,
+        check_committed_value: bool,
+    ) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
+        debug_assert_ne!(value, Felt::ZERO);
+        if key.len() != usize::from(iter.tree.max_height) {
+            return Err(BonsaiStorageError::KeyLength {
+                expected: usize::from(iter.tree.max_height),
+                got: key.len(),
+            });
+        }
+        log::trace!("key_bytes: {:?}", key_bytes);
+        let has_staged_override = match iter.tree.cache_leaf_modified.get(&key_bytes) {
+            Some(InsertOrRemove::Insert(staged_value)) if *staged_value == value => return Ok(()),
+            Some(_) => true,
+            None => false,
+        };
+
+        if check_committed_value && !has_staged_override {
+            if let Some(value_db) = iter.db.get(&TrieKey::new(
+                &iter.tree.identifier,
+                TrieKeyType::Flat,
+                &key_bytes,
+            ))? {
+                if value == Felt::decode(&mut value_db.as_slice()).unwrap() {
+                    return Ok(());
+                }
+            }
+        }
+
+        iter.tree.mark_dirty();
+        iter.traverse_to(&mut InvalidateHashesVisitor(PhantomData), key)?;
+        log::trace!("Iter is {:?}", iter);
+        let path_nodes = iter.current_nodes_heights.clone();
+
+        log::trace!("preload nodes: {:?}", path_nodes);
+        use Node::*;
+        match path_nodes.last() {
+            Some((node_id, _)) => {
+                let tree = &mut *iter.tree;
+                let mut node = tree.get_node_mut::<DB>(*node_id)?.clone();
+                match &mut node {
+                    Edge(edge) => {
+                        let common = edge.common_path(key);
+                        let branch_height = edge.height as usize + common.len();
+                        if branch_height == key.len() {
+                            edge.child = NodeHandle::Hash(value);
+                            log::trace!("change val: {:?} => {:#x}", key_bytes, value);
+                            tree.cache_leaf_modified
+                                .insert(key_bytes, InsertOrRemove::Insert(value));
+                            tree.nodes[*node_id] = node;
+                            return Ok(());
+                        }
+
+                        let child_height = branch_height + 1;
+                        let new_path = key[child_height..].to_bitvec();
+                        let old_path = edge.path[common.len() + 1..].to_bitvec();
+
+                        log::trace!(
+                            "cache_leaf_modified insert: {:?} => {:#x}",
+                            key_bytes,
+                            value
+                        );
+                        tree.cache_leaf_modified
+                            .insert(key_bytes, InsertOrRemove::Insert(value));
+
+                        let new = if new_path.is_empty() {
+                            NodeHandle::Hash(value)
+                        } else {
+                            let edge_id = tree.nodes.insert(Node::Edge(EdgeNode {
+                                hash: None,
+                                height: child_height as u64,
+                                path: Path(new_path),
+                                child: NodeHandle::Hash(value),
+                            }));
+                            NodeHandle::InMemory(edge_id)
+                        };
+
+                        let old = if old_path.is_empty() {
+                            edge.child
+                        } else {
+                            let edge_id = tree.nodes.insert(Node::Edge(EdgeNode {
+                                hash: None,
+                                height: child_height as u64,
+                                path: Path(old_path),
+                                child: edge.child,
+                            }));
+                            NodeHandle::InMemory(edge_id)
+                        };
+
+                        let new_direction = Direction::from(key[branch_height]);
+                        let (left, right) = match new_direction {
+                            Direction::Left => (new, old),
+                            Direction::Right => (old, new),
+                        };
+
+                        let branch = Node::Binary(BinaryNode {
+                            hash: None,
+                            height: branch_height as u64,
+                            left,
+                            right,
+                        });
+
+                        let new_node = if common.is_empty() {
+                            branch
+                        } else {
+                            let branch_id = tree.nodes.insert(branch);
+                            Node::Edge(EdgeNode {
+                                hash: None,
+                                height: edge.height,
+                                path: Path(common.to_bitvec()),
+                                child: NodeHandle::InMemory(branch_id),
+                            })
+                        };
+                        let key_bytes = bitslice_to_bytes(&key[..edge.height as usize]);
+                        log::trace!("2 death row add ({:?})", key_bytes);
+                        tree.death_row.insert(TrieKey::Trie(key_bytes));
+                        node = new_node;
+                    }
+                    Binary(binary) => {
+                        let child_height = binary.height + 1;
+
+                        if child_height as usize == key.len() {
+                            let direction = Direction::from(key[binary.height as usize]);
+                            match direction {
+                                Direction::Left => binary.left = NodeHandle::Hash(value),
+                                Direction::Right => binary.right = NodeHandle::Hash(value),
+                            };
+                            tree.cache_leaf_modified
+                                .insert(key_bytes, InsertOrRemove::Insert(value));
+                        }
+                    }
+                };
+
+                tree.nodes[*node_id] = node;
+                Ok(())
+            }
+            None => {
+                let edge = Node::Edge(EdgeNode {
+                    hash: None,
+                    height: 0,
+                    path: Path(key.to_bitvec()),
+                    child: NodeHandle::Hash(value),
+                });
+                let node_id = iter.tree.nodes.insert(edge);
+                iter.tree.root_node = Some(RootHandle::Loaded(node_id));
+                iter.current_path = Path(key.to_bitvec());
+                iter.current_nodes_heights.clear();
+                iter.current_nodes_heights.push((node_id, 0));
+
+                iter.tree
+                    .cache_leaf_modified
+                    .insert(key_bytes, InsertOrRemove::Insert(value));
+                Ok(())
+            }
+        }
     }
 
     fn set_with_key_bytes<DB: BonsaiDatabase, ID: Id>(
