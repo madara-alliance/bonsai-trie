@@ -120,6 +120,8 @@ pub struct BulkInsertStats {
     pub input_entries: u64,
     pub prepared_entries: u64,
     pub duplicate_entries: u64,
+    pub retained_nodes_before: u64,
+    pub retained_nodes_after: u64,
     pub db_node_loads: u64,
     pub in_memory_node_hits: u64,
     pub loaded_handles: u64,
@@ -138,6 +140,8 @@ impl BulkInsertStats {
         self.input_entries += other.input_entries;
         self.prepared_entries += other.prepared_entries;
         self.duplicate_entries += other.duplicate_entries;
+        self.retained_nodes_before += other.retained_nodes_before;
+        self.retained_nodes_after += other.retained_nodes_after;
         self.db_node_loads += other.db_node_loads;
         self.in_memory_node_hits += other.in_memory_node_hits;
         self.loaded_handles += other.loaded_handles;

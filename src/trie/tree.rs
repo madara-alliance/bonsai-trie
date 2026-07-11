@@ -66,6 +66,30 @@ const RETAIN_FULL_FRONTIER_MIN_HOT_KEYS: usize = 512;
 const RETAIN_FULL_FRONTIER_MAX_NODES: usize = 50_000;
 
 #[cfg(feature = "std")]
+fn retain_full_frontier_limits() -> (usize, usize) {
+    static LIMITS: std::sync::OnceLock<(usize, usize)> = std::sync::OnceLock::new();
+    *LIMITS.get_or_init(|| {
+        let min_hot_keys = std::env::var("BONSAI_RETAIN_FULL_FRONTIER_MIN_HOT_KEYS")
+            .ok()
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(RETAIN_FULL_FRONTIER_MIN_HOT_KEYS);
+        let max_nodes = std::env::var("BONSAI_RETAIN_FULL_FRONTIER_MAX_NODES")
+            .ok()
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(RETAIN_FULL_FRONTIER_MAX_NODES);
+        (min_hot_keys, max_nodes)
+    })
+}
+
+#[cfg(not(feature = "std"))]
+fn retain_full_frontier_limits() -> (usize, usize) {
+    (
+        RETAIN_FULL_FRONTIER_MIN_HOT_KEYS,
+        RETAIN_FULL_FRONTIER_MAX_NODES,
+    )
+}
+
+#[cfg(feature = "std")]
 #[derive(Default)]
 struct StagedHashCacheCell(std::sync::Mutex<Option<StagedHashComputation>>);
 
@@ -387,16 +411,15 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         };
 
         let retained_before = self.nodes.len();
-        if hot_keys.len() >= RETAIN_FULL_FRONTIER_MIN_HOT_KEYS
-            && retained_before <= RETAIN_FULL_FRONTIER_MAX_NODES
-        {
+        let (min_hot_keys, max_nodes) = retain_full_frontier_limits();
+        if hot_keys.len() >= min_hot_keys && retained_before <= max_nodes {
             log::debug!(
                 "bonsai retained frontier kept_full identifier={:?} hot_keys={} retained_nodes={} min_hot_keys={} max_nodes={}",
                 self.identifier,
                 hot_keys.len(),
                 retained_before,
-                RETAIN_FULL_FRONTIER_MIN_HOT_KEYS,
-                RETAIN_FULL_FRONTIER_MAX_NODES,
+                min_hot_keys,
+                max_nodes,
             );
             return Ok(());
         }
@@ -1200,6 +1223,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
 
         let db_loads_before = self.perf_stats.db_node_loads;
         let memory_hits_before = self.perf_stats.in_memory_node_hits;
+        stats.retained_nodes_before = self.nodes.len() as u64;
         self.mark_dirty();
         let result = match self.load_root_node(db)? {
             Some(root_id) => {
@@ -1231,6 +1255,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
             .perf_stats
             .in_memory_node_hits
             .saturating_sub(memory_hits_before) as u64;
+        stats.retained_nodes_after = self.nodes.len() as u64;
         result
     }
 
