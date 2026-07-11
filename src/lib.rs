@@ -115,6 +115,47 @@ pub type ByteVec = smallvec::SmallVec<[u8; 32]>;
 pub type BitVec = bitvec::vec::BitVec<u8, bitvec::order::Msb0>;
 pub type BitSlice = bitvec::slice::BitSlice<u8, bitvec::order::Msb0>;
 
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct BulkInsertStats {
+    pub input_entries: u64,
+    pub prepared_entries: u64,
+    pub duplicate_entries: u64,
+    pub retained_nodes_before: u64,
+    pub retained_nodes_after: u64,
+    pub db_node_loads: u64,
+    pub in_memory_node_hits: u64,
+    pub loaded_handles: u64,
+    pub updated_binary_nodes: u64,
+    pub updated_edge_nodes: u64,
+    pub split_edge_nodes: u64,
+    pub built_binary_nodes: u64,
+    pub built_edge_nodes: u64,
+    pub leaf_updates: u64,
+    pub max_range_entries: u64,
+    pub max_build_depth: u64,
+}
+
+impl BulkInsertStats {
+    pub fn merge(&mut self, other: Self) {
+        self.input_entries += other.input_entries;
+        self.prepared_entries += other.prepared_entries;
+        self.duplicate_entries += other.duplicate_entries;
+        self.retained_nodes_before += other.retained_nodes_before;
+        self.retained_nodes_after += other.retained_nodes_after;
+        self.db_node_loads += other.db_node_loads;
+        self.in_memory_node_hits += other.in_memory_node_hits;
+        self.loaded_handles += other.loaded_handles;
+        self.updated_binary_nodes += other.updated_binary_nodes;
+        self.updated_edge_nodes += other.updated_edge_nodes;
+        self.split_edge_nodes += other.split_edge_nodes;
+        self.built_binary_nodes += other.built_binary_nodes;
+        self.built_edge_nodes += other.built_edge_nodes;
+        self.leaf_updates += other.leaf_updates;
+        self.max_range_entries = self.max_range_entries.max(other.max_range_entries);
+        self.max_build_depth = self.max_build_depth.max(other.max_build_depth);
+    }
+}
+
 mod changes;
 mod key_value_db;
 mod trie;
@@ -262,6 +303,69 @@ where
     ) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
         self.tries.set(identifier, key, *value)?;
         Ok(())
+    }
+
+    /// Insert a new key/value using an owned bit-vector key.
+    ///
+    /// This preserves the existing trie traversal semantics while avoiding the
+    /// extra bit-vector allocation otherwise needed to encode the flat key.
+    pub fn insert_owned(
+        &mut self,
+        identifier: &[u8],
+        key: BitVec,
+        value: &Felt,
+    ) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
+        self.tries.set_owned(identifier, key, *value)?;
+        Ok(())
+    }
+
+    /// Insert multiple key/value pairs into the same trie using owned bit-vector
+    /// keys.
+    ///
+    /// This preserves the same semantics as repeated [`Self::insert_owned`]
+    /// calls while letting callers group updates by identifier and avoid
+    /// repeatedly resolving the same inner trie.
+    pub fn insert_many_owned<I>(
+        &mut self,
+        identifier: &[u8],
+        entries: I,
+    ) -> Result<(), BonsaiStorageError<DB::DatabaseError>>
+    where
+        I: IntoIterator<Item = (BitVec, Felt)>,
+    {
+        self.tries.set_many_owned(identifier, entries)?;
+        Ok(())
+    }
+
+    /// Insert multiple key/value pairs into the same trie when the caller
+    /// already knows every entry is a real state change.
+    ///
+    /// This skips the committed flat-value lookup used by [`Self::insert`] to
+    /// detect no-op writes. It is intended for state-diff application paths,
+    /// not for arbitrary user writes.
+    pub fn insert_many_owned_assume_changed<I>(
+        &mut self,
+        identifier: &[u8],
+        entries: I,
+    ) -> Result<(), BonsaiStorageError<DB::DatabaseError>>
+    where
+        I: IntoIterator<Item = (BitVec, Felt)>,
+    {
+        self.tries
+            .set_many_owned_assume_changed(identifier, entries)?;
+        Ok(())
+    }
+
+    pub fn insert_many_owned_assume_changed_with_stats<I>(
+        &mut self,
+        identifier: &[u8],
+        entries: I,
+    ) -> Result<BulkInsertStats, BonsaiStorageError<DB::DatabaseError>>
+    where
+        I: IntoIterator<Item = (BitVec, Felt)>,
+    {
+        self.tries
+            .set_many_owned_assume_changed_with_stats(identifier, entries)
     }
 
     /// Remove a key/value in the trie

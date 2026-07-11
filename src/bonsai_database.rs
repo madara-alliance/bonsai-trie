@@ -67,6 +67,25 @@ pub trait BonsaiDatabase: core::fmt::Debug {
         batch: Option<&mut Self::Batch>,
     ) -> Result<Option<ByteVec>, Self::DatabaseError>;
 
+    /// Insert a key-value pair into a batch without returning or tracking the old value.
+    fn insert_untracked(
+        &mut self,
+        key: &DatabaseKey,
+        value: &[u8],
+        batch: &mut Self::Batch,
+    ) -> Result<(), Self::DatabaseError> {
+        self.insert(key, value, Some(batch)).map(|_| ())
+    }
+
+    /// Remove a key-value pair from a batch without returning or tracking the old value.
+    fn remove_untracked(
+        &mut self,
+        key: &DatabaseKey,
+        batch: &mut Self::Batch,
+    ) -> Result<(), Self::DatabaseError> {
+        self.remove(key, Some(batch)).map(|_| ())
+    }
+
     /// Remove all keys that start with the given prefix
     fn remove_by_prefix(&mut self, prefix: &DatabaseKey) -> Result<(), Self::DatabaseError>;
 
