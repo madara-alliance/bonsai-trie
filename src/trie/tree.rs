@@ -60,6 +60,8 @@ struct StagedHashComputation {
     hashes: Vec<Felt>,
 }
 
+type BulkEntry = (BitVec, ByteVec, Felt);
+
 const RETAIN_FULL_FRONTIER_MIN_HOT_KEYS: usize = 512;
 const RETAIN_FULL_FRONTIER_MAX_NODES: usize = 50_000;
 
@@ -1072,7 +1074,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
             return Ok(());
         }
 
-        let entries = self.prepare_nonzero_bulk_entries::<DB>(entries)?;
+        let entries = Self::prepare_nonzero_bulk_entries::<DB>(self.max_height, entries)?;
         let mut iter = self.iter(db);
         for (key, key_bytes, value) in entries {
             Self::set_nonzero_with_key_bytes_using_iter(&mut iter, &key, key_bytes, value, true)?;
@@ -1099,23 +1101,19 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
             return Ok(());
         }
 
-        let entries = self.prepare_nonzero_bulk_entries::<DB>(entries)?;
-        let mut iter = self.iter(db);
-        for (key, key_bytes, value) in entries {
-            Self::set_nonzero_with_key_bytes_using_iter(&mut iter, &key, key_bytes, value, false)?;
-        }
-        Ok(())
+        let entries = Self::prepare_nonzero_bulk_entries::<DB>(self.max_height, entries)?;
+        self.set_many_nonzero_owned_assume_changed_bulk(db, &entries)
     }
 
     fn prepare_nonzero_bulk_entries<DB: BonsaiDatabase>(
-        &self,
+        max_height: u8,
         entries: Vec<(BitVec, Felt)>,
-    ) -> Result<Vec<(BitVec, ByteVec, Felt)>, BonsaiStorageError<DB::DatabaseError>> {
+    ) -> Result<Vec<BulkEntry>, BonsaiStorageError<DB::DatabaseError>> {
         let mut prepared = Vec::with_capacity(entries.len());
         for (position, (key, value)) in entries.into_iter().enumerate() {
-            if key.len() != usize::from(self.max_height) {
+            if key.len() != usize::from(max_height) {
                 return Err(BonsaiStorageError::KeyLength {
-                    expected: usize::from(self.max_height),
+                    expected: usize::from(max_height),
                     got: key.len(),
                 });
             }
@@ -1138,6 +1136,323 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         }
 
         Ok(deduped)
+    }
+
+    fn set_many_nonzero_owned_assume_changed_bulk<DB: BonsaiDatabase, ID: Id>(
+        &mut self,
+        db: &KeyValueDB<DB, ID>,
+        entries: &[BulkEntry],
+    ) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
+        if entries.is_empty() {
+            return Ok(());
+        }
+
+        self.mark_dirty();
+        match self.load_root_node(db)? {
+            Some(root_id) => {
+                self.bulk_update_node_assume_changed(db, root_id, &Path::default(), entries)
+            }
+            None => {
+                let root =
+                    self.bulk_build_handle_assume_changed::<DB>(&Path::default(), entries)?;
+                match root {
+                    NodeHandle::InMemory(root_id) => {
+                        self.root_node = Some(RootHandle::Loaded(root_id));
+                        Ok(())
+                    }
+                    NodeHandle::Hash(_) => Err(BonsaiStorageError::Trie(
+                        "bulk insert built a leaf root".to_string(),
+                    )),
+                }
+            }
+        }
+    }
+
+    fn bulk_update_handle_assume_changed<DB: BonsaiDatabase, ID: Id>(
+        &mut self,
+        db: &KeyValueDB<DB, ID>,
+        handle: NodeHandle,
+        prefix: &Path,
+        entries: &[BulkEntry],
+    ) -> Result<NodeHandle, BonsaiStorageError<DB::DatabaseError>> {
+        if entries.is_empty() {
+            return Ok(handle);
+        }
+
+        if prefix.len() == usize::from(self.max_height) {
+            let (_key, key_bytes, value) = entries
+                .last()
+                .expect("bulk update handle called with non-empty entries");
+            self.cache_leaf_modified
+                .insert(key_bytes.clone(), InsertOrRemove::Insert(*value));
+            return Ok(NodeHandle::Hash(*value));
+        }
+
+        let node_id = self.load_node_handle(db, handle, prefix)?;
+        self.bulk_update_node_assume_changed(db, node_id, prefix, entries)?;
+        Ok(NodeHandle::InMemory(node_id))
+    }
+
+    fn bulk_update_node_assume_changed<DB: BonsaiDatabase, ID: Id>(
+        &mut self,
+        db: &KeyValueDB<DB, ID>,
+        node_id: NodeKey,
+        prefix: &Path,
+        entries: &[BulkEntry],
+    ) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
+        let node = self.get_node_mut::<DB>(node_id)?.clone();
+        match node {
+            Node::Binary(mut binary) => {
+                let height = binary.height as usize;
+                debug_assert_eq!(height, prefix.len());
+                binary.hash = None;
+
+                let split = Self::partition_by_direction(entries, height);
+                if split > 0 {
+                    let mut left_prefix = prefix.clone();
+                    left_prefix.push(false);
+                    binary.left = self.bulk_update_handle_assume_changed(
+                        db,
+                        binary.left,
+                        &left_prefix,
+                        &entries[..split],
+                    )?;
+                }
+                if split < entries.len() {
+                    let mut right_prefix = prefix.clone();
+                    right_prefix.push(true);
+                    binary.right = self.bulk_update_handle_assume_changed(
+                        db,
+                        binary.right,
+                        &right_prefix,
+                        &entries[split..],
+                    )?;
+                }
+
+                self.nodes[node_id] = Node::Binary(binary);
+            }
+            Node::Edge(mut edge) => {
+                let height = edge.height as usize;
+                debug_assert_eq!(height, prefix.len());
+                edge.hash = None;
+
+                let common_len = Self::edge_common_prefix_len(&edge, entries);
+                if common_len == edge.path.len() {
+                    let mut child_prefix = prefix.clone();
+                    child_prefix.extend_from_bitslice(&edge.path.0);
+                    edge.child = self.bulk_update_handle_assume_changed(
+                        db,
+                        edge.child,
+                        &child_prefix,
+                        entries,
+                    )?;
+                    self.nodes[node_id] = Node::Edge(edge);
+                    return Ok(());
+                }
+
+                let branch_height = height + common_len;
+                let child_height = branch_height + 1;
+                let common_path = edge.path[..common_len].to_bitvec();
+                let old_direction = Direction::from(edge.path[common_len]);
+                let old_path = edge.path[common_len + 1..].to_bitvec();
+
+                let mut old_prefix = prefix.clone();
+                old_prefix.extend_from_bitslice(&common_path);
+                old_prefix.push(bool::from(old_direction));
+
+                let old_handle = if old_path.is_empty() {
+                    edge.child
+                } else {
+                    let edge_id = self.nodes.insert(Node::Edge(EdgeNode {
+                        hash: None,
+                        height: child_height as u64,
+                        path: Path(old_path),
+                        child: edge.child,
+                    }));
+                    NodeHandle::InMemory(edge_id)
+                };
+
+                let split = Self::partition_by_direction(entries, branch_height);
+                let (left_entries, right_entries) = entries.split_at(split);
+
+                let mut left_handle = None;
+                let mut right_handle = None;
+
+                match old_direction {
+                    Direction::Left => {
+                        left_handle = Some(if left_entries.is_empty() {
+                            old_handle
+                        } else {
+                            self.bulk_update_handle_assume_changed(
+                                db,
+                                old_handle,
+                                &old_prefix,
+                                left_entries,
+                            )?
+                        });
+                    }
+                    Direction::Right => {
+                        right_handle = Some(if right_entries.is_empty() {
+                            old_handle
+                        } else {
+                            self.bulk_update_handle_assume_changed(
+                                db,
+                                old_handle,
+                                &old_prefix,
+                                right_entries,
+                            )?
+                        });
+                    }
+                }
+
+                if left_handle.is_none() && !left_entries.is_empty() {
+                    let mut left_prefix = prefix.clone();
+                    left_prefix.extend_from_bitslice(&common_path);
+                    left_prefix.push(false);
+                    left_handle = Some(
+                        self.bulk_build_handle_assume_changed::<DB>(&left_prefix, left_entries)?,
+                    );
+                }
+                if right_handle.is_none() && !right_entries.is_empty() {
+                    let mut right_prefix = prefix.clone();
+                    right_prefix.extend_from_bitslice(&common_path);
+                    right_prefix.push(true);
+                    right_handle = Some(
+                        self.bulk_build_handle_assume_changed::<DB>(&right_prefix, right_entries)?,
+                    );
+                }
+
+                let branch = Node::Binary(BinaryNode {
+                    hash: None,
+                    height: branch_height as u64,
+                    left: left_handle.ok_or_else(|| {
+                        BonsaiStorageError::Trie("bulk edge split missing left child".to_string())
+                    })?,
+                    right: right_handle.ok_or_else(|| {
+                        BonsaiStorageError::Trie("bulk edge split missing right child".to_string())
+                    })?,
+                });
+
+                self.nodes[node_id] = if common_path.is_empty() {
+                    branch
+                } else {
+                    let branch_id = self.nodes.insert(branch);
+                    Node::Edge(EdgeNode {
+                        hash: None,
+                        height: height as u64,
+                        path: Path(common_path),
+                        child: NodeHandle::InMemory(branch_id),
+                    })
+                };
+            }
+        }
+
+        Ok(())
+    }
+
+    fn bulk_build_handle_assume_changed<DB: BonsaiDatabase>(
+        &mut self,
+        prefix: &Path,
+        entries: &[BulkEntry],
+    ) -> Result<NodeHandle, BonsaiStorageError<DB::DatabaseError>> {
+        if entries.is_empty() {
+            return Err(BonsaiStorageError::Trie(
+                "bulk build called with no entries".to_string(),
+            ));
+        }
+
+        if entries.len() == 1 || prefix.len() == usize::from(self.max_height) {
+            let (key, key_bytes, value) = entries
+                .last()
+                .expect("bulk build called with non-empty entries");
+            self.cache_leaf_modified
+                .insert(key_bytes.clone(), InsertOrRemove::Insert(*value));
+
+            if prefix.len() == usize::from(self.max_height) {
+                return Ok(NodeHandle::Hash(*value));
+            }
+
+            let edge_id = self.nodes.insert(Node::Edge(EdgeNode {
+                hash: None,
+                height: prefix.len() as u64,
+                path: Path(key[prefix.len()..].to_bitvec()),
+                child: NodeHandle::Hash(*value),
+            }));
+            return Ok(NodeHandle::InMemory(edge_id));
+        }
+
+        let shared_prefix_len = Self::shared_prefix_len(entries, prefix.len());
+        if shared_prefix_len > prefix.len() {
+            let mut child_prefix = prefix.clone();
+            child_prefix.extend_from_bitslice(&entries[0].0[prefix.len()..shared_prefix_len]);
+            let child = self.bulk_build_handle_assume_changed::<DB>(&child_prefix, entries)?;
+            let edge_id = self.nodes.insert(Node::Edge(EdgeNode {
+                hash: None,
+                height: prefix.len() as u64,
+                path: Path(entries[0].0[prefix.len()..shared_prefix_len].to_bitvec()),
+                child,
+            }));
+            return Ok(NodeHandle::InMemory(edge_id));
+        }
+
+        let split = Self::partition_by_direction(entries, prefix.len());
+        if split == 0 || split == entries.len() {
+            return Err(BonsaiStorageError::Trie(
+                "bulk build could not partition entries".to_string(),
+            ));
+        }
+
+        let mut left_prefix = prefix.clone();
+        left_prefix.push(false);
+        let left = self.bulk_build_handle_assume_changed::<DB>(&left_prefix, &entries[..split])?;
+
+        let mut right_prefix = prefix.clone();
+        right_prefix.push(true);
+        let right =
+            self.bulk_build_handle_assume_changed::<DB>(&right_prefix, &entries[split..])?;
+
+        let binary_id = self.nodes.insert(Node::Binary(BinaryNode {
+            hash: None,
+            height: prefix.len() as u64,
+            left,
+            right,
+        }));
+        Ok(NodeHandle::InMemory(binary_id))
+    }
+
+    fn partition_by_direction(entries: &[BulkEntry], height: usize) -> usize {
+        entries.partition_point(|(key, _, _)| !key[height])
+    }
+
+    fn shared_prefix_len(entries: &[BulkEntry], start: usize) -> usize {
+        let first = &entries
+            .first()
+            .expect("shared prefix called with entries")
+            .0;
+        let last = &entries.last().expect("shared prefix called with entries").0;
+        let mut len = start;
+        while len < first.len() && first[len] == last[len] {
+            len += 1;
+        }
+        len
+    }
+
+    fn edge_common_prefix_len(edge: &EdgeNode, entries: &[BulkEntry]) -> usize {
+        entries
+            .iter()
+            .map(|(key, _, _)| {
+                let mut len = 0;
+                let height = edge.height as usize;
+                while len < edge.path.len()
+                    && height + len < key.len()
+                    && edge.path[len] == key[height + len]
+                {
+                    len += 1;
+                }
+                len
+            })
+            .min()
+            .expect("edge common prefix called with entries")
     }
 
     fn set_nonzero_with_key_bytes_using_iter<DB: BonsaiDatabase, ID: Id>(

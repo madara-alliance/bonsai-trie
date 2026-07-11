@@ -393,6 +393,98 @@ fn insert_many_owned_assume_changed_matches_repeated_insert_for_starknet_keys() 
 }
 
 #[test]
+fn insert_many_owned_assume_changed_updates_committed_trie_like_repeated_insert() {
+    let identifier = vec![45];
+    let tempdir1 = tempfile::tempdir().unwrap();
+    let db1 = create_rocks_db(tempdir1.path()).unwrap();
+    let mut repeated_storage: BonsaiStorage<_, _, Pedersen> = BonsaiStorage::new(
+        RocksDB::new(&db1, RocksDBConfig::default()),
+        BonsaiStorageConfig::default(),
+        251,
+    );
+
+    let tempdir2 = tempfile::tempdir().unwrap();
+    let db2 = create_rocks_db(tempdir2.path()).unwrap();
+    let mut bulk_storage: BonsaiStorage<_, _, Pedersen> = BonsaiStorage::new(
+        RocksDB::new(&db2, RocksDBConfig::default()),
+        BonsaiStorageConfig::default(),
+        251,
+    );
+
+    let initial = [
+        (
+            "0x0100000000000000000000000000000000000000000000000000000000000001",
+            "0x11",
+        ),
+        (
+            "0x0100000000000000000000000000000000000000000000000000000000000100",
+            "0x12",
+        ),
+        (
+            "0x0300000000000000000000000000000000000000000000000000000000000000",
+            "0x13",
+        ),
+    ];
+
+    for (key, value) in initial {
+        let key = Felt::from_hex(key).unwrap().to_bytes_be().view_bits()[5..].to_bitvec();
+        let value = Felt::from_hex(value).unwrap();
+        repeated_storage.insert(&identifier, &key, &value).unwrap();
+        bulk_storage.insert(&identifier, &key, &value).unwrap();
+    }
+
+    let mut id_builder = BasicIdBuilder::new();
+    let initial_id = id_builder.new_id();
+    repeated_storage.commit(initial_id).unwrap();
+    bulk_storage.commit(initial_id).unwrap();
+
+    let updates = [
+        (
+            "0x0100000000000000000000000000000000000000000000000000000000000001",
+            "0x21",
+        ),
+        (
+            "0x0100000000000000000000000000000000000000000000000000000000000002",
+            "0x22",
+        ),
+        (
+            "0x0180000000000000000000000000000000000000000000000000000000000000",
+            "0x23",
+        ),
+        (
+            "0x0380000000000000000000000000000000000000000000000000000000000000",
+            "0x24",
+        ),
+    ];
+
+    let mut bulk_updates = Vec::new();
+    for (key, value) in updates {
+        let key = Felt::from_hex(key).unwrap().to_bytes_be().view_bits()[5..].to_bitvec();
+        let value = Felt::from_hex(value).unwrap();
+        repeated_storage.insert(&identifier, &key, &value).unwrap();
+        bulk_updates.push((key, value));
+    }
+
+    bulk_storage
+        .insert_many_owned_assume_changed(&identifier, bulk_updates)
+        .unwrap();
+
+    assert_eq!(
+        repeated_storage.root_hash_staged(&identifier).unwrap(),
+        bulk_storage.root_hash_staged(&identifier).unwrap()
+    );
+
+    let update_id = id_builder.new_id();
+    repeated_storage.commit(update_id).unwrap();
+    bulk_storage.commit(update_id).unwrap();
+
+    assert_eq!(
+        repeated_storage.root_hash(&identifier).unwrap(),
+        bulk_storage.root_hash(&identifier).unwrap()
+    );
+}
+
+#[test]
 fn root_hash_similar_hashmap_db() {
     let identifier = vec![];
     let root_hash_1 = {
