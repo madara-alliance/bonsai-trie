@@ -311,6 +311,7 @@ fn insert_many_owned_matches_repeated_insert_for_starknet_keys() {
         ("0x123456789abcdef0123456789abcdef", "0x5"),
         ("0x100000000000000000000000000000000000000", "0x3"),
         ("0x200000000000000000000000000000000000000", "0x4"),
+        ("0x100000000000000000000000000000000000000", "0x6"),
     ];
 
     let mut batched_updates = Vec::new();
@@ -362,6 +363,7 @@ fn insert_many_owned_assume_changed_matches_repeated_insert_for_starknet_keys() 
         ("0x123456789abcdef0123456789abcdef", "0x2"),
         ("0x100000000000000000000000000000000000000", "0x3"),
         ("0x200000000000000000000000000000000000000", "0x4"),
+        ("0x100000000000000000000000000000000000000", "0x6"),
     ];
 
     let mut unchecked_updates = Vec::new();

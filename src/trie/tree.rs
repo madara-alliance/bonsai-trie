@@ -1072,9 +1072,9 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
             return Ok(());
         }
 
+        let entries = self.prepare_nonzero_bulk_entries::<DB>(entries)?;
         let mut iter = self.iter(db);
-        for (key, value) in entries {
-            let key_bytes = bitvec_to_bytes(&key);
+        for (key, key_bytes, value) in entries {
             Self::set_nonzero_with_key_bytes_using_iter(&mut iter, &key, key_bytes, value, true)?;
         }
         Ok(())
@@ -1099,12 +1099,45 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
             return Ok(());
         }
 
+        let entries = self.prepare_nonzero_bulk_entries::<DB>(entries)?;
         let mut iter = self.iter(db);
-        for (key, value) in entries {
-            let key_bytes = bitvec_to_bytes(&key);
+        for (key, key_bytes, value) in entries {
             Self::set_nonzero_with_key_bytes_using_iter(&mut iter, &key, key_bytes, value, false)?;
         }
         Ok(())
+    }
+
+    fn prepare_nonzero_bulk_entries<DB: BonsaiDatabase>(
+        &self,
+        entries: Vec<(BitVec, Felt)>,
+    ) -> Result<Vec<(BitVec, ByteVec, Felt)>, BonsaiStorageError<DB::DatabaseError>> {
+        let mut prepared = Vec::with_capacity(entries.len());
+        for (position, (key, value)) in entries.into_iter().enumerate() {
+            if key.len() != usize::from(self.max_height) {
+                return Err(BonsaiStorageError::KeyLength {
+                    expected: usize::from(self.max_height),
+                    got: key.len(),
+                });
+            }
+            let key_bytes = bitvec_to_bytes(&key);
+            prepared.push((key_bytes, position, key, value));
+        }
+
+        prepared.sort_unstable_by(|lhs, rhs| lhs.0.cmp(&rhs.0).then(lhs.1.cmp(&rhs.1)));
+
+        let mut deduped = Vec::with_capacity(prepared.len());
+        for (key_bytes, _position, key, value) in prepared {
+            if let Some((last_key, last_key_bytes, last_value)) = deduped.last_mut() {
+                if *last_key_bytes == key_bytes {
+                    *last_key = key;
+                    *last_value = value;
+                    continue;
+                }
+            }
+            deduped.push((key, key_bytes, value));
+        }
+
+        Ok(deduped)
     }
 
     fn set_nonzero_with_key_bytes_using_iter<DB: BonsaiDatabase, ID: Id>(
