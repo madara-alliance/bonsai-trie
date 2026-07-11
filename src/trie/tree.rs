@@ -7,8 +7,8 @@ use starknet_types_core::{felt::Felt, hash::StarkHash};
 use crate::trie::merkle_node::{hash_binary_node, hash_edge_node};
 use crate::BitVec;
 use crate::{
-    error::BonsaiStorageError, format, hash_map, id::Id, vec, BitSlice, BonsaiDatabase, ByteVec,
-    EncodeExt, HashMap, HashSet, KeyValueDB, ToString, Vec,
+    error::BonsaiStorageError, format, hash_map, id::Id, vec, BitSlice, BonsaiDatabase,
+    BulkInsertStats, ByteVec, EncodeExt, HashMap, HashSet, KeyValueDB, ToString, Vec,
 };
 
 use super::iterator::{MerkleTreeIterator, NodeVisitor};
@@ -1074,7 +1074,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
             return Ok(());
         }
 
-        let entries = Self::prepare_nonzero_bulk_entries::<DB>(self.max_height, entries)?;
+        let (entries, _) = Self::prepare_nonzero_bulk_entries::<DB>(self.max_height, entries)?;
         let mut iter = self.iter(db);
         for (key, key_bytes, value) in entries {
             Self::set_nonzero_with_key_bytes_using_iter(&mut iter, &key, key_bytes, value, true)?;
@@ -1101,14 +1101,56 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
             return Ok(());
         }
 
-        let entries = Self::prepare_nonzero_bulk_entries::<DB>(self.max_height, entries)?;
-        self.set_many_nonzero_owned_assume_changed_bulk(db, &entries)
+        self.set_many_owned_assume_changed_with_stats(db, entries)
+            .map(|_| ())
+    }
+
+    pub fn set_many_owned_assume_changed_with_stats<DB, ID, I>(
+        &mut self,
+        db: &KeyValueDB<DB, ID>,
+        entries: I,
+    ) -> Result<BulkInsertStats, BonsaiStorageError<DB::DatabaseError>>
+    where
+        DB: BonsaiDatabase,
+        ID: Id,
+        I: IntoIterator<Item = (BitVec, Felt)>,
+    {
+        let entries = entries.into_iter().collect::<Vec<_>>();
+        if entries.iter().any(|(_, value)| *value == Felt::ZERO) {
+            let mut stats = BulkInsertStats {
+                input_entries: entries.len() as u64,
+                prepared_entries: entries.len() as u64,
+                max_range_entries: entries.len() as u64,
+                ..Default::default()
+            };
+            let db_loads_before = self.perf_stats.db_node_loads;
+            let memory_hits_before = self.perf_stats.in_memory_node_hits;
+            for (key, value) in entries {
+                let key_bytes = bitvec_to_bytes(&key);
+                self.set_with_key_bytes(db, &key, key_bytes, value, false)?;
+            }
+            stats.db_node_loads = self
+                .perf_stats
+                .db_node_loads
+                .saturating_sub(db_loads_before) as u64;
+            stats.in_memory_node_hits = self
+                .perf_stats
+                .in_memory_node_hits
+                .saturating_sub(memory_hits_before) as u64;
+            return Ok(stats);
+        }
+
+        let (entries, mut stats) =
+            Self::prepare_nonzero_bulk_entries::<DB>(self.max_height, entries)?;
+        self.set_many_nonzero_owned_assume_changed_bulk(db, &entries, &mut stats)?;
+        Ok(stats)
     }
 
     fn prepare_nonzero_bulk_entries<DB: BonsaiDatabase>(
         max_height: u8,
         entries: Vec<(BitVec, Felt)>,
-    ) -> Result<Vec<BulkEntry>, BonsaiStorageError<DB::DatabaseError>> {
+    ) -> Result<(Vec<BulkEntry>, BulkInsertStats), BonsaiStorageError<DB::DatabaseError>> {
+        let input_entries = entries.len();
         let mut prepared = Vec::with_capacity(entries.len());
         for (position, (key, value)) in entries.into_iter().enumerate() {
             if key.len() != usize::from(max_height) {
@@ -1135,26 +1177,41 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
             deduped.push((key, key_bytes, value));
         }
 
-        Ok(deduped)
+        let stats = BulkInsertStats {
+            input_entries: input_entries as u64,
+            prepared_entries: deduped.len() as u64,
+            duplicate_entries: input_entries.saturating_sub(deduped.len()) as u64,
+            max_range_entries: deduped.len() as u64,
+            ..Default::default()
+        };
+
+        Ok((deduped, stats))
     }
 
     fn set_many_nonzero_owned_assume_changed_bulk<DB: BonsaiDatabase, ID: Id>(
         &mut self,
         db: &KeyValueDB<DB, ID>,
         entries: &[BulkEntry],
+        stats: &mut BulkInsertStats,
     ) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
         if entries.is_empty() {
             return Ok(());
         }
 
+        let db_loads_before = self.perf_stats.db_node_loads;
+        let memory_hits_before = self.perf_stats.in_memory_node_hits;
         self.mark_dirty();
-        match self.load_root_node(db)? {
+        let result = match self.load_root_node(db)? {
             Some(root_id) => {
-                self.bulk_update_node_assume_changed(db, root_id, &Path::default(), entries)
+                self.bulk_update_node_assume_changed(db, root_id, &Path::default(), entries, stats)
             }
             None => {
-                let root =
-                    self.bulk_build_handle_assume_changed::<DB>(&Path::default(), entries)?;
+                let root = self.bulk_build_handle_assume_changed::<DB>(
+                    &Path::default(),
+                    entries,
+                    0,
+                    stats,
+                )?;
                 match root {
                     NodeHandle::InMemory(root_id) => {
                         self.root_node = Some(RootHandle::Loaded(root_id));
@@ -1165,7 +1222,16 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
                     )),
                 }
             }
-        }
+        };
+        stats.db_node_loads = self
+            .perf_stats
+            .db_node_loads
+            .saturating_sub(db_loads_before) as u64;
+        stats.in_memory_node_hits = self
+            .perf_stats
+            .in_memory_node_hits
+            .saturating_sub(memory_hits_before) as u64;
+        result
     }
 
     fn bulk_update_handle_assume_changed<DB: BonsaiDatabase, ID: Id>(
@@ -1174,10 +1240,12 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         handle: NodeHandle,
         prefix: &Path,
         entries: &[BulkEntry],
+        stats: &mut BulkInsertStats,
     ) -> Result<NodeHandle, BonsaiStorageError<DB::DatabaseError>> {
         if entries.is_empty() {
             return Ok(handle);
         }
+        stats.max_range_entries = stats.max_range_entries.max(entries.len() as u64);
 
         if prefix.len() == usize::from(self.max_height) {
             let (_key, key_bytes, value) = entries
@@ -1185,11 +1253,13 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
                 .expect("bulk update handle called with non-empty entries");
             self.cache_leaf_modified
                 .insert(key_bytes.clone(), InsertOrRemove::Insert(*value));
+            stats.leaf_updates += 1;
             return Ok(NodeHandle::Hash(*value));
         }
 
+        stats.loaded_handles += 1;
         let node_id = self.load_node_handle(db, handle, prefix)?;
-        self.bulk_update_node_assume_changed(db, node_id, prefix, entries)?;
+        self.bulk_update_node_assume_changed(db, node_id, prefix, entries, stats)?;
         Ok(NodeHandle::InMemory(node_id))
     }
 
@@ -1199,10 +1269,13 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         node_id: NodeKey,
         prefix: &Path,
         entries: &[BulkEntry],
+        stats: &mut BulkInsertStats,
     ) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
+        stats.max_range_entries = stats.max_range_entries.max(entries.len() as u64);
         let node = self.get_node_mut::<DB>(node_id)?.clone();
         match node {
             Node::Binary(mut binary) => {
+                stats.updated_binary_nodes += 1;
                 let height = binary.height as usize;
                 debug_assert_eq!(height, prefix.len());
                 binary.hash = None;
@@ -1216,6 +1289,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
                         binary.left,
                         &left_prefix,
                         &entries[..split],
+                        stats,
                     )?;
                 }
                 if split < entries.len() {
@@ -1226,12 +1300,14 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
                         binary.right,
                         &right_prefix,
                         &entries[split..],
+                        stats,
                     )?;
                 }
 
                 self.nodes[node_id] = Node::Binary(binary);
             }
             Node::Edge(mut edge) => {
+                stats.updated_edge_nodes += 1;
                 let height = edge.height as usize;
                 debug_assert_eq!(height, prefix.len());
                 edge.hash = None;
@@ -1245,11 +1321,13 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
                         edge.child,
                         &child_prefix,
                         entries,
+                        stats,
                     )?;
                     self.nodes[node_id] = Node::Edge(edge);
                     return Ok(());
                 }
 
+                stats.split_edge_nodes += 1;
                 let branch_height = height + common_len;
                 let child_height = branch_height + 1;
                 let common_path = edge.path[..common_len].to_bitvec();
@@ -1269,6 +1347,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
                         path: Path(old_path),
                         child: edge.child,
                     }));
+                    stats.built_edge_nodes += 1;
                     NodeHandle::InMemory(edge_id)
                 };
 
@@ -1288,6 +1367,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
                                 old_handle,
                                 &old_prefix,
                                 left_entries,
+                                stats,
                             )?
                         });
                     }
@@ -1300,6 +1380,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
                                 old_handle,
                                 &old_prefix,
                                 right_entries,
+                                stats,
                             )?
                         });
                     }
@@ -1309,17 +1390,23 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
                     let mut left_prefix = prefix.clone();
                     left_prefix.extend_from_bitslice(&common_path);
                     left_prefix.push(false);
-                    left_handle = Some(
-                        self.bulk_build_handle_assume_changed::<DB>(&left_prefix, left_entries)?,
-                    );
+                    left_handle = Some(self.bulk_build_handle_assume_changed::<DB>(
+                        &left_prefix,
+                        left_entries,
+                        0,
+                        stats,
+                    )?);
                 }
                 if right_handle.is_none() && !right_entries.is_empty() {
                     let mut right_prefix = prefix.clone();
                     right_prefix.extend_from_bitslice(&common_path);
                     right_prefix.push(true);
-                    right_handle = Some(
-                        self.bulk_build_handle_assume_changed::<DB>(&right_prefix, right_entries)?,
-                    );
+                    right_handle = Some(self.bulk_build_handle_assume_changed::<DB>(
+                        &right_prefix,
+                        right_entries,
+                        0,
+                        stats,
+                    )?);
                 }
 
                 let branch = Node::Binary(BinaryNode {
@@ -1334,9 +1421,12 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
                 });
 
                 self.nodes[node_id] = if common_path.is_empty() {
+                    stats.built_binary_nodes += 1;
                     branch
                 } else {
                     let branch_id = self.nodes.insert(branch);
+                    stats.built_binary_nodes += 1;
+                    stats.built_edge_nodes += 1;
                     Node::Edge(EdgeNode {
                         hash: None,
                         height: height as u64,
@@ -1354,12 +1444,16 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         &mut self,
         prefix: &Path,
         entries: &[BulkEntry],
+        depth: u64,
+        stats: &mut BulkInsertStats,
     ) -> Result<NodeHandle, BonsaiStorageError<DB::DatabaseError>> {
         if entries.is_empty() {
             return Err(BonsaiStorageError::Trie(
                 "bulk build called with no entries".to_string(),
             ));
         }
+        stats.max_range_entries = stats.max_range_entries.max(entries.len() as u64);
+        stats.max_build_depth = stats.max_build_depth.max(depth);
 
         if entries.len() == 1 || prefix.len() == usize::from(self.max_height) {
             let (key, key_bytes, value) = entries
@@ -1367,6 +1461,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
                 .expect("bulk build called with non-empty entries");
             self.cache_leaf_modified
                 .insert(key_bytes.clone(), InsertOrRemove::Insert(*value));
+            stats.leaf_updates += 1;
 
             if prefix.len() == usize::from(self.max_height) {
                 return Ok(NodeHandle::Hash(*value));
@@ -1378,6 +1473,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
                 path: Path(key[prefix.len()..].to_bitvec()),
                 child: NodeHandle::Hash(*value),
             }));
+            stats.built_edge_nodes += 1;
             return Ok(NodeHandle::InMemory(edge_id));
         }
 
@@ -1385,13 +1481,19 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         if shared_prefix_len > prefix.len() {
             let mut child_prefix = prefix.clone();
             child_prefix.extend_from_bitslice(&entries[0].0[prefix.len()..shared_prefix_len]);
-            let child = self.bulk_build_handle_assume_changed::<DB>(&child_prefix, entries)?;
+            let child = self.bulk_build_handle_assume_changed::<DB>(
+                &child_prefix,
+                entries,
+                depth + 1,
+                stats,
+            )?;
             let edge_id = self.nodes.insert(Node::Edge(EdgeNode {
                 hash: None,
                 height: prefix.len() as u64,
                 path: Path(entries[0].0[prefix.len()..shared_prefix_len].to_bitvec()),
                 child,
             }));
+            stats.built_edge_nodes += 1;
             return Ok(NodeHandle::InMemory(edge_id));
         }
 
@@ -1404,12 +1506,21 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
 
         let mut left_prefix = prefix.clone();
         left_prefix.push(false);
-        let left = self.bulk_build_handle_assume_changed::<DB>(&left_prefix, &entries[..split])?;
+        let left = self.bulk_build_handle_assume_changed::<DB>(
+            &left_prefix,
+            &entries[..split],
+            depth + 1,
+            stats,
+        )?;
 
         let mut right_prefix = prefix.clone();
         right_prefix.push(true);
-        let right =
-            self.bulk_build_handle_assume_changed::<DB>(&right_prefix, &entries[split..])?;
+        let right = self.bulk_build_handle_assume_changed::<DB>(
+            &right_prefix,
+            &entries[split..],
+            depth + 1,
+            stats,
+        )?;
 
         let binary_id = self.nodes.insert(Node::Binary(BinaryNode {
             hash: None,
@@ -1417,6 +1528,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
             left,
             right,
         }));
+        stats.built_binary_nodes += 1;
         Ok(NodeHandle::InMemory(binary_id))
     }
 

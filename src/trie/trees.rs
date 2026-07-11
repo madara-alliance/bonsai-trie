@@ -1,7 +1,7 @@
 use super::{proof::MultiProof, tree::MerkleTree};
 use crate::{
     id::Id, key_value_db::KeyValueDB, trie::tree::InsertOrRemove, BitSlice, BitVec, BonsaiDatabase,
-    BonsaiStorageError, ByteVec, HashMap, Vec,
+    BonsaiStorageError, BulkInsertStats, ByteVec, HashMap, Vec,
 };
 use core::fmt;
 use starknet_types_core::{felt::Felt, hash::StarkHash};
@@ -103,6 +103,22 @@ impl<H: StarkHash + Send + Sync, DB: BonsaiDatabase, CommitID: Id> MerkleTrees<H
             .or_insert_with(|| MerkleTree::new(identifier.into(), self.max_height));
 
         tree.set_many_owned_assume_changed(&self.db, entries)
+    }
+
+    pub(crate) fn set_many_owned_assume_changed_with_stats<I>(
+        &mut self,
+        identifier: &[u8],
+        entries: I,
+    ) -> Result<BulkInsertStats, BonsaiStorageError<DB::DatabaseError>>
+    where
+        I: IntoIterator<Item = (BitVec, Felt)>,
+    {
+        let tree = self
+            .trees
+            .entry_ref(identifier)
+            .or_insert_with(|| MerkleTree::new(identifier.into(), self.max_height));
+
+        tree.set_many_owned_assume_changed_with_stats(&self.db, entries)
     }
 
     pub(crate) fn get(
