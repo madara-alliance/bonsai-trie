@@ -237,6 +237,10 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         self.staged_hashes.clear();
     }
 
+    pub(crate) fn has_pending_changes(&self) -> bool {
+        self.dirty
+    }
+
     fn in_memory_node_hash<DB: BonsaiDatabase>(
         &self,
         node_id: NodeKey,
@@ -1619,6 +1623,39 @@ mod staged_hash_cache_tests {
             "retained frontier should stay small for a single recently touched branch, got {} nodes",
             tree.nodes.len()
         );
+    }
+
+    #[test]
+    fn retained_frontier_drops_identifiers_not_changed_in_the_next_commit() {
+        let first_identifier = vec![1];
+        let second_identifier = vec![2];
+        let key = BitVec::from_vec(vec![0b1000_0000]);
+        let mut bonsai_storage: BonsaiStorage<_, _, Pedersen> = BonsaiStorage::new(
+            HashMapDb::<BasicId>::default(),
+            BonsaiStorageConfig::default(),
+            8,
+        );
+        let mut id_builder = BasicIdBuilder::new();
+
+        bonsai_storage
+            .insert(&first_identifier, &key, &Felt::from_hex("0x11").unwrap())
+            .unwrap();
+        bonsai_storage.commit(id_builder.new_id()).unwrap();
+
+        bonsai_storage
+            .insert(&second_identifier, &key, &Felt::from_hex("0x22").unwrap())
+            .unwrap();
+        bonsai_storage.commit(id_builder.new_id()).unwrap();
+
+        assert_eq!(bonsai_storage.tries.trees.len(), 1);
+        assert!(!bonsai_storage
+            .tries
+            .trees
+            .contains_key(first_identifier.as_slice()));
+        assert!(bonsai_storage
+            .tries
+            .trees
+            .contains_key(second_identifier.as_slice()));
     }
 
     #[test]

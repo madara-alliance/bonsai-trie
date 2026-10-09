@@ -198,6 +198,10 @@ impl<H: StarkHash + Send + Sync, DB: BonsaiDatabase, CommitID: Id> MerkleTrees<H
         #[cfg(feature = "std")]
         use rayon::prelude::*;
 
+        // Keep only frontiers that were reused by this commit. Without this,
+        // a long-lived multi-trie handle retains one tree per identifier forever.
+        self.trees.retain(|_, tree| tree.has_pending_changes());
+
         #[cfg(not(feature = "std"))]
         let db_changes = self
             .trees
