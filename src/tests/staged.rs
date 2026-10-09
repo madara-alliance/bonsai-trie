@@ -11,9 +11,11 @@ fn staged_root_matches_committed_root() {
     let identifier = vec![];
     let tempdir = tempfile::tempdir().unwrap();
     let db = create_rocks_db(tempdir.path()).unwrap();
-    let config = BonsaiStorageConfig::default();
-    let mut bonsai_storage: BonsaiStorage<_, _, Pedersen> =
-        BonsaiStorage::new(RocksDB::new(&db, RocksDBConfig::default()), config, 24);
+    let mut bonsai_storage: BonsaiStorage<_, _, Pedersen> = BonsaiStorage::new(
+        RocksDB::new(&db, RocksDBConfig::default()),
+        BonsaiStorageConfig::default(),
+        24,
+    );
     let mut id_builder = BasicIdBuilder::new();
 
     let pair1 = (
@@ -224,4 +226,118 @@ fn staged_root_with_multiple_identifiers() {
 
     assert_eq!(staged_a, committed_a);
     assert_eq!(staged_b, committed_b);
+}
+
+#[test]
+fn staged_root_after_multiple_incremental_commits() {
+    let identifier = vec![];
+    let tempdir = tempfile::tempdir().unwrap();
+    let db = create_rocks_db(tempdir.path()).unwrap();
+    let config = BonsaiStorageConfig::default();
+    let mut bonsai_storage: BonsaiStorage<_, _, Pedersen> =
+        BonsaiStorage::new(RocksDB::new(&db, RocksDBConfig::default()), config, 24);
+    let mut id_builder = BasicIdBuilder::new();
+
+    let pairs = vec![
+        (
+            vec![1, 2, 1],
+            Felt::from_hex("0x66342762FDD54D033c195fec3ce2568b62052e").unwrap(),
+        ),
+        (
+            vec![1, 2, 2],
+            Felt::from_hex("0x66342762FD54D033c195fec3ce2568b62052e").unwrap(),
+        ),
+        (
+            vec![1, 2, 3],
+            Felt::from_hex("0x66342762FD54D033c195fec3ce2568b62052f").unwrap(),
+        ),
+    ];
+
+    bonsai_storage
+        .insert(
+            &identifier,
+            &BitVec::from_vec(pairs[0].0.clone()),
+            &pairs[0].1,
+        )
+        .unwrap();
+    bonsai_storage.commit(id_builder.new_id()).unwrap();
+
+    bonsai_storage
+        .insert(
+            &identifier,
+            &BitVec::from_vec(pairs[1].0.clone()),
+            &pairs[1].1,
+        )
+        .unwrap();
+    let staged_round_two = bonsai_storage.root_hash_staged(&identifier).unwrap();
+    bonsai_storage.commit(id_builder.new_id()).unwrap();
+    assert_eq!(
+        staged_round_two,
+        bonsai_storage.root_hash(&identifier).unwrap()
+    );
+
+    bonsai_storage
+        .insert(
+            &identifier,
+            &BitVec::from_vec(pairs[2].0.clone()),
+            &pairs[2].1,
+        )
+        .unwrap();
+    let staged_round_three = bonsai_storage.root_hash_staged(&identifier).unwrap();
+    bonsai_storage.commit(id_builder.new_id()).unwrap();
+    let final_root = bonsai_storage.root_hash(&identifier).unwrap();
+    assert_eq!(staged_round_three, final_root);
+
+    let comparison_tempdir = tempfile::tempdir().unwrap();
+    let comparison_db = create_rocks_db(comparison_tempdir.path()).unwrap();
+    let mut comparison_storage: BonsaiStorage<_, _, Pedersen> = BonsaiStorage::new(
+        RocksDB::new(&comparison_db, RocksDBConfig::default()),
+        BonsaiStorageConfig::default(),
+        24,
+    );
+    let mut comparison_ids = BasicIdBuilder::new();
+    for (key, value) in pairs {
+        comparison_storage
+            .insert(&identifier, &BitVec::from_vec(key), &value)
+            .unwrap();
+    }
+    comparison_storage.commit(comparison_ids.new_id()).unwrap();
+
+    assert_eq!(
+        final_root,
+        comparison_storage.root_hash(&identifier).unwrap()
+    );
+}
+
+#[test]
+fn clean_commit_with_retained_frontier_is_noop() {
+    let identifier = vec![];
+    let tempdir = tempfile::tempdir().unwrap();
+    let db = create_rocks_db(tempdir.path()).unwrap();
+    let mut bonsai_storage: BonsaiStorage<_, _, Pedersen> = BonsaiStorage::new(
+        RocksDB::new(&db, RocksDBConfig::default()),
+        BonsaiStorageConfig::default(),
+        24,
+    );
+    let mut id_builder = BasicIdBuilder::new();
+
+    let pair = (
+        vec![1, 2, 1],
+        Felt::from_hex("0x66342762FDD54D033c195fec3ce2568b62052e").unwrap(),
+    );
+    bonsai_storage
+        .insert(&identifier, &BitVec::from_vec(pair.0.clone()), &pair.1)
+        .unwrap();
+
+    let staged_root = bonsai_storage.root_hash_staged(&identifier).unwrap();
+    bonsai_storage.commit(id_builder.new_id()).unwrap();
+    assert_eq!(staged_root, bonsai_storage.root_hash(&identifier).unwrap());
+
+    // Second commit has no new mutations and should keep the already-loaded frontier stable.
+    bonsai_storage.commit(id_builder.new_id()).unwrap();
+    assert_eq!(staged_root, bonsai_storage.root_hash(&identifier).unwrap());
+    assert_eq!(
+        staged_root,
+        bonsai_storage.root_hash_staged(&identifier).unwrap()
+    );
 }

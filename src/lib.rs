@@ -424,8 +424,7 @@ where
         &mut self,
         id: ChangeID,
     ) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
-        self.tries.commit()?;
-        self.tries.db_mut().commit(id)?;
+        self.tries.commit(id)?;
         Ok(())
     }
 
@@ -471,8 +470,7 @@ where
         &mut self,
         id: ChangeID,
     ) -> Result<(), BonsaiStorageError<<DB as BonsaiDatabase>::DatabaseError>> {
-        self.tries.commit()?;
-        self.tries.db_mut().commit(id)?;
+        self.tries.commit(id)?;
         self.tries.db_mut().create_snapshot(id);
         Ok(())
     }
