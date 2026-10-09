@@ -224,6 +224,20 @@ where
         changes: Vec<(TrieKey, Option<ByteVec>)>,
         batch: &mut DB::Batch,
     ) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
+        if self.config.max_saved_trie_logs == Some(0) {
+            for (key, new_value) in changes {
+                let database_key = DatabaseKey::from(&key);
+                match new_value {
+                    Some(new_value) => {
+                        self.db
+                            .insert_untracked(&database_key, &new_value, Some(&mut *batch))?;
+                    }
+                    None => self.db.remove_untracked(&database_key, Some(&mut *batch))?,
+                }
+            }
+            return Ok(());
+        }
+
         let database_keys = changes
             .iter()
             .map(|(key, _)| DatabaseKey::from(key))
