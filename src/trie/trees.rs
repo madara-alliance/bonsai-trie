@@ -194,7 +194,10 @@ impl<H: StarkHash + Send + Sync, DB: BonsaiDatabase, CommitID: Id> MerkleTrees<H
             .map_err(|e| e.into())
     }
 
-    pub(crate) fn commit(&mut self) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
+    pub(crate) fn commit(
+        &mut self,
+        id: CommitID,
+    ) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
         #[cfg(feature = "std")]
         use rayon::prelude::*;
 
@@ -227,7 +230,11 @@ impl<H: StarkHash + Send + Sync, DB: BonsaiDatabase, CommitID: Id> MerkleTrees<H
                 }
             }
         }
+        let prune_id = self.db.append_trie_log(id, &mut batch)?;
         self.db.write_batch(batch)?;
+        if let Some(prune_id) = prune_id {
+            self.db.prune_trie_log(prune_id)?;
+        }
         Ok(())
     }
 
