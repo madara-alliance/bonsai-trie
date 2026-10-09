@@ -124,7 +124,7 @@ where
             // optim when trie logs are disabled.
             for (key, change) in current_changes.serialize(&id).iter() {
                 self.db
-                    .insert(&DatabaseKey::TrieLog(key), change, Some(&mut batch))?;
+                    .insert_untracked(&DatabaseKey::TrieLog(key), change, Some(&mut batch))?;
             }
             self.db.write_batch(batch)?;
 
