@@ -1,4 +1,4 @@
-use crate::{bytes_to_bitvec, format, BitVec, ByteVec, Change as ExternChange};
+use crate::{bytes_to_bitvec, format, BitVec, ByteVec, Change as ExternChange, Vec};
 use hashbrown::HashMap;
 use log::trace;
 use parity_scale_codec::Decode;
