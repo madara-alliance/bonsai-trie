@@ -218,18 +218,19 @@ impl<H: StarkHash + Send + Sync, DB: BonsaiDatabase, CommitID: Id> MerkleTrees<H
             .collect::<Vec<_>>();
 
         let mut batch = self.db.create_batch();
+        let mut updates = Vec::new();
         for changes in db_changes {
             for (key, value) in changes?.into_iter() {
-                match value {
-                    InsertOrRemove::Insert(value) => {
-                        self.db.insert(&key, &value, Some(&mut batch))?;
-                    }
-                    InsertOrRemove::Remove => {
-                        self.db.remove(&key, Some(&mut batch))?;
-                    }
-                }
+                updates.push((
+                    key,
+                    match value {
+                        InsertOrRemove::Insert(value) => Some(value),
+                        InsertOrRemove::Remove => None,
+                    },
+                ));
             }
         }
+        self.db.apply_changes(updates, &mut batch)?;
         let prune_id = self.db.append_trie_log(id, &mut batch)?;
         self.db.write_batch(batch)?;
         if let Some(prune_id) = prune_id {

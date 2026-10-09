@@ -219,6 +219,51 @@ where
         Ok(())
     }
 
+    pub(crate) fn apply_changes(
+        &mut self,
+        changes: Vec<(TrieKey, Option<ByteVec>)>,
+        batch: &mut DB::Batch,
+    ) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
+        let database_keys = changes
+            .iter()
+            .map(|(key, _)| DatabaseKey::from(key))
+            .collect::<Vec<_>>();
+        let old_values = self.db.get_multi(&database_keys)?;
+        assert_eq!(
+            old_values.len(),
+            changes.len(),
+            "multi-get result count must match input count"
+        );
+
+        for ((key, new_value), old_value) in changes.into_iter().zip(old_values) {
+            let database_key = DatabaseKey::from(&key);
+            match new_value {
+                Some(new_value) => {
+                    self.db
+                        .insert_untracked(&database_key, &new_value, Some(&mut *batch))?;
+                    self.changes_store.current_changes.insert_in_place(
+                        key,
+                        Change {
+                            old_value,
+                            new_value: Some(new_value),
+                        },
+                    );
+                }
+                None => {
+                    self.db.remove_untracked(&database_key, Some(&mut *batch))?;
+                    self.changes_store.current_changes.insert_in_place(
+                        key,
+                        Change {
+                            old_value,
+                            new_value: None,
+                        },
+                    );
+                }
+            }
+        }
+        Ok(())
+    }
+
     pub(crate) fn write_batch(
         &mut self,
         batch: DB::Batch,
