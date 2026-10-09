@@ -143,6 +143,9 @@ pub struct MerkleTree<H: StarkHash> {
     pub(crate) death_row: HashSet<TrieKey>,
     /// The list of leaves that have been modified during the current commit.
     pub(crate) cache_leaf_modified: HashMap<ByteVec, InsertOrRemove<Felt>>,
+    /// Logical paths for modified leaves. The persisted flat-key encoding keeps the
+    /// source bit-slice offset, so it cannot be decoded into a path from its bytes alone.
+    cache_leaf_paths: HashMap<ByteVec, BitVec>,
     /// Whether this tree has staged mutations that are not yet committed.
     dirty: bool,
     /// Cached staged root computation so commit can reuse the exact same hash walk.
@@ -163,6 +166,7 @@ impl<H: StarkHash> fmt::Debug for MerkleTree<H> {
             .field("identifier", &self.identifier)
             .field("death_row", &self.death_row)
             .field("cache_leaf_modified", &self.cache_leaf_modified)
+            .field("cache_leaf_paths", &self.cache_leaf_paths)
             .field("dirty", &self.dirty)
             .field("staged_hashes", &self.staged_hashes)
             .field("perf_stats", &self.perf_stats)
@@ -181,6 +185,7 @@ impl<H: StarkHash> Clone for MerkleTree<H> {
             identifier: self.identifier.clone(),
             death_row: self.death_row.clone(),
             cache_leaf_modified: self.cache_leaf_modified.clone(),
+            cache_leaf_paths: self.cache_leaf_paths.clone(),
             dirty: self.dirty,
             staged_hashes: self.staged_hashes.clone(),
             perf_stats: self.perf_stats,
@@ -224,6 +229,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
             identifier,
             death_row: HashSet::new(),
             cache_leaf_modified: HashMap::new(),
+            cache_leaf_paths: HashMap::new(),
             dirty: false,
             staged_hashes: Default::default(),
             perf_stats: Default::default(),
@@ -374,7 +380,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
 
     fn retain_recent_frontier<DB: BonsaiDatabase>(
         &mut self,
-        hot_keys: &[ByteVec],
+        hot_keys: &[BitVec],
     ) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
         let Some(root_handle) = self.root_node else {
             self.nodes.clear();
@@ -389,7 +395,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         let mut retained_nodes = HashSet::default();
         retained_nodes.insert(root_id);
         for key in hot_keys {
-            self.mark_recent_frontier_nodes::<DB>(&mut retained_nodes, root_id, hot_key_bits(key))?;
+            self.mark_recent_frontier_nodes::<DB>(&mut retained_nodes, root_id, key)?;
         }
 
         let mut remapped_nodes = HashMap::default();
@@ -591,7 +597,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
     ) -> Result<HashMap<TrieKey, InsertOrRemove<ByteVec>>, BonsaiStorageError<DB::DatabaseError>>
     {
         let dirty_before_commit = self.dirty;
-        let hot_keys = self.cache_leaf_modified.keys().cloned().collect::<Vec<_>>();
+        let hot_keys = self.cache_leaf_paths.values().cloned().collect::<Vec<_>>();
         let mut updates = HashMap::new();
         for node_key in mem::take(&mut self.death_row) {
             updates.insert(node_key, InsertOrRemove::Remove);
@@ -622,6 +628,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
             self.dirty = false;
             self.retain_recent_frontier::<DB>(&hot_keys)?;
         }
+        self.cache_leaf_paths.clear();
 
         for (key, value) in mem::take(&mut self.cache_leaf_modified) {
             updates.insert(
@@ -974,6 +981,8 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
             }
         }
 
+        self.cache_leaf_paths
+            .insert(key_bytes.clone(), key.to_bitvec());
         self.mark_dirty();
         let mut iter = self.iter(db);
         iter.traverse_to(&mut InvalidateHashesVisitor(PhantomData), key)?;
@@ -1181,6 +1190,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
             return Ok(());
         }
         leaf_entry.insert(InsertOrRemove::Remove);
+        self.cache_leaf_paths.insert(key_bytes, key.to_bitvec());
 
         self.mark_dirty();
         let mut iter = self.iter(db);
@@ -1507,14 +1517,6 @@ pub(crate) fn bytes_to_bitvec(bytes: &[u8]) -> BitVec {
     BitSlice::from_slice(&bytes[1..]).to_bitvec()
 }
 
-fn hot_key_bits(key: &[u8]) -> &BitSlice {
-    let Some((&bit_len, raw_bits)) = key.split_first() else {
-        return BitSlice::empty();
-    };
-    let bits = BitSlice::from_slice(raw_bits);
-    &bits[..usize::from(bit_len).min(bits.len())]
-}
-
 #[cfg(all(test, feature = "std"))]
 mod staged_hash_cache_tests {
     use super::{Node, NodeHandle, RootHandle, StagedHashCacheCell, StagedHashComputation};
@@ -1523,6 +1525,8 @@ mod staged_hash_cache_tests {
         id::{BasicId, BasicIdBuilder},
         BitVec, BonsaiStorage, BonsaiStorageConfig,
     };
+    use bitvec::view::BitView;
+    use rand::{rngs::SmallRng, RngCore, SeedableRng};
     use starknet_types_core::felt::Felt;
     use starknet_types_core::hash::Pedersen;
 
@@ -1623,6 +1627,76 @@ mod staged_hash_cache_tests {
             "retained frontier should stay small for a single recently touched branch, got {} nodes",
             tree.nodes.len()
         );
+    }
+
+    #[test]
+    fn retained_frontier_preserves_non_byte_aligned_hot_paths() {
+        const KEY_COUNT: usize = 1_024;
+
+        let identifier = vec![];
+        let mut bonsai_storage: BonsaiStorage<_, _, Pedersen> = BonsaiStorage::new(
+            HashMapDb::<BasicId>::default(),
+            BonsaiStorageConfig::default(),
+            251,
+        );
+        let mut rng = SmallRng::seed_from_u64(0x5eed);
+        let mut keys = Vec::with_capacity(KEY_COUNT);
+
+        for _ in 0..KEY_COUNT {
+            let mut key = [0u8; 32];
+            rng.fill_bytes(&mut key);
+            key[0] &= 0b0000_0111;
+            keys.push(key);
+        }
+
+        for (index, key) in keys.iter().enumerate() {
+            let key_bits: BitVec = key.view_bits()[5..].to_owned();
+            bonsai_storage
+                .insert(&identifier, &key_bits, &Felt::from(index as u64 + 1))
+                .unwrap();
+        }
+
+        let mut id_builder = BasicIdBuilder::new();
+        bonsai_storage.commit(id_builder.new_id()).unwrap();
+
+        let tree = retained_tree(&bonsai_storage, &identifier);
+        assert!(
+            tree.nodes.len() >= KEY_COUNT - 1,
+            "a binary trie containing {KEY_COUNT} distinct hot leaves needs at least {} branch nodes, but only {} were retained",
+            KEY_COUNT - 1,
+            tree.nodes.len(),
+        );
+
+        for (index, key) in keys.iter().enumerate() {
+            let key_bits: BitVec = key.view_bits()[5..].to_owned();
+            bonsai_storage
+                .insert(&identifier, &key_bits, &Felt::from(index as u64 + 10_001))
+                .unwrap();
+        }
+
+        let tree = retained_tree(&bonsai_storage, &identifier);
+        assert_eq!(
+            tree.perf_stats.db_node_loads, 0,
+            "updating the same hot leaves should not reload trie nodes from the database"
+        );
+        assert!(tree.perf_stats.in_memory_node_hits > 0);
+
+        bonsai_storage.commit(id_builder.new_id()).unwrap();
+        let retained_root = bonsai_storage.root_hash(&identifier).unwrap();
+
+        let mut control: BonsaiStorage<_, _, Pedersen> = BonsaiStorage::new(
+            HashMapDb::<BasicId>::default(),
+            BonsaiStorageConfig::default(),
+            251,
+        );
+        for (index, key) in keys.iter().enumerate() {
+            let key_bits: BitVec = key.view_bits()[5..].to_owned();
+            control
+                .insert(&identifier, &key_bits, &Felt::from(index as u64 + 10_001))
+                .unwrap();
+        }
+        control.commit(BasicIdBuilder::new().new_id()).unwrap();
+        assert_eq!(retained_root, control.root_hash(&identifier).unwrap());
     }
 
     #[test]
