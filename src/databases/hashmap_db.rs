@@ -87,6 +87,8 @@ impl<ID: Id> BonsaiDatabase for HashMapDb<ID> {
                 result.push((key.clone(), value.clone()));
             }
         }
+        // Trie-log decoding groups the old and new values of each key in order.
+        result.sort_unstable_by(|(left, _), (right, _)| left.cmp(right));
         Ok(result)
     }
 
