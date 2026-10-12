@@ -247,8 +247,18 @@ where
         log::debug!("get_transaction {snap_id:?} {id:?}");
 
         let mut batch = txn.create_batch();
-        for cur_id in snap_id.as_u64()..id.as_u64() {
-            let cur_id = ID::from_u64(cur_id);
+        let snapshot = snap_id.as_u64();
+        let requested = id.as_u64();
+        let backwards = snapshot > requested;
+        // A snapshot includes its own commit. Undo (requested, snapshot] newest first,
+        // or replay (snapshot, requested] oldest first when the backend returns an older base.
+        for offset in 0..snapshot.abs_diff(requested) {
+            let revision = if backwards {
+                snapshot - offset
+            } else {
+                snapshot + offset + 1
+            };
+            let cur_id = ID::from_u64(revision);
             let changes = ChangeBatch::deserialize(
                 &cur_id,
                 self.db
@@ -260,21 +270,21 @@ where
                         ))
                     })?,
             );
-            // Apply backwards
             for (key, change) in changes.0 {
                 let key = DatabaseKey::from(&key);
-                match (&change.old_value, &change.new_value) {
-                    (Some(old_value), Some(_)) => {
-                        txn.insert(&key, old_value, Some(&mut batch))?;
+                let value = if backwards {
+                    change.old_value
+                } else {
+                    change.new_value
+                };
+                match value {
+                    Some(value) => {
+                        txn.insert(&key, &value, Some(&mut batch))?;
                     }
-                    (Some(old_value), None) => {
-                        txn.insert(&key, old_value, Some(&mut batch))?;
-                    }
-                    (None, Some(_)) => {
+                    None => {
                         txn.remove(&key, Some(&mut batch))?;
                     }
-                    (None, None) => unreachable!(),
-                };
+                }
             }
         }
         txn.write_batch(batch)?;
