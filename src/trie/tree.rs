@@ -137,6 +137,8 @@ pub struct MerkleTree<H: StarkHash> {
     pub(crate) root_node: Option<RootHandle>,
     /// In-memory nodes.
     pub(crate) nodes: SlotMap<NodeKey, Node>,
+    /// Nodes whose current contents already exist in the backing database.
+    persisted_nodes: HashSet<NodeKey>,
     /// Identifier of the tree in the database.
     pub(crate) identifier: ByteVec,
     /// The list of nodes that should be removed from the underlying database during the next commit.
@@ -163,6 +165,7 @@ impl<H: StarkHash> fmt::Debug for MerkleTree<H> {
         f.debug_struct("MerkleTree")
             .field("root_node", &self.root_node)
             .field("nodes", &self.nodes)
+            .field("persisted_nodes", &self.persisted_nodes.len())
             .field("identifier", &self.identifier)
             .field("death_row", &self.death_row)
             .field("cache_leaf_modified", &self.cache_leaf_modified)
@@ -182,6 +185,7 @@ impl<H: StarkHash> Clone for MerkleTree<H> {
             max_height: self.max_height,
             root_node: self.root_node,
             nodes: self.nodes.clone(),
+            persisted_nodes: self.persisted_nodes.clone(),
             identifier: self.identifier.clone(),
             death_row: self.death_row.clone(),
             cache_leaf_modified: self.cache_leaf_modified.clone(),
@@ -199,8 +203,8 @@ pub(crate) enum InsertOrRemove<T> {
     Insert(T),
     Remove,
 }
-enum NodeOrFelt<'a> {
-    Node(&'a Node),
+enum NodeOrFelt {
+    Node(NodeKey),
     Felt(Felt),
 }
 
@@ -213,6 +217,7 @@ impl<H: StarkHash + Send + Sync> NodeVisitor<H> for InvalidateHashesVisitor<H> {
         node_id: NodeKey,
         _prev_height: usize,
     ) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
+        tree.persisted_nodes.remove(&node_id);
         match tree.get_node_mut::<DB>(node_id)? {
             Node::Binary(binary_node) => binary_node.hash = None,
             Node::Edge(edge_node) => edge_node.hash = None,
@@ -226,6 +231,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         Self {
             root_node: None,
             nodes: Default::default(),
+            persisted_nodes: HashSet::new(),
             identifier,
             death_row: HashSet::new(),
             cache_leaf_modified: HashMap::new(),
@@ -384,10 +390,12 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
     ) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
         let Some(root_handle) = self.root_node else {
             self.nodes.clear();
+            self.persisted_nodes.clear();
             return Ok(());
         };
         let RootHandle::Loaded(root_id) = root_handle else {
             self.nodes.clear();
+            self.persisted_nodes.clear();
             return Ok(());
         };
 
@@ -408,6 +416,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         )?;
 
         self.nodes = new_nodes;
+        self.persisted_nodes = self.nodes.keys().collect();
         self.root_node = Some(RootHandle::Loaded(new_root));
         log::debug!(
             "bonsai retained frontier compacted identifier={:?} hot_keys={} retained_before={} retained_after={}",
@@ -463,6 +472,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
 
         let node = Node::decode(&mut node.as_slice())?;
         let key = self.nodes.insert(node);
+        self.persisted_nodes.insert(key);
 
         Ok(Some(key))
     }
@@ -698,10 +708,10 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
             NodeHandle::Hash(hash) => return Ok(NodeOrFelt::Felt(*hash)),
             NodeHandle::InMemory(node_id) => *node_id,
         };
-        let node = self.nodes.get(node_id).ok_or(BonsaiStorageError::Trie(
+        self.nodes.get(node_id).ok_or(BonsaiStorageError::Trie(
             "Couldn't fetch node in the temporary storage".to_string(),
         ))?;
-        Ok(NodeOrFelt::Node(node))
+        Ok(NodeOrFelt::Node(node_id))
     }
 
     /// Compute the root hash from staged (uncommitted) in-memory changes without
@@ -758,12 +768,12 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
                 ))
             }
         };
-        let Some(node) = self.nodes.get(handle) else {
+        if !self.nodes.contains_key(handle) {
             return Err(BonsaiStorageError::Trie(
                 "Could not fetch root node from storage".to_string(),
             ));
-        };
-        self.compute_hashes::<DB>(node, Path::default(), hashes)
+        }
+        self.compute_hashes::<DB>(handle, Path::default(), hashes)
     }
 
     /// Compute the hashes of all of the updated nodes in the merkle tree. This step
@@ -771,12 +781,17 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
     /// Computed hashes are pushed to the `hashes` vector, depth first.
     fn compute_hashes<DB: BonsaiDatabase>(
         &self,
-        node: &Node,
+        node_id: NodeKey,
         path: Path,
         hashes: &mut Vec<Felt>,
     ) -> Result<Felt, BonsaiStorageError<DB::DatabaseError>> {
-        if let Some(hash) = node.get_hash() {
-            return Ok(hash);
+        let node = self.nodes.get(node_id).ok_or(BonsaiStorageError::Trie(
+            "Couldn't fetch node in the temporary storage".to_string(),
+        ))?;
+        if self.persisted_nodes.contains(&node_id) {
+            if let Some(hash) = node.get_hash() {
+                return Ok(hash);
+            }
         }
 
         use Node::*;
@@ -881,8 +896,10 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
             .ok_or(BonsaiStorageError::Trie(
                 "Couldn't fetch node in the temporary storage".to_string(),
             ))?;
-        if let Some(hash) = node.get_hash() {
-            return Ok(hash);
+        if self.persisted_nodes.contains(&node_id) {
+            if let Some(hash) = node.get_hash() {
+                return Ok(hash);
+            }
         }
 
         match node {

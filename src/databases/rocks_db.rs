@@ -31,6 +31,10 @@ pub fn create_rocks_db(path: impl AsRef<Path>) -> Result<OptimisticTransactionDB
         std::fs::remove_dir_all(path.as_ref()).unwrap();
     }
     std::fs::create_dir_all(path.as_ref()).unwrap();
+    open_rocks_db(path)
+}
+
+fn open_rocks_db(path: impl AsRef<Path>) -> Result<OptimisticTransactionDB, Error> {
     let mut opts = Options::default();
     opts.create_if_missing(true);
     opts.create_missing_column_families(true);
@@ -45,6 +49,11 @@ pub fn create_rocks_db(path: impl AsRef<Path>) -> Result<OptimisticTransactionDB
     )?;
 
     Ok(db)
+}
+
+#[cfg(test)]
+pub(crate) fn reopen_rocks_db(path: impl AsRef<Path>) -> Result<OptimisticTransactionDB, Error> {
+    open_rocks_db(path)
 }
 
 /// A struct that implements the `BonsaiDatabase` trait using RocksDB as the underlying database
