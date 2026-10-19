@@ -775,6 +775,10 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         path: Path,
         hashes: &mut Vec<Felt>,
     ) -> Result<Felt, BonsaiStorageError<DB::DatabaseError>> {
+        if let Some(hash) = node.get_hash() {
+            return Ok(hash);
+        }
+
         use Node::*;
 
         match node {
@@ -870,13 +874,18 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         path: Path,
         hashes: &mut impl Iterator<Item = Felt>,
     ) -> Result<Felt, BonsaiStorageError<DB::DatabaseError>> {
-        match self
+        let node = self
             .nodes
             .get(node_id)
             .cloned()
             .ok_or(BonsaiStorageError::Trie(
                 "Couldn't fetch node in the temporary storage".to_string(),
-            ))? {
+            ))?;
+        if let Some(hash) = node.get_hash() {
+            return Ok(hash);
+        }
+
+        match node {
             Node::Binary(binary) => {
                 let left_path = path.new_with_direction(Direction::Left);
                 let left_hash = match binary.left {
@@ -1519,7 +1528,9 @@ pub(crate) fn bytes_to_bitvec(bytes: &[u8]) -> BitVec {
 
 #[cfg(all(test, feature = "std"))]
 mod staged_hash_cache_tests {
-    use super::{Node, NodeHandle, RootHandle, StagedHashCacheCell, StagedHashComputation};
+    use super::{
+        Node, NodeHandle, RootHandle, StagedHashCacheCell, StagedHashComputation, TrieKey,
+    };
     use crate::{
         databases::HashMapDb,
         id::{BasicId, BasicIdBuilder},
@@ -1697,6 +1708,80 @@ mod staged_hash_cache_tests {
         }
         control.commit(BasicIdBuilder::new().new_id()).unwrap();
         assert_eq!(retained_root, control.root_hash(&identifier).unwrap());
+    }
+
+    #[test]
+    fn sparse_follow_up_only_persists_the_changed_frontier() {
+        const KEY_COUNT: usize = 1_024;
+        const MAX_HEIGHT: usize = 251;
+
+        let identifier = vec![];
+        let keys = (0..KEY_COUNT)
+            .map(|index| {
+                let mut key = [0u8; 32];
+                key[24..].copy_from_slice(&(index as u64).to_be_bytes());
+                key
+            })
+            .collect::<Vec<_>>();
+        let mut bonsai_storage: BonsaiStorage<_, _, Pedersen> = BonsaiStorage::new(
+            HashMapDb::<BasicId>::default(),
+            BonsaiStorageConfig::default(),
+            MAX_HEIGHT as u8,
+        );
+        let mut id_builder = BasicIdBuilder::new();
+
+        for (index, key) in keys.iter().enumerate() {
+            bonsai_storage
+                .insert(
+                    &identifier,
+                    &key.view_bits()[5..],
+                    &Felt::from(index as u64 + 1),
+                )
+                .unwrap();
+        }
+        bonsai_storage.commit(id_builder.new_id()).unwrap();
+        let retained_after_large_commit = retained_tree(&bonsai_storage, &identifier).nodes.len();
+        assert!(retained_after_large_commit > MAX_HEIGHT);
+
+        let sparse_value = Felt::from(10_001u64);
+        bonsai_storage
+            .insert(&identifier, &keys[0].view_bits()[5..], &sparse_value)
+            .unwrap();
+        let sparse_root = bonsai_storage.root_hash_staged(&identifier).unwrap();
+
+        let mut control: BonsaiStorage<_, _, Pedersen> = BonsaiStorage::new(
+            HashMapDb::<BasicId>::default(),
+            BonsaiStorageConfig::default(),
+            MAX_HEIGHT as u8,
+        );
+        for (index, key) in keys.iter().enumerate() {
+            let value = if index == 0 {
+                sparse_value
+            } else {
+                Felt::from(index as u64 + 1)
+            };
+            control
+                .insert(&identifier, &key.view_bits()[5..], &value)
+                .unwrap();
+        }
+        control.commit(BasicIdBuilder::new().new_id()).unwrap();
+        assert_eq!(sparse_root, control.root_hash(&identifier).unwrap());
+
+        let updates = bonsai_storage
+            .tries
+            .trees
+            .get_mut(identifier.as_slice())
+            .unwrap()
+            .get_updates::<HashMapDb<BasicId>>()
+            .unwrap();
+        let trie_writes = updates
+            .keys()
+            .filter(|key| matches!(key, TrieKey::Trie(_)))
+            .count();
+        assert!(
+            trie_writes <= MAX_HEIGHT,
+            "a one-key update wrote {trie_writes} trie nodes from a retained frontier of {retained_after_large_commit}"
+        );
     }
 
     #[test]
