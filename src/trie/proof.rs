@@ -219,10 +219,10 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "std", feature = "rocksdb"))]
 mod tests {
     use crate::{
-        databases::{create_rocks_db, RocksDB, RocksDBConfig},
+        databases::{create_rocks_db, reopen_rocks_db, RocksDB, RocksDBConfig},
         id::BasicId,
         BonsaiStorage, BonsaiStorageConfig,
     };
@@ -286,5 +286,45 @@ mod tests {
                 .unwrap(),
             key_values.iter().map(|(_k, v)| *v).collect::<Vec<_>>()
         );
+    }
+
+    #[test]
+    fn proof_before_commit_persists_complete_trie() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let key_values = [
+            (bits![u8, Msb0; 0,0,0,1,0,0,0,0], ONE),
+            (bits![u8, Msb0; 0,0,0,1,0,0,0,1], TWO),
+            (bits![u8, Msb0; 0,1,1,1,1,1,0,1], THREE),
+        ];
+
+        let expected_root = {
+            let db = create_rocks_db(tempdir.path()).unwrap();
+            let mut storage: BonsaiStorage<BasicId, _, Pedersen> = BonsaiStorage::new(
+                RocksDB::<BasicId>::new(&db, RocksDBConfig::default()),
+                BonsaiStorageConfig::default(),
+                8,
+            );
+            for (key, value) in key_values {
+                storage.insert(&[], key, &value).unwrap();
+            }
+
+            storage
+                .get_multi_proof(&[], key_values.map(|(key, _)| key))
+                .unwrap();
+            let root = storage.root_hash(&[]).unwrap();
+            storage.commit(BasicId::new(0)).unwrap();
+            root
+        };
+
+        let db = reopen_rocks_db(tempdir.path()).unwrap();
+        let reopened: BonsaiStorage<BasicId, _, Pedersen> = BonsaiStorage::new(
+            RocksDB::<BasicId>::new(&db, RocksDBConfig::default()),
+            BonsaiStorageConfig::default(),
+            8,
+        );
+        assert_eq!(reopened.root_hash(&[]).unwrap(), expected_root);
+        for (key, value) in key_values {
+            assert_eq!(reopened.get(&[], key).unwrap(), Some(value));
+        }
     }
 }

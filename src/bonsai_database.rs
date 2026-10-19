@@ -40,6 +40,17 @@ pub trait BonsaiDatabase: core::fmt::Debug {
     /// Returns the value of the key if it exists
     fn get(&self, key: &DatabaseKey) -> Result<Option<ByteVec>, Self::DatabaseError>;
 
+    /// Returns values for multiple keys in input order.
+    ///
+    /// Persistent implementations can override this with their database's native
+    /// multi-get operation. The default preserves compatibility for simple stores.
+    fn get_multi(
+        &self,
+        keys: &[DatabaseKey<'_>],
+    ) -> Result<Vec<Option<ByteVec>>, Self::DatabaseError> {
+        keys.iter().map(|key| self.get(key)).collect()
+    }
+
     #[allow(clippy::type_complexity)]
     /// Returns all values with keys that start with the given prefix
     fn get_by_prefix(
@@ -59,6 +70,19 @@ pub trait BonsaiDatabase: core::fmt::Debug {
         batch: Option<&mut Self::Batch>,
     ) -> Result<Option<ByteVec>, Self::DatabaseError>;
 
+    /// Insert a key-value pair when the caller does not need the previous value.
+    ///
+    /// Implementations backed by a persistent database can override this to avoid
+    /// the point read normally required by [`BonsaiDatabase::insert`].
+    fn insert_untracked(
+        &mut self,
+        key: &DatabaseKey,
+        value: &[u8],
+        batch: Option<&mut Self::Batch>,
+    ) -> Result<(), Self::DatabaseError> {
+        self.insert(key, value, batch).map(drop)
+    }
+
     /// Remove a key-value pair, returns the old value if it existed.
     /// If a batch is provided, the change will be written in the batch instead of the database.
     fn remove(
@@ -66,6 +90,15 @@ pub trait BonsaiDatabase: core::fmt::Debug {
         key: &DatabaseKey,
         batch: Option<&mut Self::Batch>,
     ) -> Result<Option<ByteVec>, Self::DatabaseError>;
+
+    /// Remove a key when the caller already captured its previous value.
+    fn remove_untracked(
+        &mut self,
+        key: &DatabaseKey,
+        batch: Option<&mut Self::Batch>,
+    ) -> Result<(), Self::DatabaseError> {
+        self.remove(key, batch).map(drop)
+    }
 
     /// Remove all keys that start with the given prefix
     fn remove_by_prefix(&mut self, prefix: &DatabaseKey) -> Result<(), Self::DatabaseError>;
