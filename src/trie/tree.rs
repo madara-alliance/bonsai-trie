@@ -275,29 +275,38 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         retained_nodes: &mut HashSet<NodeKey>,
         node_id: NodeKey,
         key: &BitSlice,
-    ) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
+        max_retained_nodes: usize,
+    ) -> Result<bool, BonsaiStorageError<DB::DatabaseError>> {
         let node = self.nodes.get(node_id).ok_or_else(|| {
             BonsaiStorageError::Trie(format!("Dangling in-memory node key: {node_id:?}"))
         })?;
         retained_nodes.insert(node_id);
+        if retained_nodes.len() > max_retained_nodes {
+            return Ok(true);
+        }
 
         match node {
             Node::Binary(binary) => {
                 let height = binary.height as usize;
                 if height >= key.len() {
-                    return Ok(());
+                    return Ok(false);
                 }
 
                 if let NodeHandle::InMemory(child_id) =
                     binary.get_child(Direction::from(key[height]))
                 {
-                    self.mark_recent_frontier_nodes::<DB>(retained_nodes, child_id, key)?;
+                    return self.mark_recent_frontier_nodes::<DB>(
+                        retained_nodes,
+                        child_id,
+                        key,
+                        max_retained_nodes,
+                    );
                 }
             }
             Node::Edge(edge) => {
                 let height = edge.height as usize;
                 if height >= key.len() {
-                    return Ok(());
+                    return Ok(false);
                 }
 
                 let key_suffix = &key[height..];
@@ -307,16 +316,21 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
                     .take_while(|(lhs, rhs)| lhs == rhs)
                     .count();
                 if common_len != edge.path.len() {
-                    return Ok(());
+                    return Ok(false);
                 }
 
                 if let NodeHandle::InMemory(child_id) = edge.child {
-                    self.mark_recent_frontier_nodes::<DB>(retained_nodes, child_id, key)?;
+                    return self.mark_recent_frontier_nodes::<DB>(
+                        retained_nodes,
+                        child_id,
+                        key,
+                        max_retained_nodes,
+                    );
                 }
             }
         }
 
-        Ok(())
+        Ok(false)
     }
 
     fn retain_child_handle<DB: BonsaiDatabase>(
@@ -407,7 +421,14 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         let mut retained_nodes = HashSet::default();
         retained_nodes.insert(root_id);
         for key in hot_keys {
-            self.mark_recent_frontier_nodes::<DB>(&mut retained_nodes, root_id, key)?;
+            if self.mark_recent_frontier_nodes::<DB>(
+                &mut retained_nodes,
+                root_id,
+                key,
+                max_retained_nodes,
+            )? {
+                break;
+            }
         }
 
         if retained_nodes.len() > max_retained_nodes {
@@ -1859,6 +1880,24 @@ mod staged_hash_cache_tests {
             .trees
             .get_mut(identifier.as_slice())
             .unwrap();
+        let root_id = match tree.root_node {
+            Some(RootHandle::Loaded(root_id)) => root_id,
+            other => panic!("expected loaded root, got {other:?}"),
+        };
+        let mut retained_nodes = crate::HashSet::default();
+        retained_nodes.insert(root_id);
+        let exceeded_budget = keys.iter().any(|key| {
+            tree.mark_recent_frontier_nodes::<HashMapDb<BasicId>>(
+                &mut retained_nodes,
+                root_id,
+                key,
+                TEST_FRONTIER_LIMIT,
+            )
+            .unwrap()
+        });
+        assert!(exceeded_budget);
+        assert_eq!(retained_nodes.len(), TEST_FRONTIER_LIMIT + 1);
+
         tree.retain_recent_frontier::<HashMapDb<BasicId>>(&keys, TEST_FRONTIER_LIMIT)
             .unwrap();
         assert!(tree.nodes.is_empty());
