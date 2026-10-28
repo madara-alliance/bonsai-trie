@@ -7,3 +7,6 @@ mod rocks_db;
 
 #[cfg(feature = "rocksdb")]
 pub use rocks_db::{create_rocks_db, RocksDB, RocksDBBatch, RocksDBConfig, RocksDBTransaction};
+
+#[cfg(all(test, feature = "rocksdb"))]
+pub(crate) use rocks_db::reopen_rocks_db;
