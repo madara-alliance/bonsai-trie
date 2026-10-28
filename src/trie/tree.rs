@@ -27,6 +27,9 @@ slotmap::new_key_type! {
     pub struct NodeKey;
 }
 
+// Avoid allocating a second unbounded node set while compacting a large hot frontier.
+const MAX_RETAINED_FRONTIER_NODES: usize = 65_536;
+
 // TODO: implement encode and decode by hand in Node
 // these cases should never happen, otherwise that would mean we are saving in-memory node keys to the db, which would be very bad.
 impl parity_scale_codec::Encode for NodeKey {
@@ -387,6 +390,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
     fn retain_recent_frontier<DB: BonsaiDatabase>(
         &mut self,
         hot_keys: &[BitVec],
+        max_retained_nodes: usize,
     ) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
         let Some(root_handle) = self.root_node else {
             self.nodes.clear();
@@ -404,6 +408,21 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         retained_nodes.insert(root_id);
         for key in hot_keys {
             self.mark_recent_frontier_nodes::<DB>(&mut retained_nodes, root_id, key)?;
+        }
+
+        if retained_nodes.len() > max_retained_nodes {
+            log::debug!(
+                "bonsai retained frontier dropped identifier={:?} hot_keys={} retained_before={} retained_candidate={} max_retained_nodes={}",
+                self.identifier,
+                hot_keys.len(),
+                retained_before,
+                retained_nodes.len(),
+                max_retained_nodes,
+            );
+            self.nodes = SlotMap::default();
+            self.persisted_nodes = HashSet::new();
+            self.root_node = None;
+            return Ok(());
         }
 
         let mut remapped_nodes = HashMap::default();
@@ -607,7 +626,6 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
     ) -> Result<HashMap<TrieKey, InsertOrRemove<ByteVec>>, BonsaiStorageError<DB::DatabaseError>>
     {
         let dirty_before_commit = self.dirty;
-        let hot_keys = self.cache_leaf_paths.values().cloned().collect::<Vec<_>>();
         let mut updates = HashMap::new();
         for node_key in mem::take(&mut self.death_row) {
             updates.insert(node_key, InsertOrRemove::Remove);
@@ -635,10 +653,12 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
                     &mut hashes.into_iter(),
                 )?;
             }
+            let hot_keys = mem::take(&mut self.cache_leaf_paths)
+                .into_values()
+                .collect::<Vec<_>>();
             self.dirty = false;
-            self.retain_recent_frontier::<DB>(&hot_keys)?;
+            self.retain_recent_frontier::<DB>(&hot_keys, MAX_RETAINED_FRONTIER_NODES)?;
         }
-        self.cache_leaf_paths.clear();
 
         for (key, value) in mem::take(&mut self.cache_leaf_modified) {
             updates.insert(
@@ -1757,8 +1777,14 @@ mod staged_hash_cache_tests {
                 .unwrap();
         }
         bonsai_storage.commit(id_builder.new_id()).unwrap();
-        let retained_after_large_commit = retained_tree(&bonsai_storage, &identifier).nodes.len();
+        let tree = retained_tree(&bonsai_storage, &identifier);
+        let retained_after_large_commit = tree.nodes.len();
         assert!(retained_after_large_commit > MAX_HEIGHT);
+        assert_eq!(
+            tree.cache_leaf_paths.capacity(),
+            0,
+            "commit should release the modified-path map's peak allocation"
+        );
 
         let sparse_value = Felt::from(10_001u64);
         bonsai_storage
@@ -1798,6 +1824,72 @@ mod staged_hash_cache_tests {
         assert!(
             trie_writes <= MAX_HEIGHT,
             "a one-key update wrote {trie_writes} trie nodes from a retained frontier of {retained_after_large_commit}"
+        );
+    }
+
+    #[test]
+    fn oversized_retained_frontier_falls_back_to_lazy_loading() {
+        const KEY_COUNT: usize = 1_024;
+        const TEST_FRONTIER_LIMIT: usize = 251;
+
+        let identifier = vec![];
+        let keys = (0..KEY_COUNT)
+            .map(|index| {
+                let mut key = [0u8; 32];
+                key[24..].copy_from_slice(&(index as u64).to_be_bytes());
+                key.view_bits()[5..].to_owned()
+            })
+            .collect::<Vec<BitVec>>();
+        let mut bonsai_storage: BonsaiStorage<_, _, Pedersen> = BonsaiStorage::new(
+            HashMapDb::<BasicId>::default(),
+            BonsaiStorageConfig::default(),
+            251,
+        );
+        let mut id_builder = BasicIdBuilder::new();
+
+        for (index, key) in keys.iter().enumerate() {
+            bonsai_storage
+                .insert(&identifier, key, &Felt::from(index as u64 + 1))
+                .unwrap();
+        }
+        bonsai_storage.commit(id_builder.new_id()).unwrap();
+
+        let tree = bonsai_storage
+            .tries
+            .trees
+            .get_mut(identifier.as_slice())
+            .unwrap();
+        tree.retain_recent_frontier::<HashMapDb<BasicId>>(&keys, TEST_FRONTIER_LIMIT)
+            .unwrap();
+        assert!(tree.nodes.is_empty());
+        assert_eq!(tree.nodes.capacity(), 0);
+        assert_eq!(tree.persisted_nodes.capacity(), 0);
+        assert!(tree.root_node.is_none());
+
+        let sparse_value = Felt::from(10_001u64);
+        bonsai_storage
+            .insert(&identifier, &keys[0], &sparse_value)
+            .unwrap();
+        bonsai_storage.commit(id_builder.new_id()).unwrap();
+
+        let mut control: BonsaiStorage<_, _, Pedersen> = BonsaiStorage::new(
+            HashMapDb::<BasicId>::default(),
+            BonsaiStorageConfig::default(),
+            251,
+        );
+        for (index, key) in keys.iter().enumerate() {
+            let value = if index == 0 {
+                sparse_value
+            } else {
+                Felt::from(index as u64 + 1)
+            };
+            control.insert(&identifier, key, &value).unwrap();
+        }
+        control.commit(BasicIdBuilder::new().new_id()).unwrap();
+
+        assert_eq!(
+            bonsai_storage.root_hash(&identifier).unwrap(),
+            control.root_hash(&identifier).unwrap()
         );
     }
 
