@@ -194,9 +194,16 @@ impl<H: StarkHash + Send + Sync, DB: BonsaiDatabase, CommitID: Id> MerkleTrees<H
             .map_err(|e| e.into())
     }
 
-    pub(crate) fn commit(&mut self) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
+    pub(crate) fn commit(
+        &mut self,
+        id: CommitID,
+    ) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
         #[cfg(feature = "std")]
         use rayon::prelude::*;
+
+        // Keep only frontiers that were reused by this commit. Without this,
+        // a long-lived multi-trie handle retains one tree per identifier forever.
+        self.trees.retain(|_, tree| tree.has_pending_changes());
 
         #[cfg(not(feature = "std"))]
         let db_changes = self
@@ -208,24 +215,27 @@ impl<H: StarkHash + Send + Sync, DB: BonsaiDatabase, CommitID: Id> MerkleTrees<H
             .trees
             .par_iter_mut()
             .map(|(_, tree)| tree.get_updates::<DB>())
-            .collect_vec_list()
-            .into_iter()
-            .flatten();
+            .collect::<Vec<_>>();
 
         let mut batch = self.db.create_batch();
+        let mut updates = Vec::new();
         for changes in db_changes {
-            for (key, value) in changes? {
-                match value {
-                    InsertOrRemove::Insert(value) => {
-                        self.db.insert(&key, &value, Some(&mut batch))?;
-                    }
-                    InsertOrRemove::Remove => {
-                        self.db.remove(&key, Some(&mut batch))?;
-                    }
-                }
+            for (key, value) in changes?.into_iter() {
+                updates.push((
+                    key,
+                    match value {
+                        InsertOrRemove::Insert(value) => Some(value),
+                        InsertOrRemove::Remove => None,
+                    },
+                ));
             }
         }
+        self.db.apply_changes(updates, &mut batch)?;
+        let prune_id = self.db.append_trie_log(id, &mut batch)?;
         self.db.write_batch(batch)?;
+        if let Some(prune_id) = prune_id {
+            self.db.prune_trie_log(prune_id)?;
+        }
         Ok(())
     }
 

@@ -1,4 +1,4 @@
-use crate::{bytes_to_bitvec, format, BitVec, ByteVec, Change as ExternChange};
+use crate::{bytes_to_bitvec, format, BitVec, ByteVec, Change as ExternChange, Vec};
 use hashbrown::HashMap;
 use log::trace;
 use parity_scale_codec::Decode;
@@ -114,31 +114,37 @@ where
         Ok(leaf_changes)
     }
 
-    pub(crate) fn commit(&mut self, id: ID) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
-        // Insert flat db changes
-        let mut batch = self.db.create_batch();
+    pub(crate) fn append_trie_log(
+        &mut self,
+        id: ID,
+        batch: &mut DB::Batch,
+    ) -> Result<Option<ID>, BonsaiStorageError<DB::DatabaseError>> {
         let current_changes = core::mem::take(&mut self.changes_store.current_changes);
         log::debug!("Committing id {id:?}");
 
         if self.config.max_saved_trie_logs != Some(0) {
-            // optim when trie logs are disabled.
+            // Optimization when trie logs are disabled.
             for (key, change) in current_changes.serialize(&id).iter() {
                 self.db
-                    .insert(&DatabaseKey::TrieLog(key), change, Some(&mut batch))?;
-            }
-            self.db.write_batch(batch)?;
-
-            if let Some(id) = self
-                .config
-                .max_saved_trie_logs
-                .and_then(|max_saved_trie_logs| id.as_u64().checked_sub(max_saved_trie_logs as _))
-            {
-                log::debug!("Remove by prefix {id:?}");
-                self.db
-                    .remove_by_prefix(&DatabaseKey::TrieLog(&ID::from_u64(id).to_bytes()))?;
+                    .insert_untracked(&DatabaseKey::TrieLog(key), change, Some(&mut *batch))?;
             }
         }
 
+        Ok(self
+            .config
+            .max_saved_trie_logs
+            .filter(|max_saved_trie_logs| *max_saved_trie_logs != 0)
+            .and_then(|max_saved_trie_logs| id.as_u64().checked_sub(max_saved_trie_logs as _))
+            .map(ID::from_u64))
+    }
+
+    pub(crate) fn prune_trie_log(
+        &mut self,
+        id: ID,
+    ) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
+        log::debug!("Remove by prefix {id:?}");
+        self.db
+            .remove_by_prefix(&DatabaseKey::TrieLog(&id.to_bytes()))?;
         Ok(())
     }
 
@@ -210,6 +216,65 @@ where
                 new_value: None,
             },
         );
+        Ok(())
+    }
+
+    pub(crate) fn apply_changes(
+        &mut self,
+        changes: Vec<(TrieKey, Option<ByteVec>)>,
+        batch: &mut DB::Batch,
+    ) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
+        if self.config.max_saved_trie_logs == Some(0) {
+            for (key, new_value) in changes {
+                let database_key = DatabaseKey::from(&key);
+                match new_value {
+                    Some(new_value) => {
+                        self.db
+                            .insert_untracked(&database_key, &new_value, Some(&mut *batch))?;
+                    }
+                    None => self.db.remove_untracked(&database_key, Some(&mut *batch))?,
+                }
+            }
+            return Ok(());
+        }
+
+        let database_keys = changes
+            .iter()
+            .map(|(key, _)| DatabaseKey::from(key))
+            .collect::<Vec<_>>();
+        let old_values = self.db.get_multi(&database_keys)?;
+        assert_eq!(
+            old_values.len(),
+            changes.len(),
+            "multi-get result count must match input count"
+        );
+
+        for ((key, new_value), old_value) in changes.into_iter().zip(old_values) {
+            let database_key = DatabaseKey::from(&key);
+            match new_value {
+                Some(new_value) => {
+                    self.db
+                        .insert_untracked(&database_key, &new_value, Some(&mut *batch))?;
+                    self.changes_store.current_changes.insert_in_place(
+                        key,
+                        Change {
+                            old_value,
+                            new_value: Some(new_value),
+                        },
+                    );
+                }
+                None => {
+                    self.db.remove_untracked(&database_key, Some(&mut *batch))?;
+                    self.changes_store.current_changes.insert_in_place(
+                        key,
+                        Change {
+                            old_value,
+                            new_value: None,
+                        },
+                    );
+                }
+            }
+        }
         Ok(())
     }
 

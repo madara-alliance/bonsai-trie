@@ -31,6 +31,10 @@ pub fn create_rocks_db(path: impl AsRef<Path>) -> Result<OptimisticTransactionDB
         std::fs::remove_dir_all(path.as_ref()).unwrap();
     }
     std::fs::create_dir_all(path.as_ref()).unwrap();
+    open_rocks_db(path)
+}
+
+fn open_rocks_db(path: impl AsRef<Path>) -> Result<OptimisticTransactionDB, Error> {
     let mut opts = Options::default();
     opts.create_if_missing(true);
     opts.create_missing_column_families(true);
@@ -45,6 +49,11 @@ pub fn create_rocks_db(path: impl AsRef<Path>) -> Result<OptimisticTransactionDB
     )?;
 
     Ok(db)
+}
+
+#[cfg(test)]
+pub(crate) fn reopen_rocks_db(path: impl AsRef<Path>) -> Result<OptimisticTransactionDB, Error> {
+    open_rocks_db(path)
 }
 
 /// A struct that implements the `BonsaiDatabase` trait using RocksDB as the underlying database
@@ -212,6 +221,26 @@ where
         Ok(old_value.map(Into::into))
     }
 
+    fn insert_untracked(
+        &mut self,
+        key: &DatabaseKey,
+        value: &[u8],
+        batch: Option<&mut Self::Batch>,
+    ) -> Result<(), Self::DatabaseError> {
+        trace!(
+            "Inserting into RocksDB without reading old value: {:?} {:?}",
+            key,
+            value
+        );
+        let handle_cf = self.db.cf_handle(key.get_cf()).expect(CF_ERROR);
+        if let Some(batch) = batch {
+            batch.put_cf(&handle_cf, key.as_slice(), value);
+        } else {
+            self.db.put_cf(&handle_cf, key.as_slice(), value)?;
+        }
+        Ok(())
+    }
+
     fn get(&self, key: &DatabaseKey) -> Result<Option<ByteVec>, Self::DatabaseError> {
         trace!("Getting from RocksDB: {:?}", key);
         let handle = self.db.cf_handle(key.get_cf()).expect(CF_ERROR);
@@ -266,6 +295,21 @@ where
             self.db.delete_cf(&handle, key.as_slice())?;
         }
         Ok(old_value.map(Into::into))
+    }
+
+    fn remove_untracked(
+        &mut self,
+        key: &DatabaseKey,
+        batch: Option<&mut Self::Batch>,
+    ) -> Result<(), Self::DatabaseError> {
+        trace!("Removing from RocksDB without reading old value: {:?}", key);
+        let handle = self.db.cf_handle(key.get_cf()).expect(CF_ERROR);
+        if let Some(batch) = batch {
+            batch.delete_cf(&handle, key.as_slice());
+        } else {
+            self.db.delete_cf(&handle, key.as_slice())?;
+        }
+        Ok(())
     }
 
     fn remove_by_prefix(&mut self, prefix: &DatabaseKey) -> Result<(), Self::DatabaseError> {
@@ -356,6 +400,26 @@ impl<'db> BonsaiDatabase for RocksDBTransaction<'db> {
         Ok(old_value.map(Into::into))
     }
 
+    fn insert_untracked(
+        &mut self,
+        key: &DatabaseKey,
+        value: &[u8],
+        batch: Option<&mut Self::Batch>,
+    ) -> Result<(), Self::DatabaseError> {
+        trace!(
+            "Inserting into RocksDB transaction without reading old value: {:?} {:?}",
+            key,
+            value
+        );
+        let handle_cf = self.column_families.get(key.get_cf()).expect(CF_ERROR);
+        if let Some(batch) = batch {
+            batch.put_cf(handle_cf, key.as_slice(), value);
+        } else {
+            self.txn.put_cf(handle_cf, key.as_slice(), value)?;
+        }
+        Ok(())
+    }
+
     fn get(&self, key: &DatabaseKey) -> Result<Option<ByteVec>, Self::DatabaseError> {
         trace!("Getting from RocksDB: {:?}", key);
         let handle = self.column_families.get(key.get_cf()).expect(CF_ERROR);
@@ -415,6 +479,24 @@ impl<'db> BonsaiDatabase for RocksDBTransaction<'db> {
             self.txn.delete_cf(handle, key.as_slice())?;
         }
         Ok(old_value.map(Into::into))
+    }
+
+    fn remove_untracked(
+        &mut self,
+        key: &DatabaseKey,
+        batch: Option<&mut Self::Batch>,
+    ) -> Result<(), Self::DatabaseError> {
+        trace!(
+            "Removing from RocksDB transaction without reading old value: {:?}",
+            key
+        );
+        let handle = self.column_families.get(key.get_cf()).expect(CF_ERROR);
+        if let Some(batch) = batch {
+            batch.delete_cf(handle, key.as_slice());
+        } else {
+            self.txn.delete_cf(handle, key.as_slice())?;
+        }
+        Ok(())
     }
 
     fn remove_by_prefix(&mut self, prefix: &DatabaseKey) -> Result<(), Self::DatabaseError> {
