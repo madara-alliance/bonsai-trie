@@ -205,16 +205,34 @@ impl<H: StarkHash + Send + Sync, DB: BonsaiDatabase, CommitID: Id> MerkleTrees<H
         // a long-lived multi-trie handle retains one tree per identifier forever.
         self.trees.retain(|_, tree| tree.has_pending_changes());
 
-        #[cfg(not(feature = "std"))]
-        let db_changes = self
+        let total_frontier_keys = self
             .trees
-            .iter_mut()
-            .map(|(_, tree)| tree.get_updates::<DB>());
+            .values()
+            .map(MerkleTree::pending_frontier_keys)
+            .sum::<usize>();
+        let total_frontier_budget = self.db.config.max_retained_frontier_nodes_total;
+        let frontier_budget = |tree: &MerkleTree<H>| {
+            if total_frontier_keys == 0 {
+                0
+            } else {
+                total_frontier_budget.saturating_mul(tree.pending_frontier_keys())
+                    / total_frontier_keys
+            }
+        };
+
+        #[cfg(not(feature = "std"))]
+        let db_changes = self.trees.iter_mut().map(|(_, tree)| {
+            let budget = frontier_budget(tree);
+            tree.get_updates::<DB>(budget)
+        });
         #[cfg(feature = "std")]
         let db_changes = self
             .trees
             .par_iter_mut()
-            .map(|(_, tree)| tree.get_updates::<DB>())
+            .map(|(_, tree)| {
+                let budget = frontier_budget(tree);
+                tree.get_updates::<DB>(budget)
+            })
             .collect::<Vec<_>>();
 
         let mut batch = self.db.create_batch();
