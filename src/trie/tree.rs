@@ -1975,6 +1975,85 @@ mod staged_hash_cache_tests {
     }
 
     #[test]
+    fn zero_and_sub_per_trie_budgets_preserve_roots() {
+        const IDENTIFIERS: usize = 4;
+
+        let left_key = BitVec::from_vec(vec![0b0000_0000]);
+        let right_key = BitVec::from_vec(vec![0b1000_0000]);
+
+        for total_budget in [0, 1] {
+            let config = BonsaiStorageConfig {
+                max_retained_frontier_nodes_total: total_budget,
+                ..Default::default()
+            };
+            let mut storage: BonsaiStorage<_, _, Pedersen> =
+                BonsaiStorage::new(HashMapDb::<BasicId>::default(), config, 8);
+            let mut control: BonsaiStorage<_, _, Pedersen> = BonsaiStorage::new(
+                HashMapDb::<BasicId>::default(),
+                BonsaiStorageConfig::default(),
+                8,
+            );
+            let mut storage_ids = BasicIdBuilder::new();
+            let mut control_ids = BasicIdBuilder::new();
+
+            for identifier_index in 0..IDENTIFIERS {
+                let identifier = [identifier_index as u8];
+                for trie in [&mut storage, &mut control] {
+                    trie.insert(
+                        &identifier,
+                        &left_key,
+                        &Felt::from(identifier_index as u64 + 1),
+                    )
+                    .unwrap();
+                    trie.insert(
+                        &identifier,
+                        &right_key,
+                        &Felt::from(identifier_index as u64 + 101),
+                    )
+                    .unwrap();
+                }
+            }
+            storage.commit(storage_ids.new_id()).unwrap();
+            control.commit(control_ids.new_id()).unwrap();
+
+            assert!(storage
+                .tries
+                .trees
+                .values()
+                .all(|tree| tree.nodes.is_empty()));
+
+            for identifier_index in 0..IDENTIFIERS {
+                let identifier = [identifier_index as u8];
+                for trie in [&mut storage, &mut control] {
+                    trie.insert(
+                        &identifier,
+                        &left_key,
+                        &Felt::from(identifier_index as u64 + 201),
+                    )
+                    .unwrap();
+                    trie.remove(&identifier, &right_key).unwrap();
+                }
+            }
+            storage.commit(storage_ids.new_id()).unwrap();
+            control.commit(control_ids.new_id()).unwrap();
+
+            assert!(storage
+                .tries
+                .trees
+                .values()
+                .all(|tree| tree.nodes.is_empty()));
+            for identifier_index in 0..IDENTIFIERS {
+                let identifier = [identifier_index as u8];
+                assert_eq!(
+                    storage.root_hash(&identifier).unwrap(),
+                    control.root_hash(&identifier).unwrap(),
+                    "root mismatch for total budget {total_budget} and identifier {identifier_index}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn retained_frontier_drops_identifiers_not_changed_in_the_next_commit() {
         let first_identifier = vec![1];
         let second_identifier = vec![2];
