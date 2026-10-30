@@ -155,6 +155,9 @@ use key_value_db::KeyValueDB;
 use starknet_types_core::{felt::Felt, hash::StarkHash};
 use trie::{tree::bytes_to_bitvec, trees::MerkleTrees};
 
+/// Default retained-frontier budget shared by every trie identifier in one storage.
+pub const DEFAULT_MAX_RETAINED_FRONTIER_NODES_TOTAL: usize = 65_536;
+
 /// Structure that contains the configuration for the BonsaiStorage.
 /// A default implementation is provided with coherent values.
 #[derive(Clone)]
@@ -171,6 +174,8 @@ pub struct BonsaiStorageConfig {
     /// A database snapshot is created every `snapshot_interval` commits.
     /// Having more frequent snapshots occupies more disk space and has a slight performance impact on commits, but allows for more efficient transactional state creation.
     pub snapshot_interval: u64,
+    /// Maximum total number of in-memory frontier nodes retained across all trie identifiers.
+    pub max_retained_frontier_nodes_total: usize,
 }
 
 impl Default for BonsaiStorageConfig {
@@ -179,6 +184,7 @@ impl Default for BonsaiStorageConfig {
             max_saved_trie_logs: Some(500),
             max_saved_snapshots: Some(100),
             snapshot_interval: 5,
+            max_retained_frontier_nodes_total: DEFAULT_MAX_RETAINED_FRONTIER_NODES_TOTAL,
         }
     }
 }
