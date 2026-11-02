@@ -30,6 +30,8 @@ pub struct KeyValueDBConfig {
     pub max_saved_snapshots: Option<usize>,
     /// Interval of commit between two snapshots creation.
     pub snapshot_interval: u64,
+    /// Maximum total number of retained frontier nodes across trie identifiers.
+    pub max_retained_frontier_nodes_total: usize,
 }
 
 impl Default for KeyValueDBConfig {
@@ -38,6 +40,7 @@ impl Default for KeyValueDBConfig {
             max_saved_trie_logs: None,
             max_saved_snapshots: None,
             snapshot_interval: 5,
+            max_retained_frontier_nodes_total: crate::DEFAULT_MAX_RETAINED_FRONTIER_NODES_TOTAL,
         }
     }
 }
@@ -48,6 +51,7 @@ impl From<BonsaiStorageConfig> for KeyValueDBConfig {
             max_saved_trie_logs: value.max_saved_trie_logs,
             snapshot_interval: value.snapshot_interval,
             max_saved_snapshots: value.max_saved_snapshots,
+            max_retained_frontier_nodes_total: value.max_retained_frontier_nodes_total,
         }
     }
 }
@@ -58,6 +62,7 @@ impl From<KeyValueDBConfig> for BonsaiStorageConfig {
             max_saved_trie_logs: val.max_saved_trie_logs,
             snapshot_interval: val.snapshot_interval,
             max_saved_snapshots: val.max_saved_snapshots,
+            max_retained_frontier_nodes_total: val.max_retained_frontier_nodes_total,
         }
     }
 }

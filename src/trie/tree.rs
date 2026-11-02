@@ -27,9 +27,6 @@ slotmap::new_key_type! {
     pub struct NodeKey;
 }
 
-// Avoid allocating a second unbounded node set while compacting a large hot frontier.
-const MAX_RETAINED_FRONTIER_NODES: usize = 65_536;
-
 // TODO: implement encode and decode by hand in Node
 // these cases should never happen, otherwise that would mean we are saving in-memory node keys to the db, which would be very bad.
 impl parity_scale_codec::Encode for NodeKey {
@@ -256,6 +253,10 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         self.dirty
     }
 
+    pub(crate) fn pending_frontier_keys(&self) -> usize {
+        self.cache_leaf_paths.len()
+    }
+
     fn in_memory_node_hash<DB: BonsaiDatabase>(
         &self,
         node_id: NodeKey,
@@ -280,10 +281,10 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         let node = self.nodes.get(node_id).ok_or_else(|| {
             BonsaiStorageError::Trie(format!("Dangling in-memory node key: {node_id:?}"))
         })?;
-        retained_nodes.insert(node_id);
-        if retained_nodes.len() > max_retained_nodes {
+        if !retained_nodes.contains(&node_id) && retained_nodes.len() >= max_retained_nodes {
             return Ok(true);
         }
+        retained_nodes.insert(node_id);
 
         match node {
             Node::Binary(binary) => {
@@ -417,9 +418,17 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
             return Ok(());
         };
 
+        if max_retained_nodes == 0 {
+            self.nodes = SlotMap::default();
+            self.persisted_nodes = HashSet::new();
+            self.root_node = None;
+            return Ok(());
+        }
+
         let retained_before = self.nodes.len();
         let mut retained_nodes = HashSet::default();
         retained_nodes.insert(root_id);
+        let mut budget_exhausted = false;
         for key in hot_keys {
             if self.mark_recent_frontier_nodes::<DB>(
                 &mut retained_nodes,
@@ -427,23 +436,9 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
                 key,
                 max_retained_nodes,
             )? {
+                budget_exhausted = true;
                 break;
             }
-        }
-
-        if retained_nodes.len() > max_retained_nodes {
-            log::debug!(
-                "bonsai retained frontier dropped identifier={:?} hot_keys={} retained_before={} retained_candidate={} max_retained_nodes={}",
-                self.identifier,
-                hot_keys.len(),
-                retained_before,
-                retained_nodes.len(),
-                max_retained_nodes,
-            );
-            self.nodes = SlotMap::default();
-            self.persisted_nodes = HashSet::new();
-            self.root_node = None;
-            return Ok(());
         }
 
         let mut remapped_nodes = HashMap::default();
@@ -459,11 +454,13 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         self.persisted_nodes = self.nodes.keys().collect();
         self.root_node = Some(RootHandle::Loaded(new_root));
         log::debug!(
-            "bonsai retained frontier compacted identifier={:?} hot_keys={} retained_before={} retained_after={}",
+            "bonsai retained frontier compacted identifier={:?} hot_keys={} retained_before={} retained_after={} max_retained_nodes={} budget_exhausted={}",
             self.identifier,
             hot_keys.len(),
             retained_before,
             self.nodes.len(),
+            max_retained_nodes,
+            budget_exhausted,
         );
 
         Ok(())
@@ -644,6 +641,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
     #[allow(clippy::type_complexity)]
     pub(crate) fn get_updates<DB: BonsaiDatabase>(
         &mut self,
+        max_retained_frontier_nodes: usize,
     ) -> Result<HashMap<TrieKey, InsertOrRemove<ByteVec>>, BonsaiStorageError<DB::DatabaseError>>
     {
         let dirty_before_commit = self.dirty;
@@ -678,7 +676,7 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
                 .into_values()
                 .collect::<Vec<_>>();
             self.dirty = false;
-            self.retain_recent_frontier::<DB>(&hot_keys, MAX_RETAINED_FRONTIER_NODES)?;
+            self.retain_recent_frontier::<DB>(&hot_keys, max_retained_frontier_nodes)?;
         }
 
         for (key, value) in mem::take(&mut self.cache_leaf_modified) {
@@ -714,7 +712,8 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
         &mut self,
         db: &mut KeyValueDB<DB, ID>,
     ) -> Result<(), BonsaiStorageError<DB::DatabaseError>> {
-        let db_changes = self.get_updates::<DB>()?;
+        let db_changes =
+            self.get_updates::<DB>(crate::DEFAULT_MAX_RETAINED_FRONTIER_NODES_TOTAL)?;
 
         let mut batch = db.create_batch();
         for (key, value) in db_changes {
@@ -1836,7 +1835,7 @@ mod staged_hash_cache_tests {
             .trees
             .get_mut(identifier.as_slice())
             .unwrap()
-            .get_updates::<HashMapDb<BasicId>>()
+            .get_updates::<HashMapDb<BasicId>>(crate::DEFAULT_MAX_RETAINED_FRONTIER_NODES_TOTAL)
             .unwrap();
         let trie_writes = updates
             .keys()
@@ -1849,7 +1848,7 @@ mod staged_hash_cache_tests {
     }
 
     #[test]
-    fn oversized_retained_frontier_falls_back_to_lazy_loading() {
+    fn oversized_retained_frontier_keeps_a_bounded_partial_frontier() {
         const KEY_COUNT: usize = 1_024;
         const TEST_FRONTIER_LIMIT: usize = 251;
 
@@ -1896,14 +1895,13 @@ mod staged_hash_cache_tests {
             .unwrap()
         });
         assert!(exceeded_budget);
-        assert_eq!(retained_nodes.len(), TEST_FRONTIER_LIMIT + 1);
+        assert_eq!(retained_nodes.len(), TEST_FRONTIER_LIMIT);
 
         tree.retain_recent_frontier::<HashMapDb<BasicId>>(&keys, TEST_FRONTIER_LIMIT)
             .unwrap();
-        assert!(tree.nodes.is_empty());
-        assert_eq!(tree.nodes.capacity(), 0);
-        assert_eq!(tree.persisted_nodes.capacity(), 0);
-        assert!(tree.root_node.is_none());
+        assert_eq!(tree.nodes.len(), TEST_FRONTIER_LIMIT);
+        assert_eq!(tree.persisted_nodes.len(), TEST_FRONTIER_LIMIT);
+        assert!(matches!(tree.root_node, Some(RootHandle::Loaded(_))));
 
         let sparse_value = Felt::from(10_001u64);
         bonsai_storage
@@ -1930,6 +1928,129 @@ mod staged_hash_cache_tests {
             bonsai_storage.root_hash(&identifier).unwrap(),
             control.root_hash(&identifier).unwrap()
         );
+    }
+
+    #[test]
+    fn retained_frontier_budget_is_global_across_identifiers() {
+        const IDENTIFIERS: usize = 8;
+        const KEYS_PER_IDENTIFIER: usize = 16;
+        const TOTAL_FRONTIER_LIMIT: usize = 64;
+
+        let config = BonsaiStorageConfig {
+            max_retained_frontier_nodes_total: TOTAL_FRONTIER_LIMIT,
+            ..Default::default()
+        };
+        let mut bonsai_storage: BonsaiStorage<_, _, Pedersen> =
+            BonsaiStorage::new(HashMapDb::<BasicId>::default(), config, 16);
+
+        for identifier_index in 0..IDENTIFIERS {
+            let identifier = [identifier_index as u8];
+            for key_index in 0..KEYS_PER_IDENTIFIER {
+                let key = BitVec::from_vec((key_index as u16).to_be_bytes().to_vec());
+                bonsai_storage
+                    .insert(
+                        &identifier,
+                        &key,
+                        &Felt::from((identifier_index * 100 + key_index + 1) as u64),
+                    )
+                    .unwrap();
+            }
+        }
+
+        bonsai_storage
+            .commit(BasicIdBuilder::new().new_id())
+            .unwrap();
+
+        let retained_nodes = bonsai_storage
+            .tries
+            .trees
+            .values()
+            .map(|tree| tree.nodes.len())
+            .sum::<usize>();
+        assert!(retained_nodes > 0);
+        assert!(
+            retained_nodes <= TOTAL_FRONTIER_LIMIT,
+            "retained {retained_nodes} nodes with a global limit of {TOTAL_FRONTIER_LIMIT}"
+        );
+    }
+
+    #[test]
+    fn zero_and_sub_per_trie_budgets_preserve_roots() {
+        const IDENTIFIERS: usize = 4;
+
+        let left_key = BitVec::from_vec(vec![0b0000_0000]);
+        let right_key = BitVec::from_vec(vec![0b1000_0000]);
+
+        for total_budget in [0, 1] {
+            let config = BonsaiStorageConfig {
+                max_retained_frontier_nodes_total: total_budget,
+                ..Default::default()
+            };
+            let mut storage: BonsaiStorage<_, _, Pedersen> =
+                BonsaiStorage::new(HashMapDb::<BasicId>::default(), config, 8);
+            let mut control: BonsaiStorage<_, _, Pedersen> = BonsaiStorage::new(
+                HashMapDb::<BasicId>::default(),
+                BonsaiStorageConfig::default(),
+                8,
+            );
+            let mut storage_ids = BasicIdBuilder::new();
+            let mut control_ids = BasicIdBuilder::new();
+
+            for identifier_index in 0..IDENTIFIERS {
+                let identifier = [identifier_index as u8];
+                for trie in [&mut storage, &mut control] {
+                    trie.insert(
+                        &identifier,
+                        &left_key,
+                        &Felt::from(identifier_index as u64 + 1),
+                    )
+                    .unwrap();
+                    trie.insert(
+                        &identifier,
+                        &right_key,
+                        &Felt::from(identifier_index as u64 + 101),
+                    )
+                    .unwrap();
+                }
+            }
+            storage.commit(storage_ids.new_id()).unwrap();
+            control.commit(control_ids.new_id()).unwrap();
+
+            assert!(storage
+                .tries
+                .trees
+                .values()
+                .all(|tree| tree.nodes.is_empty()));
+
+            for identifier_index in 0..IDENTIFIERS {
+                let identifier = [identifier_index as u8];
+                for trie in [&mut storage, &mut control] {
+                    trie.insert(
+                        &identifier,
+                        &left_key,
+                        &Felt::from(identifier_index as u64 + 201),
+                    )
+                    .unwrap();
+                    trie.remove(&identifier, &right_key).unwrap();
+                }
+            }
+            storage.commit(storage_ids.new_id()).unwrap();
+            control.commit(control_ids.new_id()).unwrap();
+
+            assert!(storage
+                .tries
+                .trees
+                .values()
+                .all(|tree| tree.nodes.is_empty()));
+            for identifier_index in 0..IDENTIFIERS {
+                let identifier = [identifier_index as u8];
+                assert_eq!(
+                    storage.root_hash(&identifier).unwrap(),
+                    control.root_hash(&identifier).unwrap(),
+                    "root mismatch for total budget {total_budget} and identifier {identifier_index}"
+                );
+            }
+        }
     }
 
     #[test]
