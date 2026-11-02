@@ -30,6 +30,8 @@ pub struct KeyValueDBConfig {
     pub max_saved_snapshots: Option<usize>,
     /// Interval of commit between two snapshots creation.
     pub snapshot_interval: u64,
+    /// Maximum total number of retained frontier nodes across trie identifiers.
+    pub max_retained_frontier_nodes_total: usize,
 }
 
 impl Default for KeyValueDBConfig {
@@ -38,6 +40,7 @@ impl Default for KeyValueDBConfig {
             max_saved_trie_logs: None,
             max_saved_snapshots: None,
             snapshot_interval: 5,
+            max_retained_frontier_nodes_total: crate::DEFAULT_MAX_RETAINED_FRONTIER_NODES_TOTAL,
         }
     }
 }
@@ -48,6 +51,7 @@ impl From<BonsaiStorageConfig> for KeyValueDBConfig {
             max_saved_trie_logs: value.max_saved_trie_logs,
             snapshot_interval: value.snapshot_interval,
             max_saved_snapshots: value.max_saved_snapshots,
+            max_retained_frontier_nodes_total: value.max_retained_frontier_nodes_total,
         }
     }
 }
@@ -58,6 +62,7 @@ impl From<KeyValueDBConfig> for BonsaiStorageConfig {
             max_saved_trie_logs: val.max_saved_trie_logs,
             snapshot_interval: val.snapshot_interval,
             max_saved_snapshots: val.max_saved_snapshots,
+            max_retained_frontier_nodes_total: val.max_retained_frontier_nodes_total,
         }
     }
 }
@@ -312,8 +317,18 @@ where
         log::debug!("get_transaction {snap_id:?} {id:?}");
 
         let mut batch = txn.create_batch();
-        for cur_id in snap_id.as_u64()..id.as_u64() {
-            let cur_id = ID::from_u64(cur_id);
+        let snapshot = snap_id.as_u64();
+        let requested = id.as_u64();
+        let backwards = snapshot > requested;
+        // A snapshot includes its own commit. Undo (requested, snapshot] newest first,
+        // or replay (snapshot, requested] oldest first when the backend returns an older base.
+        for offset in 0..snapshot.abs_diff(requested) {
+            let revision = if backwards {
+                snapshot - offset
+            } else {
+                snapshot + offset + 1
+            };
+            let cur_id = ID::from_u64(revision);
             let changes = ChangeBatch::deserialize(
                 &cur_id,
                 self.db
@@ -325,21 +340,21 @@ where
                         ))
                     })?,
             );
-            // Apply backwards
             for (key, change) in changes.0 {
                 let key = DatabaseKey::from(&key);
-                match (&change.old_value, &change.new_value) {
-                    (Some(old_value), Some(_)) => {
-                        txn.insert(&key, old_value, Some(&mut batch))?;
+                let value = if backwards {
+                    change.old_value
+                } else {
+                    change.new_value
+                };
+                match value {
+                    Some(value) => {
+                        txn.insert(&key, &value, Some(&mut batch))?;
                     }
-                    (Some(old_value), None) => {
-                        txn.insert(&key, old_value, Some(&mut batch))?;
-                    }
-                    (None, Some(_)) => {
+                    None => {
                         txn.remove(&key, Some(&mut batch))?;
                     }
-                    (None, None) => unreachable!(),
-                };
+                }
             }
         }
         txn.write_batch(batch)?;
